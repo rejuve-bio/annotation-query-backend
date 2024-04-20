@@ -9,7 +9,7 @@ backend API.
     ```bash
     pip install -r requirements.txt
     ```
-2. To Run: replace the env with yours in start.sh file
+2. To Run: Replace the environment variables specified in the `start.sh` file with your own
     ```bash
     ./start.sh
     ```
