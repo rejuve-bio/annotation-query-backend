@@ -1,0 +1,8 @@
+(transcribed_to (gene ENSG00000175793) (transcript ENST00000339276))
+(transcribed_to (gene ENSG00000134308) (transcript ENST00000238081))
+(transcribed_to (gene ENSG00000170027) (transcript ENST00000307630))
+(transcribed_to (gene ENSG00000108953) (transcript ENST00000264335))
+(transcribed_to (gene ENSG00000108953) (transcript ENST00000571732))
+(transcribed_to (gene ENSG00000166913) (transcript ENST00000353703))
+(transcribed_to (gene ENSG00000166913) (transcript ENST00000372839))
+(transcribed_to (gene ENSG00000128245) (transcript ENST00000248975))
