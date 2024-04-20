@@ -1,6 +1,3 @@
-virtualenv venv
-
-
 ### Annotaion Service
 
 backend API.
