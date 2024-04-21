@@ -35,13 +35,13 @@ def generate_metta(requests):
 # target_value2 = '$' + generate_id()
 # target_value3 = '$' + generate_id()
 
-requests = [
-    {"predicate":"transcribed_to", "source":'gene ENSG00000166913' , "target":"$target_value1"},
-    {"predicate":"translates_to", "source":"$target_value1" , "target":"$target_value2"},
-    {"predicate":"genes_pathways", "source":'gene ENSG00000166913' , "target":"$target_value3"},
+# requests = [
+#     {"predicate":"transcribed_to", "source":'gene ENSG00000166913' , "target":"$target_value1"},
+#     {"predicate":"translates_to", "source":"$target_value1" , "target":"$target_value2"},
+#     {"predicate":"genes_pathways", "source":'gene ENSG00000166913' , "target":"$target_value3"},
    
-    {"predicate":"go_gene_product", "source":"$target_value3" , "target":"$target_value2"}
-    ]
+#     {"predicate":"go_gene_product", "source":"$target_value3" , "target":"$target_value2"}
+#     ]
 #  {"predicate":"transcribed_to", "source":target_value1 , "target":target_value2}
 
 
