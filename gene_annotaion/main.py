@@ -14,32 +14,30 @@ logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
 metta = MeTTa()
-# metta.run("!(bind! &space (new-space))")  # Initialize a new space at application start
+metta.run("!(bind! &space (new-space))")  # Initialize a new space at application start
 
-# Load data on startup
 def load_dataset(path: str) -> None:
     if not os.path.exists(path):
         raise ValueError(f"Dataset path '{path}' does not exist.")
 
-    # Recursively find all .metta files within the path
     paths = glob.glob(os.path.join(path, "**/*.metta"), recursive=True)
     if not paths:
         raise ValueError(f"No .metta files found in dataset path '{path}'.")
 
-    for file_path in paths:
-        if (file_path == "./Data/gencode/nodes.metta" or file_path == "./Data/uniprot/nodes.metta"):
-            continue 
-        print(f"Start loading dataset from '{file_path}'...")
+    for path in paths:
+        print(f"Start loading dataset from '{path}'...")
+
         try:
-            # Execute the import command for each .metta file found
-            metta.run(f'!(import! &self {file_path})')
-            print(f"Successfully loaded '{file_path}'.")
+            metta.run(f'''
+                !(load-ascii &space {path})
+                ''')
         except Exception as e:
-            print(f"Error loading dataset from '{file_path}': {e}")
+            print(f"Error loading dataset from '{path}': {e}")
 
     print(f"Finished loading {len(paths)} datasets.")
 
-load_dataset("./Data")
+
+load_dataset("./dataset")
 
 
 def parse_and_serialize(input_string):
@@ -61,7 +59,6 @@ def parse_and_serialize(input_string):
         })
 
     return json.dumps(result, indent=2)  
-
 
 @app.route('/query', methods=['POST'])
 def process_query():

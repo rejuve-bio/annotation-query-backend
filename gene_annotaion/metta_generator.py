@@ -14,12 +14,12 @@ def generate_metta(requests):
     output = ''
 
     if len(requests) == 1:
-        metta = (f'''!(match &self ({requests[0]['predicate']} ({requests[0]['source']}) {requests[0]['target']}) ({requests[0]['predicate']} ({requests[0]['source']}) {requests[0]['target']}))''')
+        metta = (f'''!(match &space ({requests[0]['predicate']} ({requests[0]['source']}) {requests[0]['target']}) ({requests[0]['predicate']} ({requests[0]['source']}) {requests[0]['target']}))''')
         return metta 
     
     
     elif len(requests) > 0:
-        metta = ('''!(match &self (,''') 
+        metta = ('''!(match &space (,''') 
         output = (''' (,''')
         for request in requests:
           predicate = request['predicate']
