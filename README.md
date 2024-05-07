@@ -9,7 +9,7 @@ backend API.
     ```bash
     pip install -r requirements.txt
     ```
-2. To Run: Replace the environment variables specified in the `start.sh` file with your own
+2. To Run: 
     ```bash
     ./start.sh
     ```
@@ -23,8 +23,8 @@ http://127.0.0.1:5000/query
 
 curl -X POST http://localhost:5000/query -H "Content-Type: application/json" -d '{
   "requests": [
-    {"predicate": "transcribed_to", "source": "gene ENSG00000166913", "target": "$b60385cc"},
-    {"predicate": "translates_to", "source": "$b60385cc", "target": "$d2044ee8"}
+    {"predicate": "transcribed to", "source": "gene ENSG00000166913", "target": "$b60385cc"},
+    {"predicate": "translates to", "source": "$b60385cc", "target": "$d2044ee8"}
   ]
 }'
 

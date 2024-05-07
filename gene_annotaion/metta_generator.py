@@ -19,6 +19,7 @@ def generate_metta(requests):
     
     
     elif len(requests) > 0:
+        
         metta = ('''!(match &space (,''') 
         output = (''' (,''')
         for request in requests:
