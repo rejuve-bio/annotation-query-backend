@@ -25,6 +25,25 @@ curl -X POST http://localhost:5000/query \
   ]
 }'
 
+curl -X POST http://localhost:5000/query \
+-H "Content-Type: application/json" \
+-d '{
+  "requests": [
+    {"predicate": "transcribed to", "source": "gene ENSG00000166913", "target": "$b60385cc"}
+  ]
+}'
+
+
+curl -X POST http://localhost:5000/query \
+-H "Content-Type: application/json" \
+-d '{
+  "requests": [
+    {"predicate": "transcribed to", "source": "gene ENSG00000166913", "target": "$b60385cc"},
+    {"predicate": "translates to", "source": "$b60385cc", "target": "$d2044ee8"},
+    {"predicate": "transcribed to", "source": "gene ENSG00000108953", "target": "$b60385cc5"}
+  ]
+}'
+
 
 curl -X GET http://localhost:5000/nodes 
 

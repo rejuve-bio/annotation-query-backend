@@ -47,7 +47,6 @@ def generate_metta(requests,schema):
     # Validation step
     last_target = None
     all_valid = True
-
     for request in requests:
         print(f"Validating request: {request}")  # Add logging before validation
         if validate_request(request, schema, last_target):
@@ -60,7 +59,7 @@ def generate_metta(requests,schema):
     if all_valid:
 
         if len(requests) == 1:
-            metta = (f'''!(match &space ({requests[0]['predicate'].replace(" ", "_")} ({requests[0]['source']}) {requests[0]['target']}) ({requests[0]['predicate']} ({requests[0]['source']}) {requests[0]['target']}))''')
+            metta = (f'''!(match &space ({requests[0]['predicate'].replace(" ", "_")} ({requests[0]['source']}) {requests[0]['target']}) ({requests[0]['predicate'].replace(" ", "_")} ({requests[0]['source']}) {requests[0]['target']}))''')
             return metta 
         
         elif len(requests) > 0:
