@@ -33,7 +33,7 @@ curl -X POST http://localhost:5000/query \
 
 
 ```
-## Output
+Output
 ```
 {
 "Generated query":"!(match &space (transcribed_to (gene ENSG00000166913) $b60385cc) (transcribed_to (gene ENSG00000166913) $b60385cc))",
@@ -47,7 +47,7 @@ curl -X POST http://localhost:5000/query \
 ```bash
 curl -X GET http://localhost:5000/nodes
 ```
-## Sample Output
+Sample Output
 ```
 [{"label":"gene","properties":{"chr":"str","end":"int","gene_type":"str","name":"str","source":"str","source_url":"str","start":"int"},"type":"gene"},{"label":"protein","properties":{"accessions":"int","name":"str","organism_id":"int","source":"str","source_url":"str"},"type":"protein"}...]
 ```
@@ -56,7 +56,7 @@ curl -X GET http://localhost:5000/nodes
 ```bash
 curl -X GET http://localhost:5000/relations/gene
 ```
-## Sample Output
+Sample Output
 ```
 [{"label":"transcribed_to","source":"gene","target":"transcript","type":"transcribed to"},{"label":"transcribed_from","source":"transcript","target":"gene","type":"transcribed from"...}]
 ```
