@@ -64,6 +64,27 @@ def parse_and_serialize(input_string):
 
     return json.dumps(result, indent=2)  
 
+def parse_and_serialize_properties(input_string):
+    # Remove the outermost brackets and any unwanted characters
+    cleaned_string = re.sub(r"[,\[\]]", "", input_string)
+    pattern = r"\(\((\w+) \((\w+) (\w+)\) (\w+)\)\)"
+    tuples = re.findall(pattern, input_string)
+    # Initialize a dictionary to store nodes and their properties
+    nodes = {}
+    # Iterate over the matches and format the output
+    for match in tuples:
+        predicate, src_type, src_value, tgt = match
+        if (src_type, src_value) not in nodes:
+            nodes[(src_type, src_value)] = {
+                "node": f"{src_type} {src_value}",
+                "type": src_type,
+                "properties": {}
+            }
+        nodes[(src_type, src_value)]["properties"][predicate] = tgt
+    # Convert the dictionary of nodes to a list of dictionaries
+    node_list = list(nodes.values())
+    node_string = json.dumps(node_list, indent=2)
+    return node_string
 
 def get_nodes():
     nodes = []
@@ -115,6 +136,24 @@ def get_relations_for_node(node):
     
     return relations
 
+def get_node_properties(node):
+    property_list= []
+    # node_info = node[0]
+    node_type = node[0].split()[0]
+    if node_type in schema: 
+        pred_schema = schema[node_type]
+        if pred_schema['represented_as'] == 'node':
+            property_dic= pred_schema.get('properties', {})
+            property_key_list = list(property_dic.keys())
+            for key in property_key_list:
+                queryed_result = metta.run(f'''!(match &space
+                    (,  
+                        ({key} ({node[0]}) $b)
+                        )
+                    ( ({key} ({node[0]}) $b) ))''')
+                property_list.append(queryed_result)
+    return property_list
+
 @app.route('/nodes', methods=['GET'])
 def get_nodes_endpoint():
     return jsonify(get_nodes())
@@ -132,18 +171,23 @@ def process_query():
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
-
     try:
         requests = data['requests']
-        # Parse and serialize the received data
-        # logging.debug(f"schema: {schema}")
         query_code = generate_metta(requests, schema)
-        # logging.debug(f"query_code: {query_code}")
         result = metta.run(query_code)
         parsed_result = parse_and_serialize(str(result))
-        # logging.debug(f"Generated result Code: {result}")
+        parsed_result_list = json.loads(parsed_result)
+        unique_nodes = set()
+        for item in parsed_result_list:
+            source, target = item["source"], item["target"]
+            unique_nodes.add(source) 
+            unique_nodes.add(target)
+        properties =[]
+        for node in unique_nodes:
+             properties.append(get_node_properties([node]))
+        parsed_properties=parse_and_serialize_properties(str(properties))
         # Return the serialized result
-        return jsonify({"Generated query": query_code,"Result": json.loads(parsed_result)})
+        return jsonify({"Generated query": query_code,"Result": json.loads(parsed_result), "Properties": json.loads(parsed_properties)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
