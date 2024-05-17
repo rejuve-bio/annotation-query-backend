@@ -42,3 +42,21 @@ curl -X POST http://localhost:5000/query -H "Content-Type: application/json" -d 
 
 ```
 
+
+```bash
+curl -X GET http://localhost:5000/nodes
+```
+
+```
+[{"label":"gene","properties":{"chr":"str","end":"int","gene_type":"str","name":"str","source":"str","source_url":"str","start":"int"},"type":"gene"},{"label":"protein","properties":{"accessions":"int","name":"str","organism_id":"int","source":"str","source_url":"str"},"type":"protein"}]
+```
+
+
+```bash
+curl -X GET http://localhost:5000/relations/gene
+```
+
+```
+[{"label":"transcribed_to","source":"gene","target":"transcript","type":"transcribed to"},{"label":"transcribed_from","source":"transcript","target":"gene","type":"transcribed from"},{"label":"genes_pathways","source":"gene","target":"pathway","type":"gene to pathway association"},{"label":"go_gene","source":"gene","target":"go","type":"go gene"},{"label":"coexpressed_with","source":"gene","target":"gene","type":"gene to gene coexpression association"},{"label":"enhancer_gene","source":"enhancer","target":"gene","type":"enhancer to gene association"},{"label":"promoter_gene","source":"promoter","target":"gene","type":"promoter to gene association"},{"label":"super_enhancer_gene","source":"super enhancer","target":"gene","type":"super enhancer to gene association"},{"label":"tf_gene","source":"gene","target":"gene","type":"transcription factor to gene association"},{"label":"correlates_with","source":"snp","target":"gene","type":"gtex variant to gene expression association"},{"label":"closest_gene","source":"snp","target":"gene","type":"closest gene to variant association"},{"label":"upstream_gene","source":"snp","target":"gene","type":"upstream gene to variant association"},{"label":"downstream_gene","source":"snp","target":"gene","type":"downstream gene to variant association"},{"label":"in_gene","source":"snp","target":"gene","type":"in gene to variant association"}]
+```
+
