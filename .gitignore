@@ -1,2 +1,3 @@
 biocypher-log/
 __pycache__/
+gene_annotaion/__pycache__/
