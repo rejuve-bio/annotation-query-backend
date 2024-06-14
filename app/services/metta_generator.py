@@ -47,14 +47,13 @@ class MeTTa_Query_Generator:
         metta_output = '''!(match &space (,'''
         output = ''' (,'''
         for request in requests:
-            node_identifier = "$" + self.generate_id()
-            target_identifier = "$" + self.generate_id()
             predicate = request['predicate'].replace(" ", "_")
             source_node = request['source']
             target_node = request['target']
 
             # Handle source node
             if not source_node['id']:
+                node_identifier = "$" + self.generate_id()
                 metta_output += self.construct_node_representation(source_node, node_identifier)
                 source = f'({source_node["type"]} {node_identifier})'
             else:
@@ -62,6 +61,7 @@ class MeTTa_Query_Generator:
 
             # Handle target node
             if not target_node['generated_id']:
+                target_identifier = "$" + self.generate_id()
                 metta_output += self.construct_node_representation(target_node, target_identifier)
                 target = f'({target_node["type"]} {target_identifier})'
             else:
