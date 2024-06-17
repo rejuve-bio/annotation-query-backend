@@ -9,9 +9,25 @@ class SchemaManager:
     def __init__(self, schema_config_path: str, biocypher_config_path: str):
         self.bcy = BioCypher(schema_config_path=schema_config_path, biocypher_config_path=biocypher_config_path)
         self.schema = self.bcy._get_ontology_mapping()._extend_schema()
-        self.parent_nodes = ["position entity", "coding element", "non coding element", "genomic variant", "epigenomic feature", "3d genome structure", "ontology term", "chromosome chain"]
-        self.parent_edges = ["expression", "annotation", "regulatory association"]
+        self.parent_nodes =self.parent_nodes()
+        self.parent_edges =self.parent_edges()
 
+    def parent_nodes(self):
+        parent_nodes = set()
+        for _, attributes in self.schema.items():
+            if 'represented_as' in attributes and attributes['represented_as'] == 'node' \
+                    and 'is_a' in attributes and attributes['is_a'] not in parent_nodes:
+                parent_nodes.add(attributes['is_a'])
+        return list(parent_nodes)
+
+    def parent_edges(self):
+        parent_edges = set()
+        for _, attributes in self.schema.items():
+            if 'represented_as' in attributes and attributes['represented_as'] == 'edge' \
+                    and 'is_a' in attributes and attributes['is_a'] not in parent_edges:
+                parent_edges.add(attributes['is_a'])
+        return list(parent_edges)
+    
     def get_nodes(self):
         nodes = {}
         for key, value in self.schema.items():

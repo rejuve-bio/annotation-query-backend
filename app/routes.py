@@ -8,17 +8,18 @@ logging.basicConfig(level=logging.DEBUG)
 
 @app.route('/nodes', methods=['GET'])
 def get_nodes_endpoint():
-    formatted = json.dumps(schema_manager.get_nodes(), indent=4)
-    return Response(formatted, mimetype='application/json')
+    nodes = json.dumps(schema_manager.get_nodes(), indent=4)
+    return Response(nodes, mimetype='application/json')
 
 @app.route('/edges', methods=['GET'])
 def get_edges_endpoint():
-    return jsonify(schema_manager.get_edges())
+    edges = json.dumps(schema_manager.get_edges(), indent=4)
+    return Response(edges, mimetype='application/json')
 
 @app.route('/relations/<node_label>', methods=['GET'])
 def get_relations_for_node_endpoint(node_label):
-    formatted = json.dumps(schema_manager.get_relations_for_node(node_label), indent=4)
-    return Response(formatted, mimetype='application/json')
+    relations = json.dumps(schema_manager.get_relations_for_node(node_label), indent=4)
+    return Response(relations, mimetype='application/json')
 
 @app.route('/query', methods=['POST'])
 def process_query():
