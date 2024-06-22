@@ -46,7 +46,7 @@ def process_query():
             properties.append(db_instance.get_node_properties([node], schema_manager.schema))
         parsed_properties = db_instance.parse_and_serialize_properties(str(properties))
         response_data = {
-            "Generated query": query_code,
+            # "Generated query": query_code,
             "Result": json.loads(parsed_result),
             "Properties": json.loads(parsed_properties)
         }

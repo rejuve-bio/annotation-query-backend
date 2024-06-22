@@ -4,9 +4,10 @@ from hyperon import MeTTa
 import re
 import json
 import uuid
+from .query_generator_interface import QueryGeneratorInterface
 # from app.services.util import generate_id
 
-class MeTTa_Query_Generator:
+class MeTTa_Query_Generator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
         self.metta = MeTTa()
         self.initialize_space()
