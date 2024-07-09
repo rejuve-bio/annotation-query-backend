@@ -44,37 +44,51 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
             node_representation += f' ({key} ({node_type + " " + identifier}) {value})'
         return node_representation
 
-    def query_Generator(self, requests):
+    def query_Generator(self, data):
+        nodes = data['nodes']
+        predicates = data['predicates']
+
+        # Create a mapping from node_id to node
+        node_map = {node['node_id']: node for node in nodes}
+        print("node_map",node_map)
+
         metta_output = '''!(match &space (,'''
         output = ''' (,'''
-        for request in requests:
-            predicate = request['predicate'].replace(" ", "_")
-            source_node = request['source']
-            target_node = request['target']
+
+        for predicate in predicates:
+            predicate_type = predicate['type'].replace(" ", "_")
+            source_id = predicate['source']
+            print("source_id", source_id)
+            target_id = predicate['target']
+            print("target_id", target_id)
 
             # Handle source node
+            source_node = node_map[source_id]
+            print("source_node", source_node)
             if not source_node['id']:
-                node_identifier = "$" + self.generate_id()
+                node_identifier = "$" + source_id
                 metta_output += self.construct_node_representation(source_node, node_identifier)
                 source = f'({source_node["type"]} {node_identifier})'
             else:
-                source = f'({str(source_node["id"])})' if not str(source_node["id"]).startswith("$") else source_node["id"]
+                source = f'({str(source_node["id"])})'
 
             # Handle target node
-            if not target_node['generated_id']:
-                target_identifier = "$" + self.generate_id()
+            target_node = node_map[target_id]
+            if not target_node['id']:
+                target_identifier = "$" + target_id
                 metta_output += self.construct_node_representation(target_node, target_identifier)
                 target = f'({target_node["type"]} {target_identifier})'
             else:
-                target = f'({str(target_node["generated_id"])})' if not str(target_node["generated_id"]).startswith("$") else target_node["generated_id"]
+                target = f'({str(target_node["id"])})'
 
             # Add relationship
-            metta_output += f' ({predicate} {source} {target})'
-            output += f' ({predicate} {source} {target})'
+            metta_output += f' ({predicate_type} {source} {target})'
+            output += f' ({predicate_type} {source} {target})'
 
         metta_output += f' ){output}))'
-        # print("metta_output:", metta_output)
+        print("metta_output:", metta_output)
         return metta_output
+
 
     def run_query(self, query_code):
         return self.metta.run(query_code)
