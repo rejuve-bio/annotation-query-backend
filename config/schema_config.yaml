@@ -630,12 +630,14 @@ closest gene to variant association:
   input_label: closest_gene
   source: snp
   target: gene
+
   properties:
     chr: str
     pos: int
     distance: int
     source: str
     source_url: str
+
 
 upstream gene to variant association:
   is_a: closest gene to variant association
@@ -666,6 +668,7 @@ in gene to variant association:
   input_label: in_gene
   source: snp
   target: gene
+  inherit_properties: true
 
 topld in linkage disequilibrium with:
   is_a: related to at instance level
