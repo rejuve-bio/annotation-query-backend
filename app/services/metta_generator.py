@@ -1,11 +1,11 @@
 import glob
 import os
-from hyperon import MeTTa
+from hyperon import MeTTa, SymbolAtom, ExpressionAtom, GroundedAtom
 import re
 import json
 import uuid
 from .query_generator_interface import QueryGeneratorInterface
-# from app.services.util import generate_id
+from app.lib import validate_request 
 
 class MeTTa_Query_Generator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
@@ -44,16 +44,49 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
             node_representation += f' ({key} ({node_type + " " + identifier}) {value})'
         return node_representation
 
-    def query_Generator(self, data):
-        nodes = data['nodes']
-        predicates = data['predicates']
+    def query_Generator(self, data, schema):
 
-        # Create a mapping from node_id to node
-        node_map = {node['node_id']: node for node in nodes}
-        print("node_map",node_map)
+        node_map = validate_request(data, schema)
+
+        if node_map is None:
+            raise Exception('error')
+
+        nodes = data['nodes']
 
         metta_output = '''!(match &space (,'''
         output = ''' (,'''
+ 
+        node_without_predicate = None
+        predicates = None
+        if "predicates" not in data:
+            node_without_predicate = nodes
+        else:
+             predicates = data['predicates']
+             node_with_predicate = set()
+             for predicate in predicates:
+                node_with_predicate.add(predicate["source"])
+                node_with_predicate.add(predicate["target"])
+             node_without_predicate = [node for node in nodes if node["node_id"] not in node_with_predicate]
+
+        # if there is no predicate
+        if "predicates" not in data or (node_without_predicate is not None and len(node_without_predicate) != 0):
+            for node in node_without_predicate:
+                node_type = node["type"]
+                node_id = node["node_id"]
+                node_identifier = '$' + node["node_id"]
+                if node["id"]:
+                    essemble_id = node["id"]
+                    metta_output += f' ({node_type} {essemble_id})'
+                    output += f' ({node_type} {essemble_id})'
+                else:
+                    if len(node["properties"]) == 0:
+                        metta_output += f' ({node_type} ${node_id})'
+                    else:
+                        metta_output += self.construct_node_representation(node, node_identifier)
+                    output += f' ({node_type} {node_identifier})'
+        
+        if predicates is None:
+            return metta_output
 
         for predicate in predicates:
             predicate_type = predicate['type'].replace(" ", "_")
@@ -92,55 +125,136 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
 
     def run_query(self, query_code):
         return self.metta.run(query_code)
-    
-    def parse_and_serialize(self, input_string):
-        cleaned_string = re.sub(r"[,\[\]]", "", input_string)
-        tuples = re.findall(r"(\w+)\s+\((\w+)\s+(\w+)\)\s+\((\w+)\s+(\w+)\)", cleaned_string)
+
+    def parse_and_serialize(self, input, schema):
         result = []
+
+        tuples = self.metta_seralizer(input[0])
         for tuple in tuples:
-            predicate, src_type, src_id, tgt_type, tgt_id = tuple
-            result.append({
+            if len(tuple) == 2:
+                src_type, src_id = tuple
+                result.append({
+                    "id": str(uuid.uuid4()),
+                    "source": f"{src_type} {src_id}"
+                })
+            else:
+                predicate, src_type, src_id, tgt_type, tgt_id = tuple
+                result.append({
                 "id": str(uuid.uuid4()),
                 "predicate": predicate,
                 "source": f"{src_type} {src_id}",
                 "target": f"{tgt_type} {tgt_id}"
-            })
-        return json.dumps(result, indent=2)
+                })
+        
+        query = self.get_node_properties(result, schema)
+        result = self.run_query(query)
+        result = self.parse_and_serialize_properties(result[0])
+
+        return result
+        
     # def parse_metta(self, input_string):
     #     parsed_metta = self.metta.parse_all(input_string)
     #     print("parsed_metta",parsed_metta)
-
-    def parse_and_serialize_properties(self, input_string):
-        pattern = r"\(\((\w+) \((\w+) (\w+)\) ([^)]+)\)\)"
-        tuples = re.findall(pattern, input_string)
+    def parse_and_serialize_properties(self, input):
         nodes = {}
-        for match in tuples:
-            predicate, src_type, src_value, tgt = match
-            if (src_type, src_value) not in nodes:
-                nodes[(src_type, src_value)] = {
-                    "node": f"{src_type} {src_value}",
-                    "type": src_type,
-                    "properties": {}
-                }
-            nodes[(src_type, src_value)]["properties"][predicate] = tgt
-        node_list = list(nodes.values())
-        return json.dumps(node_list, indent=2)
+        relationships_dict = {}
+        result = []
+        tuples = self.metta_seralizer(input)
+        print("result", tuples)
 
-    def get_node_properties(self, node, schema):
-        property_list = []
-        node_type = node[0].split()[0]
-        if node_type in schema:
-            pred_schema = schema[node_type]
-            if pred_schema['represented_as'] == 'node':
-                property_dic = pred_schema.get('properties', {})
-                property_key_list = list(property_dic.keys())
-                for key in property_key_list:
-                    queryed_result = self.metta.run(f'''!(match &space
-                        (,  
-                            ({key} ({node[0]}) $value)
-                            )
-                        ( ({key} ({node[0]}) $value) ))''')
-                    property_list.append(queryed_result)
-                    # print("queryed_result", queryed_result)
-        # print("property_list", property_list)
-        return property_list
+        for match in tuples:
+            graph_attribute = match[0]
+            match = match[1:]
+
+            if graph_attribute == "node":
+                if len(match) > 4:
+                    predicate = match[0]
+                    src_type = match[1]
+                    src_value = match[2]
+                    tgt = ' '.join(match[3:])
+                else:
+                    predicate, src_type, src_value, tgt = match
+                if (src_type, src_value) not in nodes:
+                    nodes[(src_type, src_value)] = {
+                        "id": f"{src_type} {src_value}",
+                        "type": src_type,
+                    }
+                nodes[(src_type, src_value)][predicate] = tgt
+            elif graph_attribute == "edge":
+                property_name, predicate, source, source_id, target, target_id = match[:6]
+                value = ' '.join(match[6:])
+
+                key = (predicate, source, source_id, target, target_id)
+                if key not in relationships_dict:
+                    relationships_dict[key] = {
+                        "label": predicate,
+                        "source_node": f"{source} {source_id}",
+                        "target_node": f"{target} {target_id}",
+                    }
+                relationships_dict[key][property_name] = value
+
+        node_list = [{"data": node} for node in nodes.values()]
+        relationship_list = [{"data": relationship} for relationship in relationships_dict.values()]
+
+        result.append(node_list)
+        result.append(relationship_list)
+        return result
+
+    def get_node_properties(self, results, schema):
+        metta = ('''!(match &space (,''')
+        output = (''' (,''') 
+        nodes = set()
+        for result in results:
+            source = result['source']
+            source_node_type = result['source'].split(' ')[0]
+
+            if source not in nodes:
+                for property, _ in schema[source_node_type]['properties'].items():
+                    id = self.generate_id()
+                    metta += " " + f'({property} ({source}) ${id})'
+                    output += " " + f'(node {property} ({source}) ${id})'
+                nodes.add(source)
+
+            if "target" in result and "predicate" in result:
+                target = result['target']
+                target_node_type = result['target'].split(' ')[0]
+                if target not in nodes:
+                    for property, _ in schema[target_node_type]['properties'].items():
+                        id = self.generate_id()
+                        metta += " " + f'({property} ({target}) ${id})'
+                        output += " " + f'(node {property} ({target}) ${id})'
+                    nodes.add(target)
+        
+                predicate = result['predicate']
+                predicate_schema = ' '.join(predicate.split('_'))
+                for property, _ in schema[predicate_schema]['properties'].items():
+                    random = self.generate_id()
+                    metta += " " + f'({property} ({predicate} ({source}) ({target})) ${random})'
+                    output +=  " " + f'(edge {property} ({predicate} ({source}) ({target})) ${random})' 
+
+        metta+= f" ) {output}))"
+
+        return metta
+
+    def recurssive_seralize(self, metta_expression, result):
+        for node in metta_expression:
+            if isinstance(node, SymbolAtom):
+             result.append(node.get_name())
+            elif isinstance(node, GroundedAtom):
+                result.append(str(node))
+            else:
+                self.recurssive_seralize(node.get_children(), result)
+        return result
+
+    def metta_seralizer(self, metta_result):
+        result = []
+
+        for node in metta_result:
+            node = node.get_children()
+            for metta_symbol in node:
+                if isinstance(metta_symbol, SymbolAtom) and  metta_symbol.get_name() == ",":
+                    continue
+                if isinstance(metta_symbol, ExpressionAtom):
+                    res = self.recurssive_seralize(metta_symbol.get_children(), [])
+                    result.append(tuple(res))
+        return result
