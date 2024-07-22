@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, Response
 import logging
 import json
 from app import app, databases, schema_manager
-
+import itertools
 # Setup basic logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -32,26 +32,16 @@ def process_query():
     try:
         db_instance = databases[database_type]
         requests = data['requests']
-        query_code = db_instance.query_Generator(requests)
+        query_code = db_instance.query_Generator(requests, schema_manager.schema)
         result = db_instance.run_query(query_code)
-        parsed_result = db_instance.parse_and_serialize(str(result))
-        parsed_result_list = json.loads(parsed_result)
-        unique_nodes = set()
-        for item in parsed_result_list:
-            source, target = item["source"], item["target"]
-            unique_nodes.add(source)
-            unique_nodes.add(target)
-        properties = []
-        for node in unique_nodes:
-            properties.append(db_instance.get_node_properties([node], schema_manager.schema))
-        parsed_properties = db_instance.parse_and_serialize_properties(str(properties))
+        parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema)
+            
         response_data = {
             # "Generated query": query_code,
-            "Result": json.loads(parsed_result),
-            "Properties": json.loads(parsed_properties)
+            "nodes": parsed_result[0],
+            "edges": parsed_result[1]
         }
-        formatted_response = json.dumps(response_data, indent=4)
+        formatted_response = json.dumps(response_data, indent=4) # removed indent=4 because am getting /n on the response
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
