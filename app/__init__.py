@@ -1,11 +1,14 @@
 from flask import Flask
 from app.services.schema_data import SchemaManager
+from app.services.cypher_generator import CypherQueryGenerator
 from app.services.metta_generator import MeTTa_Query_Generator
 
 app = Flask(__name__)
 
 databases = {
     "metta": MeTTa_Query_Generator("./dataset"),
+    "cypher": CypherQueryGenerator("./cypher")
+    
     # Add other database instances here
 }
 
