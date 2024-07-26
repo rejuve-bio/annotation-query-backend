@@ -3,6 +3,7 @@ import logging
 import json
 from app import app, databases, schema_manager
 import itertools
+from app.lib import validate_request 
 # Setup basic logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -26,22 +27,29 @@ def process_query():
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
-    database_type = 'metta'# data.get('database')
-    # if not database_type or database_type not in databases:
-    #     return jsonify({"error": "Invalid or missing database parameter"}), 400
+
     try:
-        db_instance = databases[database_type]
         requests = data['requests']
-        query_code = db_instance.query_Generator(requests, schema_manager.schema)
+        
+        # Validate the request data before processing
+        node_map = validate_request(requests, schema_manager.schema)
+        
+        database_type = 'cypher'
+        db_instance = databases[database_type]
+        
+        # Generate the query code
+        query_code = db_instance.query_Generator(requests, node_map)
+        
+        # Run the query and parse the results
         result = db_instance.run_query(query_code)
         parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema)
-            
+        
         response_data = {
-            # "Generated query": query_code,
             "nodes": parsed_result[0],
             "edges": parsed_result[1]
         }
-        formatted_response = json.dumps(response_data, indent=4) # removed indent=4 because am getting /n on the response
+        
+        formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         return jsonify({"error": str(e)}), 500

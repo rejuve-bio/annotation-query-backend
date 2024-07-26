@@ -65,13 +65,16 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             result_list = [record for record in results]
             return result_list
 
-    def query_Generator(self, requests, schema):
-        nodes = requests['nodes']
+    def query_Generator(self, requests,node_map):
+        if node_map is None:
+            raise Exception('error')
+        
+        # nodes = requests['nodes']
         predicates = requests['predicates']
 
         cypher_queries = []
         all_valid = True
-        node_dict = {node['node_id']: node for node in nodes}
+        # node_dict = {node['node_id']: node for node in nodes}
 
         if all_valid:
             match_clauses = []
@@ -82,8 +85,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
             for i, predicate in enumerate(predicates):
                 predicate_type = predicate['type'].replace(" ", "_")
-                source_node = node_dict[predicate['source']]
-                target_node = node_dict[predicate['target']]
+                source_node = node_map[predicate['source']]
+                target_node = node_map[predicate['target']]
 
                 if i == 0:
                     source_var = 's0'
@@ -101,7 +104,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 used_nodes.add(predicate['source'])
                 used_nodes.add(predicate['target'])
             
-            for node_id, node in node_dict.items():
+            for node_id, node in node_map.items():
                 if node_id not in used_nodes:
                     var_name = f"n_{node_id}"
                     match_clauses.append(self.match_node(node, var_name))
@@ -152,16 +155,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     edge_data = {
                         "data": {
                             "id": item.id,
+                            "label": item.type,
                             "source_node": source_id,
                             "target_node": target_id,
-                            "label": item.type,
                             **item
                         }
                     }
                     edges.append(edge_data)
 
         return {"nodes": nodes, "edges": edges}
-
 
     def parse_and_serialize(self, input,schema):
         parsed_result = self.parse_neo4j_results(input)
