@@ -1,10 +1,29 @@
 from flask import Flask, request, jsonify, Response
 import logging
 import json
+import yaml
+import os
 from app import app, databases, schema_manager
+from app.lib import validate_request
 
 # Setup basic logging
 logging.basicConfig(level=logging.DEBUG)
+
+def load_config():
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.yaml')
+    try:
+        with open(config_path, 'r') as file:
+            config = yaml.safe_load(file)
+        logging.info("Configuration loaded successfully.")
+        return config
+    except FileNotFoundError:
+        logging.error(f"Config file not found at: {config_path}")
+        raise
+    except yaml.YAMLError as e:
+        logging.error(f"Error parsing YAML file: {e}")
+        raise
+
+config = load_config()
 
 @app.route('/nodes', methods=['GET'])
 def get_nodes_endpoint():
@@ -26,32 +45,34 @@ def process_query():
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
-    database_type = 'metta'# data.get('database')
-    # if not database_type or database_type not in databases:
-    #     return jsonify({"error": "Invalid or missing database parameter"}), 400
+
     try:
-        db_instance = databases[database_type]
         requests = data['requests']
-        query_code = db_instance.query_Generator(requests)
+        
+        # Validate the request data before processing
+        node_map = validate_request(requests, schema_manager.schema)
+        if node_map is None:
+            return jsonify({"error": "Invalid node_map returned by validate_request"}), 400
+        
+        database_type = config['database']['type']
+        db_instance = databases[database_type]
+        
+        # Generate the query code
+        query_code = db_instance.query_Generator(requests, node_map)
+        
+        # Run the query and parse the results
         result = db_instance.run_query(query_code)
-        parsed_result = db_instance.parse_and_serialize(str(result))
-        parsed_result_list = json.loads(parsed_result)
-        unique_nodes = set()
-        for item in parsed_result_list:
-            source, target = item["source"], item["target"]
-            unique_nodes.add(source)
-            unique_nodes.add(target)
-        properties = []
-        for node in unique_nodes:
-            properties.append(db_instance.get_node_properties([node], schema_manager.schema))
-        parsed_properties = db_instance.parse_and_serialize_properties(str(properties))
+        parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema)
+        
         response_data = {
-            "Generated query": query_code,
-            "Result": json.loads(parsed_result),
-            "Properties": json.loads(parsed_properties)
+            "nodes": parsed_result[0],
+            "edges": parsed_result[1]
         }
+        
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
+        logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
+
 

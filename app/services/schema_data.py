@@ -48,7 +48,7 @@ class SchemaManager:
         return [{'child_nodes': nodes[key], 'parent_node': key} for key in nodes]
 
     def get_edges(self):
-        edges = []
+        edges = {}
         for key, value in self.schema.items():
             if value['represented_as'] == 'edge':
                 if key in self.parent_edges:
@@ -59,10 +59,14 @@ class SchemaManager:
                     'label': label,
                     'is_a': value['is_a'],
                     'source': value.get('source', ''),
-                    'target': value.get('target', '')
+                    'target': value.get('target', ''),
+                    'properties': value.get('properties', {})
                 }
-                edges.append(edge)
-        return edges
+                parent = value['is_a']
+                if parent not in edges:
+                    edges[parent] = []
+                edges[parent].append(edge)
+        return [{'child_edges': edges[key], 'parent_edge': key} for key in edges]
 
     def get_relations_for_node(self, node):
         relations = []
