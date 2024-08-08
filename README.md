@@ -35,8 +35,13 @@ backend API.
     NEO4J_USER=your_neo4j_user
     NEO4J_PASSWORD=your_neo4j_password
     ```
+5. **Setup Required Folders**:
+    Ensure you have the following folders in the root directory:
 
-5. **Choose Your Database Type**
+    metta_data: This folder is for Metta data.
+    cypher_data: This folder is for Neo4j data.
+
+6. **Choose Your Database Type**
    In the config directory mofidy config.ini to change between databses.
 
    - To use Metta, set the type to 'metta'.
@@ -49,7 +54,7 @@ Example
    type = cypher  # Change to 'metta' if needed
    ```
 
-6. **Run the Application**:
+7. **Run the Application**:
     ```sh
     flask run
     ```

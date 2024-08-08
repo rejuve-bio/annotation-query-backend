@@ -6,8 +6,8 @@ from app.services.metta_generator import MeTTa_Query_Generator
 app = Flask(__name__)
 
 databases = {
-    "metta": MeTTa_Query_Generator("./dataset"),
-    "cypher": CypherQueryGenerator("./cypher")
+    "metta": MeTTa_Query_Generator("./metta_data"),
+    "cypher": CypherQueryGenerator("./cypher_data")
     
     # Add other database instances here
 }
