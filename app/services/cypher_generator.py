@@ -66,9 +66,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return result_list
 
     def query_Generator(self, requests,node_map):
-        if node_map is None:
-            raise Exception('error')
-        
         # nodes = requests['nodes']
         predicates = requests['predicates']
 
@@ -157,10 +154,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                             "id": item.id,
                             "label": item.type,
                             "source_node": source_id,
-                            "target_node": target_id,
-                            **item
+                            "target_node": target_id
                         }
                     }
+                    for key, value in item.items():
+                        if key == 'source':
+                            edge_data["data"]["source_data"] = value
+                        else:
+                            edge_data["data"][key] = value
+
                     edges.append(edge_data)
 
         return {"nodes": nodes, "edges": edges}
@@ -168,3 +170,4 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     def parse_and_serialize(self, input,schema):
         parsed_result = self.parse_neo4j_results(input)
         return parsed_result["nodes"], parsed_result["edges"]
+

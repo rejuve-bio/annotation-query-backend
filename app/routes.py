@@ -1,11 +1,29 @@
 from flask import Flask, request, jsonify, Response
 import logging
 import json
+import yaml
+import os
 from app import app, databases, schema_manager
-import itertools
-from app.lib import validate_request 
+from app.lib import validate_request
+
 # Setup basic logging
 logging.basicConfig(level=logging.DEBUG)
+
+def load_config():
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.yaml')
+    try:
+        with open(config_path, 'r') as file:
+            config = yaml.safe_load(file)
+        logging.info("Configuration loaded successfully.")
+        return config
+    except FileNotFoundError:
+        logging.error(f"Config file not found at: {config_path}")
+        raise
+    except yaml.YAMLError as e:
+        logging.error(f"Error parsing YAML file: {e}")
+        raise
+
+config = load_config()
 
 @app.route('/nodes', methods=['GET'])
 def get_nodes_endpoint():
@@ -33,8 +51,10 @@ def process_query():
         
         # Validate the request data before processing
         node_map = validate_request(requests, schema_manager.schema)
+        if node_map is None:
+            return jsonify({"error": "Invalid node_map returned by validate_request"}), 400
         
-        database_type = 'cypher'
+        database_type = config['database']['type']
         db_instance = databases[database_type]
         
         # Generate the query code
@@ -52,4 +72,7 @@ def process_query():
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
+        logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
+
+

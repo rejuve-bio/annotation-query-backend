@@ -44,10 +44,6 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         return node_representation
 
     def query_Generator(self, data,node_map):
-
-        if node_map is None:
-            raise Exception('error')
-
         nodes = data['nodes']
 
         metta_output = '''!(match &space (,'''
@@ -162,7 +158,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                     predicate = match[0]
                     src_type = match[1]
                     src_value = match[2]
-                    tgt = ' '.join(match[3:])
+                    tgt = list(match[3:])
                 else:
                     predicate, src_type, src_value, tgt = match
                 if (src_type, src_value) not in nodes:
@@ -179,11 +175,13 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                 if key not in relationships_dict:
                     relationships_dict[key] = {
                         "label": predicate,
-                        "source_node": f"{source} {source_id}",
-                        "target_node": f"{target} {target_id}",
+                        "source": f"{source} {source_id}",
+                        "target": f"{target} {target_id}",
                     }
-                relationships_dict[key][property_name] = value
-
+                if property_name == "source": 
+                    relationships_dict[key]["source_data"] = value
+                else:
+                    relationships_dict[key][property_name] = value
         node_list = [{"data": node} for node in nodes.values()]
         relationship_list = [{"data": relationship} for relationship in relationships_dict.values()]
 
@@ -249,3 +247,4 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                     res = self.recurssive_seralize(metta_symbol.get_children(), [])
                     result.append(tuple(res))
         return result
+

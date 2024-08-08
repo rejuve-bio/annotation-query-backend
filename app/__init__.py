@@ -16,3 +16,4 @@ schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
 
 # Import routes at the end to avoid circular imports
 from app import routes
+
