@@ -4,7 +4,12 @@ from hyperon import MeTTa, SymbolAtom, ExpressionAtom, GroundedAtom
 import re
 import json
 import uuid
+import logging
 from .query_generator_interface import QueryGeneratorInterface
+
+# Set up logging configuration
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 class MeTTa_Query_Generator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
@@ -16,6 +21,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
     def initialize_space(self):
         self.metta.run("!(bind! &space (new-space))")
 
+
     def load_dataset(self, path: str) -> None:
         if not os.path.exists(path):
             raise ValueError(f"Dataset path '{path}' does not exist.")
@@ -23,14 +29,14 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         if not paths:
             raise ValueError(f"No .metta files found in dataset path '{path}'.")
         for path in paths:
-            print(f"Start loading dataset from '{path}'...")
+            logging.info(f"Start loading dataset from '{path}'...")
             try:
                 self.metta.run(f'''
                     !(load-ascii &space {path})
                     ''')
             except Exception as e:
-                print(f"Error loading dataset from '{path}': {e}")
-        print(f"Finished loading {len(paths)} datasets.")
+                logging.error(f"Error loading dataset from '{path}': {e}")
+        logging.info(f"Finished loading {len(paths)} datasets.")
 
     def generate_id(self):
         import uuid
@@ -167,6 +173,8 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                         "type": src_type,
                     }
                 nodes[(src_type, src_value)][predicate] = tgt
+                if 'synonyms' in nodes[(src_type, src_value)]:
+                    del nodes[(src_type, src_value)]['synonyms']
             elif graph_attribute == "edge":
                 property_name, predicate, source, source_id, target, target_id = match[:6]
                 value = ' '.join(match[6:])
@@ -247,4 +255,6 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                     res = self.recurssive_seralize(metta_symbol.get_children(), [])
                     result.append(tuple(res))
         return result
+
+
 
