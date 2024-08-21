@@ -90,3 +90,20 @@ curl --location 'http://localhost:5000/query' \
   }
 }'
 
+curl --location 'http://localhost:5000/query' --header 'Content-Type: application/json' --data '{
+  "requests": {
+    "nodes": [
+      {
+        "node_id": "n1",
+        "id": "",
+        "type": "gene",
+        "properties": {
+          "gene_type": "protein_coding"
+        }
+      }
+    ],
+    "predicates": []
+  }
+}'
+
+

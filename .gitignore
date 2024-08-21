@@ -1,3 +1,4 @@
 biocypher-log/
 **/__pycache__/
-dataset/
+cypher_data/
+metta_data/
