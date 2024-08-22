@@ -1,9 +1,6 @@
 import glob
 import os
 from hyperon import MeTTa, SymbolAtom, ExpressionAtom, GroundedAtom
-import re
-import json
-import uuid
 import logging
 from .query_generator_interface import QueryGeneratorInterface
 
@@ -130,13 +127,11 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
             if len(tuple) == 2:
                 src_type, src_id = tuple
                 result.append({
-                    "id": str(uuid.uuid4()),
                     "source": f"{src_type} {src_id}"
                 })
             else:
                 predicate, src_type, src_id, tgt_type, tgt_id = tuple
                 result.append({
-                "id": str(uuid.uuid4()),
                 "predicate": predicate,
                 "source": f"{src_type} {src_id}",
                 "target": f"{tgt_type} {tgt_id}"
@@ -153,7 +148,6 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         relationships_dict = {}
         result = []
         tuples = self.metta_seralizer(input)
-        # print("result", tuples)
 
         for match in tuples:
             graph_attribute = match[0]
@@ -175,6 +169,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                 nodes[(src_type, src_value)][predicate] = tgt
                 if 'synonyms' in nodes[(src_type, src_value)]:
                     del nodes[(src_type, src_value)]['synonyms']
+
             elif graph_attribute == "edge":
                 property_name, predicate, source, source_id, target, target_id = match[:6]
                 value = ' '.join(match[6:])
@@ -186,16 +181,19 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                         "source": f"{source} {source_id}",
                         "target": f"{target} {target_id}",
                     }
-                if property_name == "source": 
+                
+                if property_name == "source":
                     relationships_dict[key]["source_data"] = value
                 else:
                     relationships_dict[key][property_name] = value
+
         node_list = [{"data": node} for node in nodes.values()]
         relationship_list = [{"data": relationship} for relationship in relationships_dict.values()]
 
         result.append(node_list)
         result.append(relationship_list)
         return result
+
 
     def get_node_properties(self, results, schema):
         metta = ('''!(match &space (,''')

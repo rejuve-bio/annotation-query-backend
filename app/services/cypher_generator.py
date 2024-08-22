@@ -6,7 +6,6 @@ from app.services.query_generator_interface import QueryGeneratorInterface
 from neo4j import GraphDatabase
 import glob
 import os
-import json
 from neo4j.graph import Node, Relationship
 
 load_dotenv()
