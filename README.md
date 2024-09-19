@@ -32,17 +32,17 @@ backend API.
     Create a `.env` file in the root folder with the following content:
     ```plaintext
     NEO4J_URL=your_neo4j_url
-    NEO4J_USER=your_neo4j_user
+    NEO4J_USERNAME =your_neo4j_user
     NEO4J_PASSWORD=your_neo4j_password
     ```
 5. **Setup Required Folders**:
-    Ensure you have the following folders in the root directory:
+    Ensure the following folders are present in the root directory and contain the necessary data:
 
-    metta_data: This folder is for Metta data.
-    cypher_data: This folder is for Neo4j data.
+    metta_data: Folder for storing Metta data.
+    cypher_data: Folder for storing Neo4j data.
 
 6. **Choose Your Database Type**
-   In the config directory mofidy config.ini to change between databses.
+   In the config directory mofidy config.yaml to change between databses.
 
    - To use Metta, set the type to 'metta'.
    - To use Neo4j, set the type to 'cypher'.
@@ -61,6 +61,18 @@ Example
 # Alternatively, you can use Docker to run the application:
 **Build and Run the Docker Container**
 
+1. **Setup Required Folders**:
+    Ensure the following folders are present in the root directory and contain the necessary data:
+
+    metta_data: Folder for storing Metta data.
+    cypher_data: Folder for storing Neo4j data.
+2. **Configure Environment Variables**:
+    Create a `.env` file in the root folder with the following content:
+    ```plaintext
+    NEO4J_URL=your_neo4j_url
+    NEO4J_USERNAME =your_neo4j_user
+    NEO4J_PASSWORD=your_neo4j_password
+3. **Run**:
    Ensure you are in the root directory of the project and then run:
 
    ```sh
@@ -70,9 +82,6 @@ Example
 
    This will build the Docker image and run the container, exposing the application on port 5000.
 
-Notes:
 
-    If you choose the Docker approach, you can skip the steps for setting up the virtual environment and installing dependencies manually.
-    Ensure that the .env file is located in the root directory for Docker to use it correctly.
 
     

@@ -5,6 +5,9 @@ import yaml
 import os
 from app import app, databases, schema_manager
 from app.lib import validate_request
+from flask_cors import CORS
+
+CORS(app)
 
 # Setup basic logging
 logging.basicConfig(level=logging.DEBUG)
