@@ -18,7 +18,7 @@ def validate_request(request, schema):
         if 'node_id' not in node or node['node_id'] == "":
             raise Exception("node_id is required")
         if 'properties' not in node:
-            raise Exception("properties is required")
+            node["properties"] = {}
 
     ''''
     # validate properties of nodes
