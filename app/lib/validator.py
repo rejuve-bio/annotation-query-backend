@@ -19,7 +19,7 @@ def validate_request(request, schema):
             raise Exception("node_id is required")
         if 'properties' not in node:
             raise Exception("properties is required")
-        
+    '''
     # validate properties of nodes
     for node in nodes:
         properties = node['properties']
@@ -27,6 +27,7 @@ def validate_request(request, schema):
         for property in properties.keys():
             if property not in schema[node_type]['properties']:
                 raise Exception(f"{property} doesn't exsist in the schema!")
+    '''
 
     node_map = {node['node_id']: node for node in nodes}
 
