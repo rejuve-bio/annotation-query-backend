@@ -92,7 +92,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             cypher_queries.append(cypher_query)
         else:
             for i, predicate in enumerate(predicates):
-                predicate_type = predicate['type'].replace(" ", "_")
+                predicate_type = predicate['type'].replace(" ", "_").lower()
                 source_node = node_map[predicate['source']]
                 target_node = node_map[predicate['target']]
 
