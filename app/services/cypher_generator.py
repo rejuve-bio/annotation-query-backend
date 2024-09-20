@@ -92,7 +92,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             cypher_queries.append(cypher_query)
         else:
             for i, predicate in enumerate(predicates):
-                predicate_type = predicate['type'].replace(" ", "_")
+                predicate_type = predicate['type'].replace(" ", "_").lower()
                 source_node = node_map[predicate['source']]
                 target_node = node_map[predicate['target']]
 
@@ -126,7 +126,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             else:
                 cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds)
                 cypher_queries.append(cypher_query)
-        logging.debug("Processing stopped due to invalid request.")
         return cypher_queries
     
     def construct_clause(self, match_clause, return_clause):
