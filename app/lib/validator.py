@@ -48,12 +48,17 @@ def validate_request(request, schema):
                 raise Exception(f"Source node {predicate['source']} does not exist in the nodes object")
             if predicate['target'] not in node_map:
                 raise Exception(f"Target node {predicate['target']} does not exist in the nodes object")
-                
-            predicate_schema = schema[predicate['type']]
-                
+            
+            # format the predicate type using _
+            predicate_type = predicate['type'].split(' ')
+            predicate_type = '_'.join(predicate_type)
+            
             source_type = node_map[predicate['source']]['type']
             target_type = node_map[predicate['target']]['type']
 
-            if predicate_schema['source'] != source_type or predicate_schema['target'] != target_type:
-                raise Exception(f"{predicate['type']} have source as {predicate_schema['source']} and target as {predicate_schema['target']}")
+            predicate_type = f'{source_type}_{predicate_type}_{target_type}'
+
+            # format the shchema
+            if predicate_type not in schema:
+                raise Exception(f"Invalid source and target for the predicate {predicate['type']}")
     return node_map
