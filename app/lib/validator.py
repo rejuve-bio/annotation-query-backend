@@ -18,8 +18,9 @@ def validate_request(request, schema):
         if 'node_id' not in node or node['node_id'] == "":
             raise Exception("node_id is required")
         if 'properties' not in node:
-            raise Exception("properties is required")
-        
+            node["properties"] = {}
+
+    ''''    
     # validate properties of nodes
     for node in nodes:
         properties = node['properties']
@@ -27,6 +28,7 @@ def validate_request(request, schema):
         for property in properties.keys():
             if property not in schema[node_type]['properties']:
                 raise Exception(f"{property} doesn't exsist in the schema!")
+    '''
 
     node_map = {node['node_id']: node for node in nodes}
 
@@ -56,9 +58,7 @@ def validate_request(request, schema):
             source_type = node_map[predicate['source']]['type']
             target_type = node_map[predicate['target']]['type']
 
-            predicate_type = f'{source_type}_{predicate_type}_{target_type}'
-
-            # format the shchema
+            predicate_type = f'{source_type}-{predicate_type}-{target_type}'
             if predicate_type not in schema:
                 raise Exception(f"Invalid source and target for the predicate {predicate['type']}")
     return node_map
