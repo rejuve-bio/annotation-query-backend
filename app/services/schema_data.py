@@ -26,7 +26,7 @@ class SchemaManager:
                     key_label = f'{source}-{i_label}-{target}' if source and target else i_label
                     process_schema[key_label] = {**value, "key": key_label}
             else:
-                key_label = f'{source}_{label}_{target}' if source and target else label
+                key_label = f'{source}-{label}-{target}' if source and target else label
                 process_schema[key_label] = {**value, "key": key_label}
         return process_schema
     
