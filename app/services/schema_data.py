@@ -8,10 +8,28 @@ logging.basicConfig(level=logging.DEBUG)
 class SchemaManager:
     def __init__(self, schema_config_path: str, biocypher_config_path: str):
         self.bcy = BioCypher(schema_config_path=schema_config_path, biocypher_config_path=biocypher_config_path)
-        self.schema = self.bcy._get_ontology_mapping()._extend_schema()
+        self.schema = self.process_schema(self.bcy._get_ontology_mapping()._extend_schema())
         self.parent_nodes =self.parent_nodes()
         self.parent_edges =self.parent_edges()
+    
+    def process_schema(self, schema):
+        process_schema = {}
+        for _, value in schema.items():
+            input_label = value.get("input_label")
+            output_label = value.get("output_label")
+            source = value.get("source")
+            target = value.get("target")
 
+            label = output_label if output_label else input_label
+            if isinstance(label, list):
+                for i_label in label:
+                    key_label = f'{source}-{i_label}-{target}' if source and target else i_label
+                    process_schema[key_label] = {**value, "key": key_label}
+            else:
+                key_label = f'{source}-{label}-{target}' if source and target else label
+                process_schema[key_label] = {**value, "key": key_label}
+        return process_schema
+    
     def parent_nodes(self):
         parent_nodes = set()
         for _, attributes in self.schema.items():
@@ -101,4 +119,4 @@ class SchemaManager:
                     'target': prime_service[key]['target']
                 }
 
-        return schema   
+        return schema  

@@ -96,7 +96,8 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                 metta_output += self.construct_node_representation(source_node, node_identifier)
                 source = f'({source_node["type"]} {node_identifier})'
             else:
-                source = f'({str(source_node["id"])})'
+                source = f'({str(source_node["type"])} {str(source_node["id"])})'
+
 
             # Handle target node
             target_node = node_map[target_id]
@@ -105,7 +106,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                 metta_output += self.construct_node_representation(target_node, target_identifier)
                 target = f'({target_node["type"]} {target_identifier})'
             else:
-                target = f'({str(target_node["id"])})'
+                target = f'({str(target_node["type"])} {str(target_node["id"])})'
 
             # Add relationship
             metta_output += f' ({predicate_type} {source} {target})'
@@ -219,16 +220,15 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                         metta += " " + f'({property} ({target}) ${id})'
                         output += " " + f'(node {property} ({target}) ${id})'
                     nodes.add(target)
-        
+
                 predicate = result['predicate']
-                predicate_schema = ' '.join(predicate.split('_'))
+                predicate_schema = f'{source_node_type}-{predicate}-{target_node_type}'
                 for property, _ in schema[predicate_schema]['properties'].items():
                     random = self.generate_id()
                     metta += " " + f'({property} ({predicate} ({source}) ({target})) ${random})'
                     output +=  " " + f'(edge {property} ({predicate} ({source}) ({target})) ${random})' 
 
         metta+= f" ) {output}))"
-
         return metta
 
     def recurssive_seralize(self, metta_expression, result):
@@ -253,6 +253,4 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                     res = self.recurssive_seralize(metta_symbol.get_children(), [])
                     result.append(tuple(res))
         return result
-
-
 

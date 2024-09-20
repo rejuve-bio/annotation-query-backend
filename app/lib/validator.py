@@ -18,8 +18,9 @@ def validate_request(request, schema):
         if 'node_id' not in node or node['node_id'] == "":
             raise Exception("node_id is required")
         if 'properties' not in node:
-            raise Exception("properties is required")
-        
+            node["properties"] = {}
+
+    ''''
     # validate properties of nodes
     for node in nodes:
         properties = node['properties']
@@ -27,8 +28,10 @@ def validate_request(request, schema):
         for property in properties.keys():
             if property not in schema[node_type]['properties']:
                 raise Exception(f"{property} doesn't exsist in the schema!")
+    '''
 
     node_map = {node['node_id']: node for node in nodes}
+
     # validate predicates
     if 'predicates' in request:
         predicates = request['predicates']
@@ -47,12 +50,15 @@ def validate_request(request, schema):
                 raise Exception(f"Source node {predicate['source']} does not exist in the nodes object")
             if predicate['target'] not in node_map:
                 raise Exception(f"Target node {predicate['target']} does not exist in the nodes object")
-                
-            predicate_schema = schema[predicate['type']]
-                
+            
+            # format the predicate type using _
+            predicate_type = predicate['type'].split(' ')
+            predicate_type = '_'.join(predicate_type)
+            
             source_type = node_map[predicate['source']]['type']
             target_type = node_map[predicate['target']]['type']
 
-            if predicate_schema['source'] != source_type or predicate_schema['target'] != target_type:
-                raise Exception(f"{predicate['type']} have source as {predicate_schema['source']} and target as {predicate_schema['target']}")
-        return node_map
+            predicate_type = f'{source_type}-{predicate_type}-{target_type}'
+            if predicate_type not in schema:
+                raise Exception(f"Invalid source and target for the predicate {predicate['type']}")
+    return node_map
