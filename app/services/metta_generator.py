@@ -220,16 +220,16 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                         metta += " " + f'({property} ({target}) ${id})'
                         output += " " + f'(node {property} ({target}) ${id})'
                     nodes.add(target)
-        
+                
+                #TODO: update
                 predicate = result['predicate']
-                predicate_schema = ' '.join(predicate.split('_'))
+                predicate_schema = f'{source_node_type}-{predicate}-{target_node_type}'
                 for property, _ in schema[predicate_schema]['properties'].items():
                     random = self.generate_id()
                     metta += " " + f'({property} ({predicate} ({source}) ({target})) ${random})'
                     output +=  " " + f'(edge {property} ({predicate} ({source}) ({target})) ${random})' 
 
         metta+= f" ) {output}))"
-
         return metta
 
     def recurssive_seralize(self, metta_expression, result):
