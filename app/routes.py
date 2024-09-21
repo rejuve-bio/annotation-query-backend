@@ -6,6 +6,7 @@ import os
 from app import app, databases, schema_manager
 from app.lib import validate_request
 from flask_cors import CORS
+from app.lib import limit_graph
 
 CORS(app)
 
@@ -71,7 +72,9 @@ def process_query():
             "nodes": parsed_result[0],
             "edges": parsed_result[1]
         }
-        
+ 
+        response_data = limit_graph(response_data, config['graph']['limit'])
+
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
