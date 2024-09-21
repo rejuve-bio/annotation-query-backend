@@ -1,7 +1,23 @@
 from app.lib.map_graph import map_graph
 
 def limit_graph(graph, threshold):
-    (edge_idx, single_node_idx) = map_graph(graph)
+    '''
+    Reduces the number of graphs based on the threshold while keeping relvant information
+
+    How it works:
+        1. Identify the nodes with edges and nodes without edges
+        2. Select edges connecting each node that doesn't exceed the threshold.
+        3. Add the nodes connected by the selected edges to a collection of included nodes.
+        4. If capacity allows, includes isolated nodes until the threshold is reached.
+    
+    Args:
+        graph (dict): Graph containing 'nodes' and 'edges'
+        threshold (int): The maximum number of nodes to be displayed
+
+    Returns:
+        dict: A new graph containg 'nodes' and 'edges'
+    '''
+    (edge_idx, single_node_idx, node_id_to_index) = map_graph(graph)
     allowed_edges = set()
     remaining = threshold
 
@@ -20,8 +36,6 @@ def limit_graph(graph, threshold):
         
         nodes_to_include.add(source_id)
         nodes_to_include.add(target_id)
-    
-    node_id_to_index = {node["data"]["id"]: idx for idx, node in enumerate(graph["nodes"])}
     
     new_response = {"nodes": [], "edges": []}
     

@@ -1,4 +1,22 @@
 def map_graph(graph):
+    '''
+    Maps graph nodes to their indices and identify nodes with no connected edges
+
+    How it works:
+        1. Extract nodes and edges from the graph.
+        2. Maps nodes Ids to their list indices.
+        3. Loop through edges, updating 'edge_indices' and marking nodes that are connected
+        4. Identify nodes with no edges and add them to 'single_node_idx'
+
+    Args: 
+        graph (dict): Graph containing 'nodes' and 'edges'
+
+    Returns:
+        tuple:
+            - edge_indices: a list containing the indices of edges connected to a given node
+            - single_node_idx: a list containg indices of nodes with no edges
+            - node_id_to_index: a mapping of nodes Ids to their corresponding indices
+    '''
     nodes = graph["nodes"]
     edges = graph["edges"]
 
@@ -29,5 +47,5 @@ def map_graph(graph):
     for idx, has_edge in enumerate(has_edges):
         if not has_edge:
             single_node_idx.append(idx)
-    return edge_indices, single_node_idx
+    return edge_indices, single_node_idx, node_id_to_index
 
