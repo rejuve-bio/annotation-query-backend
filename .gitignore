@@ -2,4 +2,5 @@ biocypher-log/
 **/__pycache__/
 cypher_data/
 metta_data/
-.venv
+venv
+.env
