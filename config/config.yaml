@@ -1,2 +1,2 @@
 database:
-  type: metta
+  type: cypher
