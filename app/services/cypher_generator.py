@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 class CypherQueryGenerator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
+        self.optional_match_preds = [] # for parent nodes  
+        self.optional_return_preds = []
         self.driver = GraphDatabase.driver(
             os.getenv('NEO4J_URI'),
             auth=(os.getenv('NEO4J_USERNAME'), os.getenv('NEO4J_PASSWORD'))
@@ -79,6 +81,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return_preds = []
         match_no_preds = []
         return_no_preds = []
+
     
         # Track nodes that are included in relationships
         used_nodes = set()
@@ -105,6 +108,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
                 target_var = f"t{i}"
                 target_match = self.match_node(target_node, target_var)
+                print("target:",target_var)
+                optional_n,return_n = self.optional_parent_match(target_var)
+                print("return_n",return_n)
+                print("optional_n",optional_n)
+                self.optional_match_preds.append(optional_n)   
+                self.optional_return_preds.append(return_n)
 
                 match_preds.append(f"({source_var})-[r{i}:{predicate_type}]->{target_match}")
                 return_preds.append(f"r{i}")
@@ -130,17 +139,19 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     
     def construct_clause(self, match_clause, return_clause):
         match_clause = f"MATCH {', '.join(match_clause)}"
-        return_clause = f"RETURN {', '.join(return_clause)}"
-        query = f"{match_clause} {return_clause}"
+        optional_clause = f"OPTIONAL MATCH {', '.join(self.optional_match_preds)}"
+        return_clause = f"RETURN {', '.join( return_clause +  self.optional_return_preds)}"
+        query = f"{match_clause} {optional_clause} {return_clause}"
         return query
 
     def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds):
         match_preds = f"MATCH {', '.join(match_preds)}"
+        optional_clause = f"OPTIONAL MATCH {', '.join(self.optional_match_preds)}"
         tmp_return_preds = return_preds
         return_preds = f"RETURN {', '.join(return_preds)} , null AS {', null AS '.join(return_no_preds)}"
         match_no_preds = f"MATCH {', '.join(match_no_preds)}"
-        return_no_preds = f"RETURN  {', '.join(return_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
-        query = f"{match_preds} {return_preds} UNION {match_no_preds} {return_no_preds}"
+        return_no_preds = f"RETURN  {', '.join(return_no_preds +  self.optional_return_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
+        query = f"{match_preds} {optional_clause} {return_preds} UNION {match_no_preds} {return_no_preds}"
         return query
 
     def match_node(self, node, var_name):
@@ -151,6 +162,54 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return f"({var_name}:{node['type']} {{{properties}}})"
         else:
             return f"({var_name}:{node['type']})"
+
+    # def match_node(self, node, var_name):
+    #     # Build the node match clause
+    #     if node['id']:
+    #         match_clause = f"({var_name}:{node['type']} {{id: '{node['id']}'}})"
+    #     elif node['properties']:
+    #         properties = ", ".join([f"{k}: '{v}'" for k, v in node['properties'].items()])
+    #         match_clause = f"({var_name}:{node['type']} {{{properties}}})"
+    #     else:
+    #         match_clause = f"({var_name}:{node['type']})"
+
+    #     # Add OPTIONAL MATCH for incoming relationships to the node
+    #     optional_parent_match = f"OPTIONAL MATCH (parent{var_name})-[]->({var_name})"
+
+    #     print("match node", f"{match_clause} {optional_parent_match}")
+        
+    #     # Return both the match and optional match clauses
+    #     return f"{match_clause} {optional_parent_match}"
+
+    # def match_node(self, node, var_name):
+    #     # Build the node match clause
+    #     if node['id']:
+    #         match_clause = f"({var_name}:{node['type']} {{id: '{node['id']}'}})"
+    #     elif node['properties']:
+    #         properties = ", ".join([f"{k}: '{v}'" for k, v in node['properties'].items()])
+    #         match_clause = f"({var_name}:{node['type']} {{{properties}}})"
+    #     else:
+    #         match_clause = f"({var_name}:{node['type']})"
+        
+    #     # Add OPTIONAL MATCH for incoming relationships to the node
+    #     optional_parent_match = f"OPTIONAL MATCH (parent{var_name})-[]->({var_name})"
+        
+    #     # Create the return clause to include both the node and its parent
+    #     return_clause = f"{{ node: {var_name}, parent: parent{var_name} }} AS {var_name}WithParent"
+
+    #     # Return the full MATCH, OPTIONAL MATCH, and RETURN clause for the node with parent
+    #     return match_clause, optional_parent_match, return_clause
+
+    def optional_parent_match(self, var_name):
+        # Add OPTIONAL MATCH for incoming relationships to the node
+        optional_parent_match = f"(parent{var_name})-[]->({var_name})"
+        
+        # Create the return clause to include both the node and its parent
+        return_clause = f"CASE WHEN {var_name} IS NOT NULL THEN {{ node: {var_name}, parent: parent{var_name} }} ELSE null END AS {var_name}WithParent"        
+        # Return both the OPTIONAL MATCH and RETURN clause
+        return optional_parent_match, return_clause
+
+
 
     def parse_neo4j_results(self, results):
         nodes = []
@@ -163,6 +222,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     node_id = f"{list(item.labels)[0]} {item['id']}"
                     if node_id not in node_dict:
                         node_data = {
+                            # add parent field
                             "data": {
                                 "id": node_id,
                                 "type": list(item.labels)[0],
