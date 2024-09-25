@@ -125,7 +125,7 @@ def process_email_query():
         
             # Run the query and parse the results
             result = db_instance.run_query(query_code)
-            parsed_result = db_instance.convert_to_dict(result)
+            parsed_result = db_instance.convert_to_dict(result, schema_manager.schema)
             
             subject = 'Full Data'
             body = f'Hello {email} here is the full data you requested'
