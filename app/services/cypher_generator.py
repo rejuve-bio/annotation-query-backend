@@ -76,6 +76,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # node_dict = {node['node_id']: node for node in nodes}
 
         match_preds = []
+        optional_match_preds = []
+        edges = [] # added eges to separate nodes
         return_preds = []
         match_no_preds = []
         return_no_preds = []
@@ -87,6 +89,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             for node in nodes:
                 var_name = f"n_{node['node_id']}"
                 match_no_preds.append(self.match_node(node, var_name))
+                optional_match_preds.append(self.optional_parent_match(var_name))
                 return_no_preds.append(var_name)
             cypher_query = self.construct_clause(match_no_preds, return_no_preds)
             cypher_queries.append(cypher_query)
@@ -99,11 +102,14 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 target_var = target_node['node_id']
 
                 source_match = self.match_node(source_node, source_var)
+                optional_match_preds.append(self.optional_parent_match( source_var))
                 match_preds.append(source_match)
                 target_match = self.match_node(target_node, target_var)
+                optional_match_preds.append(self.optional_parent_match(target_var))
+
 
                 match_preds.append(f"({source_var})-[r{i}:{predicate_type}]->{target_match}")
-                return_preds.append(f"r{i}")
+                edges.append(f"r{i}")
 
                 used_nodes.add(predicate['source'])
                 used_nodes.add(predicate['target'])
@@ -114,6 +120,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 if node_id not in used_nodes:
                     var_name = f"n_{node_id}"
                     match_no_preds.append(self.match_node(node, var_name))
+                    optional_match_preds.append(self.optional_parent_match(var_name))
                     return_no_preds.append(var_name)
 
             return_preds.extend(list(node_ids))
@@ -122,7 +129,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 cypher_query = self.construct_clause(match_preds, return_preds)
                 cypher_queries.append(cypher_query)
             else:
-                cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds)
+                cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges)
                 cypher_queries.append(cypher_query)
         return cypher_queries
     
@@ -132,13 +139,18 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         query = f"{match_clause} {return_clause}"
         return query
 
-    def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds):
+    def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds,edges):
         match_preds = f"MATCH {', '.join(match_preds)}"
-        tmp_return_preds = return_preds
-        return_preds = f"RETURN {', '.join(return_preds)} , null AS {', null AS '.join(return_no_preds)}"
+        # parent field returns null if more than one node is not present
+        optional_clause = f"OPTIONAL MATCH {', '.join(optional_match_preds)}"
+        # multiline optional match as a potential silution
+        # optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
+        tmp_return_preds = return_preds + edges
+        nodes = [f"CASE WHEN {var_name} IS NOT NULL THEN {{ node: {var_name}, parent: id(parent{var_name}) }} ELSE null END AS {var_name}" for var_name in return_preds + return_no_preds]
+        return_preds = f"RETURN {', '.join(edges + nodes)}"
         match_no_preds = f"MATCH {', '.join(match_no_preds)}"
         return_no_preds = f"RETURN  {', '.join(return_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
-        query = f"{match_preds} {return_preds} UNION {match_no_preds} {return_no_preds}"
+        query = f"{match_preds} {optional_clause} {return_preds} UNION {match_no_preds} {return_no_preds}"
         return query
 
     def match_node(self, node, var_name):
@@ -216,3 +228,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     
 
         return (nodes, edges, node_to_dict, edge_to_dict)
+
+    def optional_parent_match(self, var_name):
+        # Add OPTIONAL MATCH for incoming relationships to the node
+        optional_parent_match = f"(parent{var_name})-[]->({var_name})"
+
+        return optional_parent_match
