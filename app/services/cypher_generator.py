@@ -79,7 +79,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return_preds = []
         match_no_preds = []
         return_no_preds = []
-    
+        node_ids = set()
         # Track nodes that are included in relationships
         used_nodes = set()
         if not predicates:
@@ -95,15 +95,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 predicate_type = predicate['type'].replace(" ", "_").lower()
                 source_node = node_map[predicate['source']]
                 target_node = node_map[predicate['target']]
+                source_var = source_node['node_id']
+                target_var = target_node['node_id']
 
-                if i == 0:
-                    source_var = 's0'
-                    source_match = self.match_node(source_node, source_var)
-                    match_preds.append(source_match)
-                else:
-                    source_var = f"t{i-1}"
-
-                target_var = f"t{i}"
+                source_match = self.match_node(source_node, source_var)
+                match_preds.append(source_match)
                 target_match = self.match_node(target_node, target_var)
 
                 match_preds.append(f"({source_var})-[r{i}:{predicate_type}]->{target_match}")
@@ -111,6 +107,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
                 used_nodes.add(predicate['source'])
                 used_nodes.add(predicate['target'])
+                node_ids.add(source_var)
+                node_ids.add(target_var)
 
             for node_id, node in node_map.items():
                 if node_id not in used_nodes:
@@ -118,7 +116,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     match_no_preds.append(self.match_node(node, var_name))
                     return_no_preds.append(var_name)
 
-            return_preds.extend([f"s0"] + [f"t{i}" for i in range(len(predicates))])
+            return_preds.extend(list(node_ids))
                 
             if (len(match_no_preds) == 0):
                 cypher_query = self.construct_clause(match_preds, return_preds)
