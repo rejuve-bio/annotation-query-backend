@@ -121,80 +121,14 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         return self.metta.run(query_code)
 
     def parse_and_serialize(self, input, schema):
-        result = []
-
-        tuples = self.metta_seralizer(input[0])
-        for tuple in tuples:
-            if len(tuple) == 2:
-                src_type, src_id = tuple
-                result.append({
-                    "source": f"{src_type} {src_id}"
-                })
-            else:
-                predicate, src_type, src_id, tgt_type, tgt_id = tuple
-                result.append({
-                "predicate": predicate,
-                "source": f"{src_type} {src_id}",
-                "target": f"{tgt_type} {tgt_id}"
-                })
-        
-        query = self.get_node_properties(result, schema)
-        result = self.run_query(query)
+        result = self.prepare_query_input(input, schema)
         result = self.parse_and_serialize_properties(result[0])
 
         return result
         
     def parse_and_serialize_properties(self, input):
-        nodes = {}
-        relationships_dict = {}
-        result = []
-        tuples = self.metta_seralizer(input)
-
-        for match in tuples:
-            graph_attribute = match[0]
-            match = match[1:]
-
-            if graph_attribute == "node":
-                if len(match) > 4:
-                    predicate = match[0]
-                    src_type = match[1]
-                    src_value = match[2]
-                    tgt = list(match[3:])
-                else:
-                    predicate, src_type, src_value, tgt = match
-                if (src_type, src_value) not in nodes:
-                    nodes[(src_type, src_value)] = {
-                        "id": f"{src_type} {src_value}",
-                        "type": src_type,
-                    }
-                nodes[(src_type, src_value)][predicate] = tgt
-                if 'synonyms' in nodes[(src_type, src_value)]:
-                    del nodes[(src_type, src_value)]['synonyms']
-
-            elif graph_attribute == "edge":
-                property_name, predicate, source, source_id, target, target_id = match[:6]
-                value = ' '.join(match[6:])
-
-                key = (predicate, source, source_id, target, target_id)
-                if key not in relationships_dict:
-                    relationships_dict[key] = {
-                        "label": predicate,
-                        "source": f"{source} {source_id}",
-                        "target": f"{target} {target_id}",
-                    }
-                
-                if property_name == "source":
-                    relationships_dict[key]["source_data"] = value
-                else:
-                    relationships_dict[key][property_name] = value
-
-        node_list = [{"data": node} for node in nodes.values()]
-        relationship_list = [{"data": relationship} for relationship in relationships_dict.values()]
-
-        result.append(node_list)
-        result.append(relationship_list)
+        (result, _, _) = self.process_result(input)
         return result
-
 
     def get_node_properties(self, results, schema):
         metta = ('''!(match &space (,''')
@@ -254,3 +188,95 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                     result.append(tuple(res))
         return result
 
+    def convert_to_dict(self, results, schema=None):
+        result = self.prepare_query_input(results, schema)
+        (_, node_dict, edge_dict) = self.process_result(result[0])
+        return (node_dict, edge_dict)
+
+    def process_result(self, results):
+        nodes = {}
+        relationships_dict = {}
+        result = []
+        node_to_dict = {}
+        edge_to_dict = {}
+        node_type = set()
+        edge_type = set()
+        tuples = self.metta_seralizer(results)
+
+        for match in tuples:
+            graph_attribute = match[0]
+            match = match[1:]
+
+            if graph_attribute == "node":
+                if len(match) > 4:
+                    predicate = match[0]
+                    src_type = match[1]
+                    src_value = match[2]
+                    tgt = list(match[3:])
+                else:
+                    predicate, src_type, src_value, tgt = match
+                if (src_type, src_value) not in nodes:
+                    nodes[(src_type, src_value)] = {
+                        "id": f"{src_type} {src_value}",
+                        "type": src_type,
+                    }
+                nodes[(src_type, src_value)][predicate] = tgt
+                if 'synonyms' in nodes[(src_type, src_value)]:
+                    del nodes[(src_type, src_value)]['synonyms']
+                if src_type not in node_type:
+                    node_type.add(src_type)
+                    node_to_dict[src_type] = []
+                node_data = {}
+                node_data["data"] = nodes[(src_type, src_value)]
+                node_to_dict[src_type].append(node_data)
+            elif graph_attribute == "edge":
+                property_name, predicate, source, source_id, target, target_id = match[:6]
+                value = ' '.join(match[6:])
+
+                key = (predicate, source, source_id, target, target_id)
+                if key not in relationships_dict:
+                    relationships_dict[key] = {
+                        "label": predicate,
+                        "source": f"{source} {source_id}",
+                        "target": f"{target} {target_id}",
+                    }
+                
+                if property_name == "source":
+                    relationships_dict[key]["source_data"] = value
+                else:
+                    relationships_dict[key][property_name] = value
+                
+                if predicate not in edge_type:
+                    edge_type.add(predicate)
+                    edge_to_dict[predicate] = []
+                edge_data = {}
+                edge_data['data'] = relationships_dict[key]
+                edge_to_dict[predicate].append(edge_data)
+        node_list = [{"data": node} for node in nodes.values()]
+        relationship_list = [{"data": relationship} for relationship in relationships_dict.values()]
+
+        result.append(node_list)
+        result.append(relationship_list)
+        return (result, node_to_dict, edge_to_dict)
+
+    def prepare_query_input(self, input, schema):
+        result = []
+
+        tuples = self.metta_seralizer(input[0])
+        for tuple in tuples:
+            if len(tuple) == 2:
+                src_type, src_id = tuple
+                result.append({
+                    "source": f"{src_type} {src_id}"
+                })
+            else:
+                predicate, src_type, src_id, tgt_type, tgt_id = tuple
+                result.append({
+                "predicate": predicate,
+                "source": f"{src_type} {src_id}",
+                "target": f"{tgt_type} {tgt_id}"
+                })
+        
+        query = self.get_node_properties(result, schema)
+        result = self.run_query(query)
+        return result
