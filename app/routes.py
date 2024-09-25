@@ -90,8 +90,11 @@ def process_query():
             "nodes": parsed_result[0],
             "edges": parsed_result[1]
         }
- 
-        response_data = limit_graph(response_data, config['graph']['limit'])
+        
+        limit = config['graph']['limit']
+
+        if isinstance(limit, str) and limit != 'None':
+            response_data = limit_graph(response_data, limit)
 
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
