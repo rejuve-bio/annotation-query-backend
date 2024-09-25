@@ -127,8 +127,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     var_name = f"n_{node_id}"
                     match_no_preds.append(self.match_node(node, var_name))
                     return_no_preds.append(var_name)
-
-            return_preds.extend([f"s0"] + [f"t{i}" for i in range(len(predicates))])
+            # CASE WHEN {var_name} IS NOT NULL THEN {{ node: {var_name}, parent: id(parent{var_name}) }} ELSE null END AS {var_name}WithParent
+            return_preds.extend(
+                [f"s0"]+
+                # [f"CASE WHEN  s0 IS NOT NULL THEN {{  node: {{s0}}, parent: id(parent{{s0}}) }} ELSE null END AS {{s0}}"] + 
+                # [f"CASE WHEN  s0 IS NOT NULL THEN {{  node: {{s0}}, parent: id(parent{{s0}}) }} ELSE null END AS {{s0}}"] + 
+                [
+                 f"CASE WHEN t{i} IS NOT NULL THEN {{  node: t{i}, parent: id(parentt{i}) }} ELSE null END AS t{i}"
+                 for i in range(len(predicates))])
+            # return_preds.extend([f"s0"] + [f"t{i}" for i in range(len(predicates))])
                 
             if (len(match_no_preds) == 0):
                 cypher_query = self.construct_clause(match_preds, return_preds, optional_match_preds, optional_return_preds)
@@ -138,12 +145,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 cypher_queries.append(cypher_query)
         return cypher_queries
     
-    def construct_clause(self, match_clause, return_clause, optional_match_preds=[], optional_return_preds=[]):
+    def construct_clause(self, match_clause, return_clause, optional_match_clause=[], optional_return_clause=[]):
         match_clause = f"MATCH {', '.join(match_clause)}"
         optional_clause= ""
-        if optional_match_preds:
-            optional_clause = f"OPTIONAL MATCH {', '.join(optional_match_preds)}"
-        return_clause = f"RETURN {', '.join( return_clause +  optional_return_preds)}"
+        if optional_match_clause:
+            optional_clause = f"OPTIONAL MATCH {', '.join(optional_match_clause)}"
+        return_clause = f"RETURN {', '.join( return_clause +  optional_return_clause)}"
         query = f"{match_clause} {optional_clause} {return_clause}"
         return query
 
@@ -151,9 +158,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         match_preds = f"MATCH {', '.join(match_preds)}"
         optional_clause = f"OPTIONAL MATCH {', '.join(optional_match_preds)}"
         tmp_return_preds = return_preds
-        return_preds = f"RETURN {', '.join(return_preds +  optional_return_preds)} , null AS {', null AS '.join(return_no_preds)}"
+        return_preds = f"RETURN {', '.join(  return_preds)} , null AS {', null AS '.join(return_no_preds)}"
         match_no_preds = f"MATCH {', '.join(match_no_preds)}"
-        return_no_preds = f"RETURN  {', '.join(return_no_preds + optional_return_union)} , null AS {', null AS '.join(tmp_return_preds)}"
+        return_no_preds = f"RETURN  {', '.join(return_no_preds )} , null AS {', null AS '.join(optional_return_union)}"
         query = f"{match_preds} {optional_clause} {return_preds} UNION {match_no_preds} {return_no_preds}"
         return query
 
@@ -208,11 +215,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         optional_parent_match = f"(parent{var_name})-[]->({var_name})"
         
         # Create the return clause to include both the node and its parent
-        # REMOVE WithParent
-        return_clause = f"CASE WHEN {var_name} IS NOT NULL THEN {{ node: {var_name}, parent: id(parent{var_name}) }} ELSE null END AS {var_name}WithParent"        
+        return_clause = f"CASE WHEN {var_name} IS NOT NULL THEN {{ node: {var_name}, parentis: id(parent{var_name}) }} ELSE null END AS {var_name}"        
         # Create the return clause to include both the node and its parent
-        # REMOVE WithParent
-        return_union = f"null AS {var_name}WithParent"
+        return_union = f"{var_name}"
 
 
         # Return both the OPTIONAL MATCH and RETURN clause

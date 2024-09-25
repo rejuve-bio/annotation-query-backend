@@ -64,18 +64,19 @@ def process_query():
         query_code = db_instance.query_Generator(requests, node_map)
 
         print("query_code", query_code)
+        return 1
         
         # Run the query and parse the results
-        result = db_instance.run_query(query_code)
-        parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema)
+        # result = db_instance.run_query(query_code)
+        # parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema)
         
-        response_data = {
-            "nodes": parsed_result[0],
-            "edges": parsed_result[1]
-        }
+        # response_data = {
+        #     "nodes": parsed_result[0],
+        #     "edges": parsed_result[1]
+        # }
         
-        formatted_response = json.dumps(response_data, indent=4)
-        return Response(formatted_response, mimetype='application/json')
+        # formatted_response = json.dumps(response_data, indent=4)
+        # return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
