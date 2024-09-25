@@ -9,7 +9,7 @@ position entity:
   is_a: biological entity
   input_label: position_entity
   description: >-
-      A biological entity that is defined by its position in the genome
+    A biological entity that is defined by its position in the genome
   properties:
     chr: str
     start: int
@@ -21,7 +21,7 @@ coding element:
   inherit_properties: true
   input_label: coding_element
   description: >-
-      A region of a gene that codes for a protein or peptide
+    A region of a gene that codes for a protein or peptide
   properties:
     source: str
     source_url: str
@@ -32,7 +32,7 @@ non coding element:
   inherit_properties: true
   input_label: non_coding_element
   description: >-
-      A region of a gene that does not code for a protein or peptide
+    A region of a gene that does not code for a protein or peptide
   properties:
     biological_context: str
     source: str
@@ -44,7 +44,7 @@ genomic variant:
   inherit_properties: true
   input_label: genomic_variant
   description: >-
-      A genomic variant is a change in one or more sequence of a genome
+    A genomic variant is a change in one or more sequence of a genome
   properties:
     source: str
     source_url: str
@@ -55,7 +55,7 @@ epigenomic feature:
   inherit_properties: true
   input_label: epigenomic_feature
   description: >-
-      A region of the genome that is associated with epigenetic modifications
+    A region of the genome that is associated with epigenetic modifications
 
   properties:
     biological_context: str
@@ -67,7 +67,7 @@ epigenomic feature:
   is_a: position entity
   input_label: 3d_genome_structure
   description: >-
-      A region of the genome that is associated with 3D genome structure
+    A region of the genome that is associated with 3D genome structure
   properties:
     source: str
     source_url: str
@@ -102,7 +102,7 @@ gene:
   properties:
     gene_name: str
     gene_type: str
-    synonyms:  str[]
+    synonyms: str[]
 
 protein:
   represented_as: node
@@ -158,10 +158,10 @@ snp:
   properties:
     ref: str
     alt: str
-    annotation: obj
+    caf_ref: str
+    caf_alt: str
   description: >-
     A single nucleotide polymorphism (SNP) is a variation in a single nucleotide that occurs at a specific position in the genome
-
 
 structural variant:
   represented_as: node
@@ -169,9 +169,8 @@ structural variant:
   is_a: genomic variant
   inherit_properties: true
   properties:
-      variant_type: str
-      evidence: str
-
+    variant_type: str
+    evidence: str
 
 sequence variant:
   represented_as: node
@@ -186,6 +185,7 @@ sequence variant:
     alt: str
     raw_cadd_score: float
     phred_score: float
+
 
 # ---
 # non-coding elements
@@ -243,8 +243,18 @@ regulatory region:
     biochemical_activity: str
     biological_context: str
 
+transcription binding site:
+  represented_as: node
+  input_label: tfbs
+  is_a: position entity
+  inherit_properties: true
+  description: >-
+    A region of DNA where a transcription factor binds to regulate gene expression
+
 # ---
 # ontologies
+
+# Gene Ontology
 go:
   is_a: ontology term
   represented_as: node
@@ -255,13 +265,68 @@ go:
     synonyms: str[]
     subontology: str
 
+# Uberon Ontology
+uberon:
+  is_a: ontology term
+  represented_as: node
+  input_label: uberon
+  properties:
+    uberon_id: str
+    uberon_name: str
+    uberon_definition: str
+    uberon_synonyms: str[]
+
+# Cell line Ontology
+clo:
+  is_a: ontology term
+  represented_as: node
+  input_label: clo
+  properties:
+    clo_id: str
+    clo_name: str
+    clo_definition: str
+    clo_synonyms: str[]
+
+# Cell Ontology
+cl:
+  is_a: ontology term
+  represented_as: node
+  input_label: cl
+  properties:
+    cl_id: str
+    cl_name: str
+    cl_definition: str
+    cl_synonyms: str[]
+
+# Experimental Factor Ontology
+efo:
+  is_a: ontology term
+  represented_as: node
+  input_label: efo
+  properties:
+    efo_id: str
+    efo_name: str
+    efo_definition: str
+    efo_synonyms: str[]
+
+# BRENDA Tissue Ontology
+bto:
+  is_a: ontology term
+  represented_as: node
+  input_label: bto
+  properties:
+    bto_id: str
+    bto_name: str
+    bto_definition: str
+    bto_synonyms: str[]
+
 motif:
   represented_as: node
   is_a: epigenomic feature
   input_label: motif
   accessible_via:
     name: motifs
-    description: 'TF binding motifs.'
+    description: "TF binding motifs."
     fuzzy_text_search: tf_name
     return: _id, tf_name, source, source_url, pwm, length
   properties:
@@ -280,34 +345,7 @@ tad:
   is_a: 3d genome structure
   inherit_properties: true
   properties:
-        genes: str[]
-
-chromatin state:
-  represented_as: node
-  is_a: epigenomic feature
-  inherit_properties: true
-  input_label: chromatin_state
-  properties:
-    state: str
-
-dnase hypersensitivity site:
-  represented_as: node
-  is_a: epigenomic feature
-  inherit_properties: true
-  input_label: dnase_hypersensitivity_site
-  description: >-
-    A region of chromatin that is sensitive to cleavage by the enzyme DNase I
-
-histone modification:
-  represented_as: node
-  is_a: epigenomic feature
-  inherit_properties: true
-  input_label: histone_modification
-  description: >
-    A post-translational modification of histone proteins e.g methylation, acetylation, phosphorylation
-  properties:
-    modification: str
-    modification_type: str
+    genes: str[]
 
 # ---
 # Associations
@@ -357,6 +395,7 @@ transcribed to:
   exact_mappings:
     - RO:0002511
     - SIO:010080
+
 
 transcribed from:
   is_a: expression
@@ -424,8 +463,67 @@ post translational interaction:
   properties:
     score: float
 
+expressed in:
+  description: >-
+    holds between a gene and an ontology term in which it is expressed
+  is_a: expression
+  inherit_properties: true
+  represented_as: edge
+  input_label: expressed_in
+  source: gene
+  target: ontology term
+  properties:
+    score: float
+    p_value: float
+
 # ---
 # annotation
+
+has part:
+  is_a: annotation
+  inherit_properties: true
+  represented_as: edge
+  input_label: has_part
+  source: ontology term
+  target: ontology term
+
+part of:
+  is_a: annotation
+  inherit_properties: true
+  represented_as: edge
+  input_label: part_of
+  source: ontology term
+  target: ontology term
+
+subclass of:
+  is_a: annotation
+  inherit_properties: true
+  represented_as: edge
+  input_label: subclass_of
+  source: ontology term
+  target: ontology term
+  properties:
+    rel_type: str
+
+cl capable of:
+  is_a: annotation
+  represented_as: edge
+  input_label: cl_capable_of
+  output_label: capable_of
+  description: >-
+    Represents a functional capability relationship between a CL term and a GO term.
+  source: cl
+  target: go
+
+cl part of:
+  is_a: part of
+  represented_as: edge
+  input_label: cl_part_of
+  output_label: part_of
+  description: >-
+    Represents a part-whole relationship between a CL term and an UBERON term.
+  source: cl
+  target: uberon
 
 gene to pathway association:
   description: >-
@@ -438,30 +536,71 @@ gene to pathway association:
   target: pathway
 
 parent pathway of:
-    is_a: annotation
-    inherit_properties: true
-    description: >-
-      holds between two pathways where the domain class is a parent pathway of the range class
-    represented_as: edge
-    input_label: parent_pathway_of
-    source: pathway
-    target: pathway
-
-child pathway of:
-    is_a: annotation
-    inherit_properties: true
-    description: >-
-      holds between two pathways where the domain class is a child pathway of the range class
-    represented_as: edge
-    input_label: child_pathway_of
-    source: pathway
-    target: pathway
-
-go subtype of:
   is_a: annotation
   inherit_properties: true
+  description: >-
+    holds between two pathways where the domain class is a parent pathway of the range class
   represented_as: edge
-  input_label: subtype_of
+  input_label: parent_pathway_of
+  source: pathway
+  target: pathway
+
+child pathway of:
+  is_a: annotation
+  inherit_properties: true
+  description: >-
+    holds between two pathways where the domain class is a child pathway of the range class
+  represented_as: edge
+  input_label: child_pathway_of
+  source: pathway
+  target: pathway
+
+bto subclass of:
+  is_a: subclass of
+  represented_as: edge
+  input_label: bto_subclass_of
+  output_label: subclass_of
+  source: bto
+  target: bto
+
+efo subclass of:
+  is_a: subclass of
+  represented_as: edge
+  input_label: efo_subclass_of
+  output_label: subclass_of
+  source: efo
+  target: efo
+
+
+uberon subclass of:
+  is_a: subclass of
+  represented_as: edge
+  input_label: uberon_subclass_of
+  output_label: subclass_of
+  source: uberon
+  target: uberon
+
+clo subclass of:
+  is_a: subclass of
+  represented_as: edge
+  input_label: clo_subclass_of
+  output_label: subclass_of
+  source: clo
+  target: clo
+
+cl subclass of:
+  is_a: subclass of
+  represented_as: edge
+  input_label: cl_subclass_of
+  output_label: subclass_of
+  source: cl
+  target: cl
+
+go subclass of:
+  is_a: subclass of
+  represented_as: edge
+  input_label: go_subclass_of
+  output_label: subclass_of
   source: go
   target: go
 
@@ -470,7 +609,7 @@ go gene product:
   inherit_properties: true
   represented_as: edge
   input_label: go_gene_product
-  source: gene ontology
+  source: go
   target: protein
   properties:
     qualifier: obj
@@ -499,35 +638,6 @@ go rna:
   source: non coding rna
   target: go
 
-ontology has part:
-  is_a: annotation
-  inherit_properties: true
-  represented_as: edge
-  input_label: ontology_has_part
-  output_label: has_part
-  source: ontology term
-  target: ontology term
-
-ontology part of:
-  is_a: annotation
-  inherit_properties: true
-  represented_as: edge
-  input_label: ontology_part_of
-  output_label: part_of
-  source: ontology term
-  target: ontology term
-
-ontology subclass of:
-  is_a: annotation
-  inherit_properties: true
-  represented_as: edge
-  input_label: ontology_subclass_of
-  output_label: subclass_of
-  source: ontology term
-  target: ontology term
-  properties:
-    rel_type: str
-
 # ---
 # regulatory association
 
@@ -538,7 +648,7 @@ enhancer to gene association:
   inherit_properties: true
   represented_as: edge
   input_label: enhancer_gene
-  output_label: regulates
+  output_label: associated_with
   source: enhancer
   target: gene
   properties:
@@ -547,17 +657,17 @@ enhancer to gene association:
 
 promoter to gene association:
   description: >-
-      An association between a promoter and a gene
+    An association between a promoter and a gene
   is_a: regulatory association
   inherit_properties: true
   represented_as: edge
   input_label: promoter_gene
-  output_label: regulates
+  output_label: associated_with
   source: promoter
   target: gene
   properties:
-      score: float
-      biological_context: str
+    score: float
+    biological_context: str
 
 super enhancer to gene association:
   description: >-
@@ -566,7 +676,7 @@ super enhancer to gene association:
   inherit_properties: true
   represented_as: edge
   input_label: super_enhancer_gene
-  output_label: regulates
+  output_label: associated_with
   source: super enhancer
   target: gene
   properties:
@@ -600,17 +710,17 @@ regulatory region to gene association:
   source: regulatory_region
   target: gene
   properties:
-    abc_score: float
+    score: float
     biological_context: str
 
 gtex variant to gene expression association:
-  aliases: [ 'eQTL', 'e-QTL']
+  aliases: ["eQTL", "e-QTL"]
   description: >-
     An association between a variant and expression of a gene (i.e. e-QTL)
   is_a: related to at instance level
   represented_as: edge
   input_label: gtex_variant_gene
-  output_label: correlates_with
+  output_label: eqtl_association
   source: snp
   target: gene
   properties:
@@ -630,7 +740,6 @@ closest gene to variant association:
   input_label: closest_gene
   source: snp
   target: gene
-
   properties:
     chr: str
     pos: int
@@ -645,34 +754,44 @@ upstream gene to variant association:
   description: >-
     holds between a sequence variant and a gene that is upstream to the variant
   represented_as: edge
-  input_label: upstream_gene
+  input_label: snp_upstream_gene
+  output_label: upstream_of
   source: snp
   target: gene
-
+  properties:
+    distance: int
+    p_value: float
 
 downstream gene to variant association:
   is_a: closest gene to variant association
   inherit_properties: true
   description: >-
-      holds between a sequence variant and a gene that is downstream to the variant
+    holds between a sequence variant and a gene that is downstream to the variant
   represented_as: edge
-  input_label: downstream_gene
+  input_label: snp_downstream_gene
+  output_label: downstream_of
   source: snp
   target: gene
+  properties:
+    distance: int
+    p_value: float
 
 in gene to variant association:
   is_a: closest gene to variant association
   description: >-
     holds between a sequence variant and a gene that is within the gene body
   represented_as: edge
-  input_label: in_gene
+  input_label: snp_in_gene
+  output_label: located_in
   source: snp
   target: gene
-  inherit_properties: true
+  properties:
+    p_value: float
 
 topld in linkage disequilibrium with:
   is_a: related to at instance level
-  description: holds between two sequence variants, the presence of which are correlated
+  description:
+    holds between two sequence variants, the presence of which are correlated
     in a population
   represented_as: edge
   input_label: in_ld_with
@@ -684,7 +803,6 @@ topld in linkage disequilibrium with:
     d_prime: float
     source: str
     source_url: str
-
 
 lower resolution structure:
   is_a: related to at instance level
@@ -703,3 +821,94 @@ located on chain:
   input_label: located_on_chain
   source: position_entity
   target: chromosome_chain
+
+transcription factor to snp association:
+  is_a: related to at instance level
+  description: holds between a transcription factor and a snp if the snp occurs in a transcription factor binding site (tfbs)
+  represented_as: edge
+  input_label: tfbs_snp
+  source: gene
+  target: snp
+  properties:
+    effect: str
+    score: float
+    source: str
+    source_url: str
+
+gene to transcription binding site association:
+  represented_as: edge
+  is_a: related at instance level
+  input_label: gene_tfbs
+  output_label: binds_to
+  description: >-
+    An association between a transcription factor and its binding site
+  source: gene
+  target: tfbs
+  properties:
+    score: float
+    source: str
+    source_url: str
+
+gene in tad region:
+  is_a: related to at instance level
+  description: holds between a tad and a gene that is in the tad region
+  represented_as: edge
+  input_label: in_tad_region
+  source: gene
+  target: tad
+
+activity by contact:
+  description: >-
+    An association between a variant in a regulatory region and a gene it predicted by the ABC model (Fulco et.al 2019)
+  is_a: regulatory association
+  inherit_properties: true
+  represented_as: edge
+  input_label: activity_by_contact
+  source: snp
+  target: gene
+  properties:
+    score: float
+    biological_context: str
+
+chromatin state:
+  is_a: related to at instance level
+  represented_as: edge
+  input_label: chromatin_state
+  source: snp
+  target: uberon #TODO replace by cell ontology
+  properties:
+    state: str
+
+dnase I hotspot:
+  is_a: related to at instance level
+  description: >-
+    A region of chromatin that is sensitive to cleavage by the enzyme DNase I
+  represented_as: edge
+  input_label: in_dnase_I_hotspot
+  source: snp
+  target: uberon #TODO replace by cell ontology
+
+
+histone modification:
+  is_a: related to at instance level
+  description: >-
+    A post-translational modification of histone proteins e.g methylation, acetylation, phosphorylation
+  represented_as: edge
+  input_label: histone_modification
+  source: snp
+  target: uberon #TODO replace by cell ontology
+  properties:
+    modification: str
+    
+transcript_to_exon:
+  is_a: related to at instance
+  description: >-
+    An association between a transcript and its exons
+  represented_as: edge
+  input_label: includes
+  source: transcript
+  target: exon
+  properties: 
+    source: str
+    source_url: str
+

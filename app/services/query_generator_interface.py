@@ -12,3 +12,7 @@ class QueryGeneratorInterface(ABC):
     @abstractmethod
     def parse_and_serialize(self, input, schema)-> list:
         pass
+
+    @abstractmethod
+    def convert_to_dict(self, results, schema)-> tuple:
+        pass
