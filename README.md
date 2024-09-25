@@ -14,7 +14,7 @@ _Supported OS:_ **Linux & Mac**
 1. **Clone the Repository**:
 
    ```sh
-   git clone https://github.com/eyasubirhanu/annotation-query-backend.git
+   git clone https://github.com/rejuve-bio/annotation-query-backend.git
    cd annotation-query-backend
    ```
 
