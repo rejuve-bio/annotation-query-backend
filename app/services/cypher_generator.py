@@ -153,9 +153,25 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return f"({var_name}:{node['type']})"
 
     def parse_neo4j_results(self, results):
+        (nodes, edges, _, _) = self.process_result(results)
+        return {"nodes": nodes, "edges": edges}
+
+    def parse_and_serialize(self, input, schema):
+        parsed_result = self.parse_neo4j_results(input)
+        return parsed_result["nodes"], parsed_result["edges"]
+
+    def convert_to_dict(self, results, schema):
+        (_, _, node_dict, edge_dict) = self.process_result(results)
+        return (node_dict, edge_dict)
+
+    def process_result(self, results):
         nodes = []
         edges = []
         node_dict = {}
+        node_to_dict = {}
+        edge_to_dict = {}
+        node_type = set()
+        edge_type = set()
 
         for record in results:
             for item in record.values():
@@ -172,6 +188,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                             if key != "id" and key!= "synonyms":
                                 node_data["data"][key] = value
                         nodes.append(node_data)
+                        if node_data["data"]["type"] not in node_type:
+                            node_type.add(node_data["data"]["type"])
+                            node_to_dict[node_data['data']['type']] = []
+                        node_to_dict[node_data['data']['type']].append(node_data)
                         node_dict[node_id] = node_data
                 elif isinstance(item, neo4j.graph.Relationship):
                     source_id = f"{list(item.start_node.labels)[0]} {item.start_node['id']}"
@@ -191,10 +211,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         else:
                             edge_data["data"][key] = value
                     edges.append(edge_data)
+                    if edge_data["data"]["label"] not in edge_type:
+                        edge_type.add(edge_data["data"]["label"])
+                        edge_to_dict[edge_data['data']['label']] = []
+                    edge_to_dict[edge_data['data']['label']].append(edge_data)
+    
 
-        return {"nodes": nodes, "edges": edges}
-
-    def parse_and_serialize(self, input,schema):
-        parsed_result = self.parse_neo4j_results(input)
-        return parsed_result["nodes"], parsed_result["edges"]
-
+        return (nodes, edges, node_to_dict, edge_to_dict)
