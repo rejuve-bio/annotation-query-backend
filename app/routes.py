@@ -105,7 +105,7 @@ def process_email_query():
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
     if 'email' not in data:
-        return jsonify({"error": "Email missing"})
+        return jsonify({"error": "Email missing"}), 400
     @copy_current_request_context
     def send_full_data():
         try:
