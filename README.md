@@ -58,7 +58,7 @@ _Supported OS:_ **Linux & Mac**
    ```
 
 7. **Set Graph Query Limit**
-   In the config directory modify config.yaml to change the maximum number of nodes to return while relevant information is returned without truncating the result
+   In the config directory modify config.yaml to change the maximum number of nodes to return while relevant information is returned without truncating the result. if the limit is set to 'None' it will return the full result
 
    Example
 
