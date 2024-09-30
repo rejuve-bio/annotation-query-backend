@@ -120,7 +120,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 if node_id not in used_nodes:
                     var_name = f"n_{node_id}"
                     match_no_preds.append(self.match_node(node, var_name))
-                    optional_match_preds.append(self.optional_parent_match(var_name))
+                    # optional_match_preds.append(self.optional_parent_match(var_name))
                     return_no_preds.append(var_name)
 
             return_preds.extend(list(node_ids))
@@ -142,15 +142,22 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds,edges):
         match_preds = f"MATCH {', '.join(match_preds)}"
         # parent field returns null if more than one node is not present
-        optional_clause = f"OPTIONAL MATCH {', '.join(optional_match_preds)}"
-        # multiline optional match as a potential silution
-        # optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
+        # multiline optional match as a solution
+        optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
+        
+        # make the ids into a list with distinct values to avoid node duplication
+        collect_parent_nodes = [f"collect(distinct id(parent{var_name})) AS parent{var_name}" for var_name in return_preds]
+        with_clause = f"WITH {', '.join(return_preds + edges + collect_parent_nodes)}"
+
         tmp_return_preds = return_preds + edges
-        nodes = [f"CASE WHEN {var_name} IS NOT NULL THEN {{ node: {var_name}, parent: id(parent{var_name}) }} ELSE null END AS {var_name}" for var_name in return_preds + return_no_preds]
-        return_preds = f"RETURN {', '.join(edges + nodes)}"
+        # { node: n2{.*, parent: parentn2}}
+        nodes = [f"CASE WHEN {var_name} IS NOT NULL THEN {{ node: {var_name}{{.*,parent: parent{var_name}}} }} ELSE null END AS {var_name}" for var_name in return_preds]
+        nodes_no_pred = [f"null AS {var_name}" for var_name in return_no_preds]
+        return_preds = f"RETURN {', '.join(edges + nodes + nodes_no_pred)}"
         match_no_preds = f"MATCH {', '.join(match_no_preds)}"
         return_no_preds = f"RETURN  {', '.join(return_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
-        query = f"{match_preds} {optional_clause} {return_preds} UNION {match_no_preds} {return_no_preds}"
+
+        query = f"{match_preds} {optional_clause} {with_clause} {return_preds} UNION {match_no_preds} {return_no_preds}"
         return query
 
     def match_node(self, node, var_name):
@@ -167,8 +174,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return {"nodes": nodes, "edges": edges}
 
     def parse_and_serialize(self, input, schema):
+        # print("input ", input)
         parsed_result = self.parse_neo4j_results(input)
-        return parsed_result["nodes"], parsed_result["edges"]
+        # print("parsed_result ", parsed_result)
+        # return parsed_result["nodes"], parsed_result["edges"]
 
     def convert_to_dict(self, results, schema):
         (_, _, node_dict, edge_dict) = self.process_result(results)
@@ -182,9 +191,24 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         edge_to_dict = {}
         node_type = set()
         edge_type = set()
-
+        print("results ", results[0])
+        print("results ", results[1])
+        print("results ", results[2])
+        print("results ", results[3])
+        # return (nodes, edges, node_to_dict, edge_to_dict)
         for record in results:
             for item in record.values():
+                if isinstance(item, neo4j.graph.Node):
+                    print("node", item)
+                elif isinstance(item, neo4j.graph.Relationship):
+                    print("edge", item)
+                else:
+                    print("item ", item)
+        return
+        for record in results:
+            for item in record.values():
+                print("item ", item)
+                return
                 if isinstance(item, neo4j.graph.Node):
                     node_id = f"{list(item.labels)[0]} {item['id']}"
                     if node_id not in node_dict:
@@ -231,6 +255,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def optional_parent_match(self, var_name):
         # Add OPTIONAL MATCH for incoming relationships to the node
-        optional_parent_match = f"(parent{var_name})-[]->({var_name})"
+        optional_parent_match = f"(parent{var_name})<-[]-({var_name})"
 
         return optional_parent_match
