@@ -228,11 +228,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         node_to_dict[node_data['data']['type']].append(node_data)
                         node_dict[node_id] = node_data
                 elif isinstance(item, neo4j.graph.Relationship):
-                    print('in an edge')
-                    print('in an edge', item)
-                    print("edge", item.nodes)
-                    print("edge", item.nodes[0].id)
-                    print("edge", item.nodes[1].id)
                     source_id = f"{item.nodes[0].id}"
                     target_id = f"{item.nodes[1].id}"
                     edge_data = {
