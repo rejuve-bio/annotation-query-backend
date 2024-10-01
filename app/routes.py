@@ -75,10 +75,13 @@ def process_query():
         node_map = validate_request(requests, schema_manager.schema)
         if node_map is None:
             return jsonify({"error": "Invalid node_map returned by validate_request"}), 400
-        
+
         database_type = config['database']['type']
         db_instance = databases[database_type]
-        
+
+        #convert id to appropriate format
+        requests = db_instance.parse_id(requests)
+
         # Generate the query code
         query_code = db_instance.query_Generator(requests, node_map)
         
