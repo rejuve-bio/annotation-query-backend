@@ -86,18 +86,18 @@ def process_query():
         result = db_instance.run_query(query_code)
         parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema)
         
-        # response_data = {
-        #     "nodes": parsed_result[0],
-        #     "edges": parsed_result[1]
-        # }
+        response_data = {
+            "nodes": parsed_result[0],
+            "edges": parsed_result[1]
+        }
         
-        # limit = config['graph']['limit']
+        limit = config['graph']['limit']
 
-        # if isinstance(limit, str) and limit != 'None':
-        #     response_data = limit_graph(response_data, limit)
+        if isinstance(limit, str) and limit != 'None':
+            response_data = limit_graph(response_data, limit)
 
-        # formatted_response = json.dumps(response_data, indent=4)
-        # return Response(formatted_response, mimetype='application/json')
+        formatted_response = json.dumps(response_data, indent=4)
+        return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
