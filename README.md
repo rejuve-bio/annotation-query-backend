@@ -83,17 +83,7 @@ _Supported OS:_ **Linux & Mac**
     type = cypher  # Change to 'metta' if needed
    ```
 
-8. **Set Graph Query Limit**
-   In the config directory modify config.yaml to change the maximum number of nodes to return while relevant information is returned without truncating the result. if the limit is set to 'None' it will return the full result
-
-   Example
-
-   ```config
-   graph:
-       limit = 100 #set the maximum number of nodes to return
-   ```
-
-9. **Run the Application**:
+8. **Run the Application**:
 
 ```sh
 flask run
