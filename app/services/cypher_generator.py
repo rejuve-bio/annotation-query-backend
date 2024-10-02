@@ -171,6 +171,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         node_type = set()
         edge_type = set()
 
+        named_types = ['gene_name', 'transcript_name', 'protein_name']
+
         for record in results:
             for item in record.values():
                 if isinstance(item, neo4j.graph.Node):
@@ -182,14 +184,23 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                                 "type": list(item.labels)[0],
                             }
                         }
+                        full_data = {
+                            "data": {
+                                "id": node_id,
+                                "type": list(item.labels)[0],
+                            }
+                        }
+                        # just add the name
                         for key, value in item.items():
-                            if key != "id" and key!= "synonyms":
-                                node_data["data"][key] = value
+                            if key in named_types:
+                                node_data["data"]["name"] = value
+                            if key != "id":
+                                full_data["data"][key] = value
                         nodes.append(node_data)
-                        if node_data["data"]["type"] not in node_type:
-                            node_type.add(node_data["data"]["type"])
-                            node_to_dict[node_data['data']['type']] = []
-                        node_to_dict[node_data['data']['type']].append(node_data)
+                        if full_data["data"]["type"] not in node_type:
+                            node_type.add(full_data["data"]["type"])
+                            node_to_dict[full_data['data']['type']] = []
+                        node_to_dict[full_data['data']['type']].append(full_data)
                         node_dict[node_id] = node_data
                 elif isinstance(item, neo4j.graph.Relationship):
                     source_id = f"{list(item.start_node.labels)[0]} {item.start_node['id']}"
@@ -214,15 +225,17 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         edge_to_dict[edge_data['data']['label']] = []
                     edge_to_dict[edge_data['data']['label']].append(edge_data)
     
-
         return (nodes, edges, node_to_dict, edge_to_dict)
 
     def parse_id(self, request):
         nodes = request["nodes"]
         named_types = {"gene": "gene_name", "transcript": "transcript_name"}
         for node in nodes:
-            if node['type'] in named_types and not node["id"].startswith('ENS') and node["id"] != '':
-                node['properties'][named_types[node['type']]] = node["id"]
+            is_named_type = node['type'] in named_types
+            is_name_as_id = not node["id"].startswith("ENS") and node["id"] != ''
+            if is_named_type and is_name_as_id:
+                node_type = named_types[node['type']]
+                node['properties'][node_type] = node["id"]
                 node['id'] = ''
             node["id"] = node["id"].lower()
         return request
