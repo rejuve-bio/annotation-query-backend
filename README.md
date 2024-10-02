@@ -41,11 +41,17 @@ _Supported OS:_ **Linux & Mac**
 5. **Flask-Mail Configuration**:
    Add the following environment variables for email functionality:
    `MAIL_SERVER`: The address of the mail server that the application will use to send emails (e.g., smtp.gmail.com for Gmail).
+
    `MAIL_PORT`: The port number used by the mail server. Common ports include 587 for TLS (Transport Layer Security) or 465 for SSL (Secure Sockets Layer).
+
    `MAIL_USE_TLS`: If set to True, this enables Transport Layer Security (TLS) for securing the email transmission. Typically used with port 587.
+
    `MAIL_USE_SSL`: If set to True, this enables SSL (Secure Sockets Layer) for securing the email transmission. Typically used with port 465. It is not used when MAIL_USE_TLS is enabled
+
    `MAIL_USERNAME`: The email account username that will be used to authenticate with the mail serve
+
    `MAIL_PASSWORD`: The password or app-specific password (for services like Gmail) for the mail account used for sending emails.
+
    `MAIL_DEFAULT_SENDER`: The default email address that will appear in the "From" field of outgoing emails if the sender is not specified in the email message.
 
    ```plaintext
