@@ -195,6 +195,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
 
     def process_result(self, results):
         nodes = {}
+        full_node = {}
         relationships_dict = {}
         result = []
         node_to_dict = {}
@@ -202,6 +203,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         node_type = set()
         edge_type = set()
         tuples = self.metta_seralizer(results)
+        named_types = ['gene_name', 'transcript_name', 'protein_name']
 
         for match in tuples:
             graph_attribute = match[0]
@@ -220,14 +222,23 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                         "id": f"{src_type} {src_value}",
                         "type": src_type,
                     }
-                nodes[(src_type, src_value)][predicate] = tgt
+                    full_node[(src_type, src_value)] = {
+                        "id": f"{src_type} {src_value}",
+                        "type": src_type
+                    }
+
+                full_node[(src_type, src_value)][predicate] = tgt
+
+                if predicate in named_types:
+                    nodes[(src_type, src_value)]['name'] = tgt
+
                 if 'synonyms' in nodes[(src_type, src_value)]:
                     del nodes[(src_type, src_value)]['synonyms']
                 if src_type not in node_type:
                     node_type.add(src_type)
                     node_to_dict[src_type] = []
                 node_data = {}
-                node_data["data"] = nodes[(src_type, src_value)]
+                node_data["data"] = full_node[(src_type, src_value)]
                 node_to_dict[src_type].append(node_data)
             elif graph_attribute == "edge":
                 property_name, predicate, source, source_id, target, target_id = match[:6]
@@ -276,15 +287,20 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                 "source": f"{src_type} {src_id}",
                 "target": f"{tgt_type} {tgt_id}"
                 })
-        
+
         query = self.get_node_properties(result, schema)
         result = self.run_query(query)
         return result
 
     def parse_id(self, request):
-        nodes = request["node"]
+        nodes = request["nodes"]
         named_types = {"gene": "gene_name", "transcript": "transcript_name"}
-        for node in nodes.values():
-            if node['type'] in named_types and not node["id"].startswith('ENS'):
-                node['properties'][named_types[node['type']]] = node["id"] 
+        for node in nodes:
+            is_named_type = node['type'] in named_types
+            is_name_as_id = not node["id"].startswith("ENS") and node["id"] != ''
+            if is_named_type and is_name_as_id:
+                node_type = named_types[node['type']]
+                node['properties'][node_type] = node["id"]
+                node['id'] = ''
+
         return request
