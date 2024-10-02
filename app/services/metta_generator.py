@@ -280,3 +280,20 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         query = self.get_node_properties(result, schema)
         result = self.run_query(query)
         return result
+
+    def parse_id(self, requests):
+        id_guide = {
+                    "exon": lambda s : s.upper(),
+                    "gene": lambda s : s.upper(),
+                    "transcript": lambda s : s.upper(),
+                    "protein": lambda s: s.upper(),
+                    "pathway": lambda s: s.upper(),
+                }
+        for node in requests['nodes']:
+            if node['type'] == 'gene' and not node['id'].startswith('ENSG'):
+                node['properties']['gene_name'] = node['id']
+                node['id'] = ''
+            if node['id'] != '' and node["type"] in id_guide:
+                node['id'] = id_guide[node["type"]](node["id"])
+
+        return requests 

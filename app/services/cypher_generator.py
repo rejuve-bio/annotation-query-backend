@@ -78,6 +78,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         match_preds = []
         optional_match_preds = []
         edges = [] # added edges to separate nodes
+        return_edges = []
+        edge_returns = []
         return_preds = []
         match_no_preds = []
         return_no_preds = []
@@ -110,6 +112,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
                 match_preds.append(f"({source_var})-[r{i}:{predicate_type}]->{target_match}")
                 edges.append(f"r{i}")
+                edges.append(f"labels(startNode(r{i})) AS startNodeLabels_r{i}")
+                edges.append(f"labels(endNode(r{i})) AS  endNodeLabels_r{i}")
+
+                edge_returns.append(f"r{i}")
+                
+                return_edges.append(f"{{relationship: r{i}, startNodeLabel: startNodeLabels_r{i}, endNodeLabel: endNodeLabels_r{i}}} AS r{i}")
 
                 used_nodes.add(predicate['source'])
                 used_nodes.add(predicate['target'])
@@ -125,20 +133,20 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return_preds.extend(list(node_ids))
                 
             if (len(match_no_preds) == 0):
-                cypher_query = self.construct_clause(match_preds, return_preds)
+                cypher_query = self.construct_clause(match_preds, return_preds, edge_returns)
                 cypher_queries.append(cypher_query)
             else:
-                cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges)
+                cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges, return_edges, edge_returns)
                 cypher_queries.append(cypher_query)
         return cypher_queries
     
-    def construct_clause(self, match_clause, return_clause):
+    def construct_clause(self, match_clause, return_clause, edge_returns):
         match_clause = f"MATCH {', '.join(match_clause)}"
-        return_clause = f"RETURN {', '.join(return_clause)}"
+        return_clause = f"RETURN {', '.join(return_clause + edge_returns)}"
         query = f"{match_clause} {return_clause}"
         return query
 
-    def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds,edges):
+    def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds,edges, return_edges, edge_returns):
         match_preds = f"MATCH {', '.join(match_preds)}"
         
         # parent field returns null if more than one node is not present
@@ -148,8 +156,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # make the ids into a list with distinct values to avoid node duplication
         collect_parent_nodes = [f"collect(distinct id(parent{var_name})) AS parent{var_name}" for var_name in return_preds]
         with_clause = f"WITH {', '.join(return_preds + edges + collect_parent_nodes)}"
+        #with_clause += f" RETURN {', '.join(edges)}"
+        tmp_return_preds = return_preds + edge_returns
 
-        tmp_return_preds = return_preds + edges
         
         nodes = [f"CASE WHEN {var_name} IS NOT NULL THEN {{ properties: {var_name}{{.*, parent: parent{var_name}}}, id: id({var_name}), labels: labels({var_name}), elementId: elementId({var_name}) }} ELSE null END AS {var_name}" for var_name in return_preds]
         # output example
@@ -166,11 +175,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # null AS n2
 
         nodes_no_pred = [f"null AS {var_name}" for var_name in return_no_preds]
-        return_preds = f"RETURN {', '.join(edges + nodes + nodes_no_pred)}"
+        return_preds = f"RETURN {', '.join(return_edges + nodes + nodes_no_pred)}"
         match_no_preds = f"MATCH {', '.join(match_no_preds)}"
         return_no_preds = f"RETURN  {', '.join(return_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
 
         query = f"{match_preds} {optional_clause} {with_clause} {return_preds} UNION {match_no_preds} {return_no_preds}"
+        print(query)
         return query
 
     def match_node(self, node, var_name):
@@ -207,15 +217,31 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         node_type = set()
         edge_type = set()
         for record in results:
+            #print("---")
+            #print(record)
+            #print("--")
             for item in record.values():
+
+                if item is None:
+                    continue
                 # Checking if the item is a node of our return type
-                if self.is_dict_node(item):
-                    node_id = f"{list(item['labels'])[0]} {item['properties']['id']}"
+                if self.is_dict_node(item) or isinstance(item, neo4j.graph.Node):
+                    #print("item")
+                    label = None
+                    properties = None
+                    if self.is_dict_node(item):
+                        label = list(item['labels'])[0]
+                        properties = item['properties']['id']
+                        node_id = f"{item['id']}"
+                    else:
+                        label = list(item.labels)[0]
+                        properties = item['id']
+                        node_id = f"{label} {properties}"
                     if node_id not in node_dict:
                         node_data = {
                             "data": {
                                 "id": node_id,
-                                "type": list(item['labels'])[0],
+                                "type": label,
                             }
                         }
                         for key, value in item.items():
@@ -227,28 +253,33 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                             node_to_dict[node_data['data']['type']] = []
                         node_to_dict[node_data['data']['type']].append(node_data)
                         node_dict[node_id] = node_data
-                elif isinstance(item, neo4j.graph.Relationship):
-                    print('in an edge')
-                    print('in an edge', item)
-                    print("edge", item.nodes)
-                    print("edge", item.nodes[0].id)
-                    print("edge", item.nodes[1].id)
+                elif "relationship" in item or isinstance(item, neo4j.graph.Relationship):
+                    print('---')
+                    print(item)
+                    print('---')
+                    source_label = item["startNodeLabel"][0]
+                    target_label = item["endNodeLabel"][0]
+                    if "relationship" in item:
+                        item = item["relationship"]
                     source_id = f"{item.nodes[0].id}"
                     target_id = f"{item.nodes[1].id}"
+                    #source_label = f"{list(item.labels)[0]}"
                     edge_data = {
                         "data": {
                             # "id": item.id,
                             "label": item.type,
                             "source": source_id,
                             "target": target_id,
+                            "source_label": source_label,
+                            "target_label": target_label
                         }
                     }
-
-                    for key, value in item.items():
-                        if key == 'source':
-                            edge_data["data"]["source_data"] = value
-                        else:
-                            edge_data["data"][key] = value
+                    if item is not None or isinstance(item, type):
+                        for key, value in item.items():
+                            if key == 'source':
+                                edge_data["data"]["source_data"] = value
+                            else:
+                                edge_data["data"][key] = value
                     edges.append(edge_data)
                     if edge_data["data"]["label"] not in edge_type:
                         edge_type.add(edge_data["data"]["label"])
