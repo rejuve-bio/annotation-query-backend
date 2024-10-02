@@ -1,4 +1,4 @@
 database:
   type: cypher
 graph:
-  limit: None
+  limit: 100
