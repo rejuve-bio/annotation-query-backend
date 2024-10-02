@@ -125,7 +125,9 @@ def process_email_query():
         
             database_type = config['database']['type']
             db_instance = databases[database_type]
-        
+            
+            requests = db_instance.parse_id(requests)
+
             # Generate the query code
             query_code = db_instance.query_Generator(requests, node_map)
         

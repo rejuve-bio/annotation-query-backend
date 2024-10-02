@@ -233,3 +233,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 node['id'] = id_guide[node["type"]](node["id"])
 
         return requests
+
+    def parse_id(self, request):
+        nodes = request["nodes"]
+        named_types = {"gene": "gene_name", "transcript": "transcript_name"}
+        for node in nodes:
+            if node['type'] in named_types and not node["id"].startswith('ENS') and node["id"] != '':
+                node['properties'][named_types[node['type']]] = node["id"]
+                node['id'] = ''
+            node["id"] = node["id"].lower()
+        return request

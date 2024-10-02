@@ -280,3 +280,11 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         query = self.get_node_properties(result, schema)
         result = self.run_query(query)
         return result
+
+    def parse_id(self, request):
+        nodes = request["node"]
+        named_types = {"gene": "gene_name", "transcript": "transcript_name"}
+        for node in nodes.values():
+            if node['type'] in named_types and not node["id"].startswith('ENS'):
+                node['properties'][named_types[node['type']]] = node["id"] 
+        return request
