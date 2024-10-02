@@ -10,15 +10,16 @@ from flask_cors import CORS
 from app.lib import limit_graph
 from app.lib.email import init_mail, send_email
 from dotenv import load_dotenv
+from distutils.util import strtobool
 
 # Load environmental variables
 load_dotenv()
 
 # Flask-Mail configuration
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER') 
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = False
-app.config['mAIL_USE_SSL'] = False
+app.config['MAIL_PORT'] = os.getenv('MAIL_PORT')
+app.config['MAIL_USE_TLS'] = bool(strtobool(os.getenv('MAIL_USE_TLS')))
+app.config['MAIL_USE_SSL'] = bool(strtobool(os.getenv('MAIL_USE_SSL')))
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER')
@@ -67,7 +68,16 @@ def process_query():
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
+    
+    limit = request.args.get('limit')
 
+    if limit:
+        try:
+            limit = int(limit)
+        except ValueError:
+            return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
+    else:
+        limit = None
     try:
         requests = data['requests']
         
@@ -94,9 +104,7 @@ def process_query():
             "edges": parsed_result[1]
         }
         
-        limit = config['graph']['limit']
-
-        if isinstance(limit, str) and limit != 'None':
+        if limit:
             response_data = limit_graph(response_data, limit)
 
         formatted_response = json.dumps(response_data, indent=4)
