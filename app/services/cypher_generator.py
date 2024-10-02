@@ -217,23 +217,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         return (nodes, edges, node_to_dict, edge_to_dict)
 
-    def parse_id(self, requests):
-        id_guide = {
-                    "exon": lambda s : s.lower(),
-                    "gene": lambda s : s.lower(),
-                    "transcript": lambda s : s.lower(),
-                    "protein": lambda s: s.lower(),
-                    "pathway": lambda s: s.lower(),
-                }
-        for node in requests['nodes']:
-            if node['type'] == 'gene' and not node['id'].startswith('ENSG'):
-                node['properties']['gene_name'] = node['id']
-                node['id'] = ''
-            if node['id'] != '' and node["type"] in id_guide:
-                node['id'] = id_guide[node["type"]](node["id"])
-
-        return requests
-
     def parse_id(self, request):
         nodes = request["nodes"]
         named_types = {"gene": "gene_name", "transcript": "transcript_name"}
