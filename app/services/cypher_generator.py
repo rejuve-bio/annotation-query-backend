@@ -161,6 +161,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         
         nodes = [f"CASE WHEN {var_name} IS NOT NULL THEN {{ properties: {var_name}{{.*, parent: parent{var_name}}}, id: id({var_name}), labels: labels({var_name}), elementId: elementId({var_name}) }} ELSE null END AS {var_name}" for var_name in return_preds]
+
+
         # output example
         # { node: n2{.*, parent: parentn2}}
         #   { 
@@ -173,14 +175,14 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         #          }
         # OR
         # null AS n2
-
+        
         nodes_no_pred = [f"null AS {var_name}" for var_name in return_no_preds]
         return_preds = f"RETURN {', '.join(return_edges + nodes + nodes_no_pred)}"
         match_no_preds = f"MATCH {', '.join(match_no_preds)}"
-        return_no_preds = f"RETURN  {', '.join(return_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
+        tmp_no_preds = [f"{{ properties: properties({var_name}), id: id({var_name}), labels: labels({var_name}), elementId: elementId({var_name})}} AS {var_name}" for var_name in return_no_preds]
+        return_no_preds = f"RETURN  {', '.join(tmp_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
 
         query = f"{match_preds} {optional_clause} {with_clause} {return_preds} UNION {match_no_preds} {return_no_preds}"
-        print(query)
         return query
 
     def match_node(self, node, var_name):
@@ -217,9 +219,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         node_type = set()
         edge_type = set()
         for record in results:
-            #print("---")
-            #print(record)
-            #print("--")
             for item in record.values():
 
                 if item is None:
@@ -237,6 +236,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         label = list(item.labels)[0]
                         properties = item['id']
                         node_id = f"{label} {properties}"
+                        print("item ", item)
                     if node_id not in node_dict:
                         node_data = {
                             "data": {
@@ -245,6 +245,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                             }
                         }
                         for key, value in item.items():
+                            print("key", key)
+                            print("value", value)
                             if key != "id" and key!= "synonyms":
                                 node_data["data"][key] = value
                         nodes.append(node_data)
@@ -254,9 +256,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         node_to_dict[node_data['data']['type']].append(node_data)
                         node_dict[node_id] = node_data
                 elif "relationship" in item or isinstance(item, neo4j.graph.Relationship):
-                    print('---')
-                    print(item)
-                    print('---')
                     source_label = item["startNodeLabel"][0]
                     target_label = item["endNodeLabel"][0]
                     if "relationship" in item:
