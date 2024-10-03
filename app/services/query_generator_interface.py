@@ -10,7 +10,7 @@ class QueryGeneratorInterface(ABC):
         pass
 
     @abstractmethod
-    def parse_and_serialize(self, input, schema)-> list:
+    def parse_and_serialize(self, input, schema, all_properties)-> list:
         pass
 
     @abstractmethod
