@@ -260,6 +260,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     target_label = item["endNodeLabel"][0]
                     if "relationship" in item:
                         item = item["relationship"]
+
                     source_id = f"{item.nodes[0].id}"
                     target_id = f"{item.nodes[1].id}"
                     #source_label = f"{list(item.labels)[0]}"
