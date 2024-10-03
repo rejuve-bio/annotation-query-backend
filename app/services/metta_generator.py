@@ -291,12 +291,14 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
     def parse_id(self, request):
         nodes = request["nodes"]
         named_types = {"gene": "gene_name", "transcript": "transcript_name"}
+        prefixes = ["ENSG", "ENST"]
+
         for node in nodes:
             is_named_type = node['type'] in named_types
-            is_name_as_id = not node["id"].startswith("ENS") and node["id"] != ''
-            if is_named_type and is_name_as_id:
+            is_name_as_id = all(not node["id"].startswith(prefix) for prefix in prefixes)
+            no_id = node["id"] != ''
+            if is_named_type and is_name_as_id and no_id:
                 node_type = named_types[node['type']]
                 node['properties'][node_type] = node["id"]
                 node['id'] = ''
-
         return request
