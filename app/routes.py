@@ -70,6 +70,12 @@ def process_query():
         return jsonify({"error": "Missing requests data"}), 400
     
     limit = request.args.get('limit')
+    properties = request.args.get('properties')
+    
+    if properties:
+        properties = bool(strtobool(properties))
+    else:
+        properties = False
 
     if limit:
         try:
@@ -97,7 +103,7 @@ def process_query():
         
         # Run the query and parse the results
         result = db_instance.run_query(query_code)
-        parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema)
+        parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
         
         response_data = {
             "nodes": parsed_result[0],
