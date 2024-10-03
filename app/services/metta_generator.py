@@ -190,7 +190,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
 
     def convert_to_dict(self, results, schema=None):
         result = self.prepare_query_input(results, schema)
-        (_, node_dict, edge_dict) = self.process_result(result[0], False)
+        (_, node_dict, edge_dict) = self.process_result(result[0], True)
         return (node_dict, edge_dict)
 
     def process_result(self, results, all_properties):
