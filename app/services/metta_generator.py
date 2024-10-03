@@ -279,4 +279,4 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         
         query = self.get_node_properties(result, schema)
         result = self.run_query(query)
-        return result 
+        return result
