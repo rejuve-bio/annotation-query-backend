@@ -22,14 +22,15 @@ def convert_to_csv(response):
     with pd.ExcelWriter(file_path) as writer:
         for key, _ in nodes.items():
             node = pd.json_normalize(nodes[key])
-            node.columns = [col.replace('data.', '') for col in node.columns] 
+            node.columns = [col.replace('data.', '') for col in node.columns]
+            node.columns = [col.replace('properties.', '') for col in node.columns]
             node.to_excel(writer, sheet_name=f'{key}', index=False)
         for key, _ in edges.items():
-            source = edges[key][0]['data']['source'].split(' ')[0]
-            target = edges[key][0]['data']['target'].split(' ')[0]
+            source_label = edges[key][0]['data']['source_label'].split(' ')[0]
+            target_label = edges[key][0]['data']['target_label'].split(' ')[0]
             edge = pd.json_normalize(edges[key])
             edge.columns = [col.replace('data.', '') for col in edge.columns]
-            edge.to_excel(writer, sheet_name=f'{source}-relationship-{target}', index=False)
+            edge.to_excel(writer, sheet_name=f'{source_label}-relationship-{target_label}', index=False)
     
     return file_path
 
