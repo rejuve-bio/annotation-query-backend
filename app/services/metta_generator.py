@@ -120,14 +120,14 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
     def run_query(self, query_code):
         return self.metta.run(query_code)
 
-    def parse_and_serialize(self, input, schema):
+    def parse_and_serialize(self, input, schema, all_properties):
         result = self.prepare_query_input(input, schema)
-        result = self.parse_and_serialize_properties(result[0])
+        result = self.parse_and_serialize_properties(result[0], all_properties)
 
         return result
         
-    def parse_and_serialize_properties(self, input):
-        (result, _, _) = self.process_result(input)
+    def parse_and_serialize_properties(self, input, all_properties):
+        (result, _, _) = self.process_result(input, all_properties)
         return result
 
     def get_node_properties(self, results, schema):
@@ -190,12 +190,11 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
 
     def convert_to_dict(self, results, schema=None):
         result = self.prepare_query_input(results, schema)
-        (_, node_dict, edge_dict) = self.process_result(result[0])
+        (_, node_dict, edge_dict) = self.process_result(result[0], False)
         return (node_dict, edge_dict)
 
-    def process_result(self, results):
+    def process_result(self, results, all_properties):
         nodes = {}
-        full_node = {}
         relationships_dict = {}
         result = []
         node_to_dict = {}
@@ -222,15 +221,12 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                         "id": f"{src_type} {src_value}",
                         "type": src_type,
                     }
-                    full_node[(src_type, src_value)] = {
-                        "id": f"{src_type} {src_value}",
-                        "type": src_type
-                    }
-
-                full_node[(src_type, src_value)][predicate] = tgt
-
-                if predicate in named_types:
-                    nodes[(src_type, src_value)]['name'] = tgt
+                
+                if all_properties:
+                     nodes[(src_type, src_value)][predicate] = tgt
+                else:
+                    if predicate in named_types:
+                        nodes[(src_type, src_value)]['name'] = tgt
 
                 if 'synonyms' in nodes[(src_type, src_value)]:
                     del nodes[(src_type, src_value)]['synonyms']
@@ -238,7 +234,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                     node_type.add(src_type)
                     node_to_dict[src_type] = []
                 node_data = {}
-                node_data["data"] = full_node[(src_type, src_value)]
+                node_data["data"] = nodes[(src_type, src_value)]
                 node_to_dict[src_type].append(node_data)
             elif graph_attribute == "edge":
                 property_name, predicate, source, source_id, target, target_id = match[:6]
