@@ -1,4 +1,2 @@
 database:
-  type: metta
-graph:
-  limit: 100
+  type: cypher

@@ -10,9 +10,13 @@ class QueryGeneratorInterface(ABC):
         pass
 
     @abstractmethod
-    def parse_and_serialize(self, input, schema)-> list:
+    def parse_and_serialize(self, input, schema, all_properties)-> list:
         pass
 
     @abstractmethod
     def convert_to_dict(self, results, schema)-> tuple:
+        pass
+
+    @abstractmethod
+    def parse_id(self, request)-> dict:
         pass
