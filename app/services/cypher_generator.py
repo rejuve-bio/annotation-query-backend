@@ -93,7 +93,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 match_no_preds.append(self.match_node(node, var_name))
                 optional_match_preds.append(self.optional_parent_match(var_name))
                 return_no_preds.append(var_name)
-            cypher_query = self.construct_clause(match_no_preds, return_no_preds, edge_returns)
+            cypher_query = self.construct_clause(match_no_preds, return_no_preds, return_edges, [])
             cypher_queries.append(cypher_query)
         else:
             for i, predicate in enumerate(predicates):
@@ -133,17 +133,23 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return_preds.extend(list(node_ids))
                 
             if (len(match_no_preds) == 0):
-                cypher_query = self.construct_clause(match_preds, return_preds, edge_returns)
+                cypher_query = self.construct_clause(match_preds, return_preds, return_edges, edges)
                 cypher_queries.append(cypher_query)
             else:
                 cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges, return_edges, edge_returns)
                 cypher_queries.append(cypher_query)
         return cypher_queries
     
-    def construct_clause(self, match_clause, return_clause, edge_returns):
+    def construct_clause(self, match_clause, return_clause, return_edges, edges):
         match_clause = f"MATCH {', '.join(match_clause)}"
-        return_clause = f"RETURN {', '.join(return_clause + edge_returns)}"
-        query = f"{match_clause} {return_clause}"
+
+        if len(edges) != 0:
+            with_clause = f"WITH {', '.join(edges)}, {', '.join(return_clause)}"
+        else:
+            with_clause = f"WITH {', '.join(return_clause)}"
+
+        return_clause = f"RETURN {', '.join(return_clause + return_edges)}"
+        query = f"{match_clause} {with_clause} {return_clause}"
         return query
 
     def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds,edges, return_edges, edge_returns):
@@ -236,7 +242,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         label = list(item.labels)[0]
                         properties = item['id']
                         node_id = f"{label} {properties}"
-                        print("item ", item)
                     if node_id not in node_dict:
                         node_data = {
                             "data": {
@@ -245,8 +250,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                             }
                         }
                         for key, value in item.items():
-                            print("key", key)
-                            print("value", value)
                             if key != "id" and key!= "synonyms":
                                 node_data["data"][key] = value
                         nodes.append(node_data)
