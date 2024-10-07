@@ -81,6 +81,7 @@ def process_query():
         
         # Generate the query code
         query_code = db_instance.query_Generator(requests, node_map)
+        # print("query_code",query_code)
         # Run the query and parse the results
         result = db_instance.run_query(query_code)
         parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema)
@@ -89,7 +90,7 @@ def process_query():
             "nodes": parsed_result[0],
             "edges": parsed_result[1]
         }
-        
+        print("response_data",response_data)
         limit = config['graph']['limit']
 
         if isinstance(limit, str) and limit != 'None':
