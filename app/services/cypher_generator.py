@@ -231,7 +231,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     continue
                 # Checking if the item is a node of our return type
                 if self.is_dict_node(item) or isinstance(item, neo4j.graph.Node):
-                    #print("item")
                     label = None
                     properties = None
                     if self.is_dict_node(item):
