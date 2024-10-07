@@ -244,6 +244,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                                 "type": label,
                             }
                         }
+                        print("ITEM",item)
                         for key, value in item.items():
                             print("key", key)
                             print("value", value)
@@ -251,11 +252,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                                 node_data["data"][key] = value
                         nodes.append(node_data)
                         if node_data["data"]["type"] not in node_type:
+                            print("node type ", node_data["data"]["type"])
                             node_type.add(node_data["data"]["type"])
                             node_to_dict[node_data['data']['type']] = []
                         node_to_dict[node_data['data']['type']].append(node_data)
                         node_dict[node_id] = node_data
                 elif "relationship" in item or isinstance(item, neo4j.graph.Relationship):
+                    print("edge item", item)
                     source_label = item["startNodeLabel"][0]
                     target_label = item["endNodeLabel"][0]
                     if "relationship" in item:
@@ -286,7 +289,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         edge_to_dict[edge_data['data']['label']] = []
                     edge_to_dict[edge_data['data']['label']].append(edge_data)
     
-
+        print("finish processing")
         return (nodes, edges, node_to_dict, edge_to_dict)
 
     def optional_parent_match(self, var_name):
