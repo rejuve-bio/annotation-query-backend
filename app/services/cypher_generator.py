@@ -66,7 +66,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def query_Generator(self, requests, node_map):
         nodes = requests['nodes']
-
         if "predicates" in requests:
             predicates = requests["predicates"]
         else:
