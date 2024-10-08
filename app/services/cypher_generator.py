@@ -202,16 +202,16 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         else:
             return f"({var_name}:{node['type']})"
 
-    def parse_neo4j_results(self, results):
-        (nodes, edges, _, _) = self.process_result(results)
+    def parse_neo4j_results(self, results, all_properties):
+        (nodes, edges, _, _) = self.process_result(results, all_properties)
         return {"nodes": nodes, "edges": edges}
 
-    def parse_and_serialize(self, input, schema):
-        parsed_result = self.parse_neo4j_results(input)
+    def parse_and_serialize(self, input, schema, all_properties):
+        parsed_result = self.parse_neo4j_results(input, all_properties)
         return parsed_result["nodes"], parsed_result["edges"]
 
     def convert_to_dict(self, results, schema):
-        (_, _, node_dict, edge_dict) = self.process_result(results)
+        (_, _, node_dict, edge_dict) = self.process_result(results, True)
         return (node_dict, edge_dict)
     
     def is_dict_node(self, item):
@@ -226,6 +226,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         edge_to_dict = {}
         node_type = set()
         edge_type = set()
+
+        named_types = ['gene_name', 'transcript_name', 'protein_name']
+
         for record in results:
             for item in record.values():
 
@@ -252,9 +255,14 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                                 "type": label,
                             }
                         }
+
                         for key, value in item.items():
-                            if key != "id" and key!= "synonyms":
-                                node_data["data"][key] = value
+                            if all_properties:
+                                if key != "id" and key != "synonyms":
+                                    node_data["data"][key] = value
+                            else:
+                                if key in named_types:
+                                    node_data["data"]["name"] = value
                         nodes.append(node_data)
                         if node_data["data"]["type"] not in node_type:
                             node_type.add(node_data["data"]["type"])
@@ -291,8 +299,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         edge_type.add(edge_data["data"]["label"])
                         edge_to_dict[edge_data['data']['label']] = []
                     edge_to_dict[edge_data['data']['label']].append(edge_data)
-    
-        print("finish processing")
+        print("finish processing")    
         return (nodes, edges, node_to_dict, edge_to_dict)
 
     def optional_parent_match(self, var_name):
@@ -300,3 +307,19 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         optional_parent_match = f"(parent{var_name})<-[]-({var_name})"
 
         return optional_parent_match
+
+    def parse_id(self, request):
+        nodes = request["nodes"]
+        named_types = {"gene": "gene_name", "transcript": "transcript_name"}
+        prefixes = ["ENSG", "ENST"]
+
+        for node in nodes:
+            is_named_type = node['type'] in named_types
+            is_name_as_id = all(not node["id"].startswith(prefix) for prefix in prefixes)
+            no_id = node["id"] != ''
+            if is_named_type and is_name_as_id and no_id:
+                node_type = named_types[node['type']]
+                node['properties'][node_type] = node["id"]
+                node['id'] = ''
+            node["id"] = node["id"].lower()
+        return request

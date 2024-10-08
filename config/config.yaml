@@ -1,4 +1,2 @@
 database:
   type: cypher
-graph:
-  limit: 100
