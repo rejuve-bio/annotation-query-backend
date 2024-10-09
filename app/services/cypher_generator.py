@@ -92,7 +92,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 match_no_preds.append(self.match_node(node, var_name))
                 optional_match_preds.append(self.optional_parent_match(var_name))
                 return_no_preds.append(var_name)
-            cypher_query = self.construct_clause(match_no_preds, return_no_preds, return_edges, [])
+            cypher_query = self.construct_clause(match_no_preds, return_no_preds, return_edges, [], optional_match_preds)
             cypher_queries.append(cypher_query)
         else:
             for i, predicate in enumerate(predicates):
@@ -218,7 +218,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # Check if the item contains the typical node structure (identity, labels, properties)
         return isinstance(item, dict) and 'id' in item and 'labels' in item and 'properties' in item and 'elementId' in item
     
-    def process_result(self, results):
+    def process_result(self, results, all_properties):
         nodes = []
         edges = []
         node_dict = {}
@@ -255,14 +255,23 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                                 "type": label,
                             }
                         }
-
+                        
+                        #print("ITEM", item)
                         for key, value in item.items():
                             if all_properties:
                                 if key != "id" and key != "synonyms":
                                     node_data["data"][key] = value
                             else:
-                                if key in named_types:
-                                    node_data["data"]["name"] = value
+                                #print("here")
+                                if key == 'properties':
+                                    node_data["data"]['properties'] = {}
+                                    #print('properties', type(properties))
+                                    for properties_name, property_value in value.items():
+                                        print(properties_name)
+                                        if properties_name in named_types:
+                                            node_data["data"]['properties']["name"] = property_value
+                                        if properties_name == 'parent':
+                                            node_data["data"]['properties'][properties_name] = property_value
                         nodes.append(node_data)
                         if node_data["data"]["type"] not in node_type:
                             node_type.add(node_data["data"]["type"])
