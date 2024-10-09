@@ -70,6 +70,9 @@ def process_query():
         return jsonify({"error": "Missing requests data"}), 400
     
     limit = request.args.get('limit')
+    take = request.args.get('take')
+    page = request.args.get('page')
+
     properties = request.args.get('properties')
     
     if properties:
@@ -99,6 +102,10 @@ def process_query():
 
         # Generate the query code
         query_code = db_instance.query_Generator(requests, node_map)
+
+        # Add pagination
+        # query_code = db_instance.add_pagination_to_query(query_code, page)
+
         # Run the query and parse the results
         result = db_instance.run_query(query_code)
         parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)

@@ -137,7 +137,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             else:
                 cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges, return_edges, edge_returns)
                 cypher_queries.append(cypher_query)
-        return cypher_queries
+        
+        add_pagination = self.add_pagination_to_query(cypher_queries)
+        return add_pagination
     
     def construct_clause(self, match_clause, return_clause, return_edges, edges, optional_match_preds):
         match_clause = f"MATCH {', '.join(match_clause)}"
@@ -332,3 +334,29 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 node['id'] = ''
             node["id"] = node["id"].lower()
         return request
+
+    # def paginate(query, skip, take):
+
+        # parsed_limit = int(self.params.get('take', 10)) if self.params.get('take') else 10  # Default to 10 if invalid
+        # parsed_page = int(self.params.get('page', 1)) if self.params.get('page') else 1     # Default to page 1 if invalid
+        # skip = (parsed_page - 1) * parsed_limit
+
+        # self.query = self.query.limit(parsed_limit).offset(skip)
+
+        # return self
+
+    def add_pagination_to_query(query, take: str = "10", page: str = "1") -> str:
+        # Ensure 'take' and 'page' are strings and parse them, with defaults of 10 and 1 respectively
+        take = str(take) if not isinstance(take, str) else take
+        page = str(page) if not isinstance(page, str) else page
+
+        parsed_limit = int(take) if take.isdigit() else 10  # Default to 10 if invalid
+        parsed_page = int(page) if page.isdigit() else 1    # Default to page 1 if invalid
+        skip = (parsed_page - 1) * parsed_limit
+
+        # Add LIMIT and SKIP to the query string on new lines
+        print(type(query))
+        query.append(f"\nLIMIT {parsed_limit}\nSKIP {skip}")
+
+        return query
+
