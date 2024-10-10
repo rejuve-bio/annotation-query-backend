@@ -86,7 +86,6 @@ def process_query():
         limit = None
     try:
         requests = data['requests']
-        
         # Validate the request data before processing
         node_map = validate_request(requests, schema_manager.schema)
         if node_map is None:
@@ -100,7 +99,6 @@ def process_query():
 
         # Generate the query code
         query_code = db_instance.query_Generator(requests, node_map)
-        
         # Run the query and parse the results
         result = db_instance.run_query(query_code)
         parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
