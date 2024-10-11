@@ -257,16 +257,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                             }
                         }
                         
-                        #print("ITEM", item)
                         for key, value in item.items():
                             if all_properties:
                                 if key != "id" and key != "synonyms":
                                     node_data["data"][key] = value
                             else:
-                                #print("here")
                                 if key == 'properties':
                                     node_data["data"]['properties'] = {}
-                                    #print('properties', type(properties))
                                     for properties_name, property_value in value.items():
                                         if properties_name in named_types:
                                             node_data["data"]['properties']["name"] = property_value
