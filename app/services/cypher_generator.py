@@ -64,7 +64,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             result_list = [record for record in results]
             return result_list
 
-    def query_Generator(self, requests, node_map):
+    def query_Generator(self, requests, node_map,take, page):
         nodes = requests['nodes']
         if "predicates" in requests:
             predicates = requests["predicates"]
@@ -132,16 +132,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return_preds.extend(list(node_ids))
                 
             if (len(match_no_preds) == 0):
-                cypher_query = self.construct_clause(match_preds, return_preds, return_edges, edges, optional_match_preds)
+                cypher_query = self.construct_clause(match_preds, return_preds, return_edges, edges, optional_match_preds,page, take)
                 cypher_queries.append(cypher_query)
             else:
-                cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges, return_edges, edge_returns)
+                cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges, return_edges, edge_returns, page, take)
                 cypher_queries.append(cypher_query)
         
-        add_pagination = self.add_pagination_to_query(cypher_queries)
-        return add_pagination
-    
-    def construct_clause(self, match_clause, return_clause, return_edges, edges, optional_match_preds):
+        # add_pagination = self.add_pagination_to_query(cypher_queries)
+        return cypher_queries
+    def construct_clause(self, match_clause, return_clause, return_edges, edges, optional_match_preds, page, take):
         match_clause = f"MATCH {', '.join(match_clause)}"
 
         optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
@@ -153,12 +152,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             with_clause = f"WITH {', '.join(return_clause + collect_child_nodes)}"
         nodes = [f"CASE WHEN {var_name} IS NOT NULL THEN {{ properties: {var_name}{{.*, child: child{var_name}}}, id: id({var_name}), labels: labels({var_name}), elementId: elementId({var_name}) }} ELSE null END AS {var_name}" for var_name in return_clause]
         return_clause = f"RETURN {', '.join(nodes + return_edges)}"
-        query = f"{match_clause} {optional_clause} {with_clause} {return_clause}"
+        [limit, skip] = self.add_pagination_to_query(take, page)
+        query = f"{match_clause} {optional_clause} {with_clause} {return_clause} SKIP {skip} LIMIT {limit}"
         return query
 
-    def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds,edges, return_edges, edge_returns):
+    def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds,edges, return_edges, edge_returns, page, take):
         match_preds = f"MATCH {', '.join(match_preds)}"
-        
         # child field returns null if more than one node is not present
         # multiline optional match
         optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
@@ -191,8 +190,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         match_no_preds = f"MATCH {', '.join(match_no_preds)}"
         tmp_no_preds = [f"{{ properties: properties({var_name}), id: id({var_name}), labels: labels({var_name}), elementId: elementId({var_name})}} AS {var_name}" for var_name in return_no_preds]
         return_no_preds = f"RETURN  {', '.join(tmp_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
-
-        query = f"{match_preds} {optional_clause} {with_clause} {return_preds} UNION {match_no_preds} {return_no_preds}"
+        [limit,skip] = self.add_pagination_to_query(take, page)
+        query = f"{match_preds} {optional_clause} {with_clause} ORDER BY n3.id {return_preds}  SKIP {skip} LIMIT {limit} UNION {match_no_preds} {return_no_preds}"
         return query
 
     def match_node(self, node, var_name):
@@ -269,7 +268,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                                     node_data["data"]['properties'] = {}
                                     #print('properties', type(properties))
                                     for properties_name, property_value in value.items():
-                                        print(properties_name)
                                         if properties_name in named_types:
                                             node_data["data"]['properties']["name"] = property_value
                                         if properties_name == 'child':
@@ -310,7 +308,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         edge_type.add(edge_data["data"]["label"])
                         edge_to_dict[edge_data['data']['label']] = []
                     edge_to_dict[edge_data['data']['label']].append(edge_data)
-        print("finish processing")    
         return (nodes, edges, node_to_dict, edge_to_dict)
 
     def optional_child_match(self, var_name):
@@ -345,7 +342,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         # return self
 
-    def add_pagination_to_query(query, take: str = "10", page: str = "1") -> str:
+    def add_pagination_to_query(self , take: str = "1", page: str = "1") -> str:
         # Ensure 'take' and 'page' are strings and parse them, with defaults of 10 and 1 respectively
         take = str(take) if not isinstance(take, str) else take
         page = str(page) if not isinstance(page, str) else page
@@ -354,9 +351,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         parsed_page = int(page) if page.isdigit() else 1    # Default to page 1 if invalid
         skip = (parsed_page - 1) * parsed_limit
 
-        # Add LIMIT and SKIP to the query string on new lines
-        print(type(query))
-        query.append(f"\nLIMIT {parsed_limit}\nSKIP {skip}")
+        # return LIMIT and SKIP to the query string on new lines
 
-        return query
+        return parsed_limit, skip 
 

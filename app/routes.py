@@ -101,8 +101,7 @@ def process_query():
         requests = db_instance.parse_id(requests)
 
         # Generate the query code
-        query_code = db_instance.query_Generator(requests, node_map)
-
+        query_code = db_instance.query_Generator(requests, node_map,take, page)
         # Add pagination
         # query_code = db_instance.add_pagination_to_query(query_code, page)
 
