@@ -70,8 +70,8 @@ def process_query():
         return jsonify({"error": "Missing requests data"}), 400
     
     limit = request.args.get('limit')
-    take = request.args.get('take')
-    page = request.args.get('page')
+    take = request.args.get('take', default=10)
+    page = request.args.get('page', default=1)
 
     properties = request.args.get('properties')
     
