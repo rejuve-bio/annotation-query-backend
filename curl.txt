@@ -4,7 +4,7 @@ curl -X GET http://localhost:5000/edges
 
 curl -X GET http://localhost:5000/relations/gene
 
-curl -X POST http://localhost:5000/query -H "Content-Type: application/json" -d '{
+curl -X POST http://localhost:5000/query?take=10&page1 -H "Content-Type: application/json" -d '{
   "requests": {
     "nodes": [
       {

@@ -70,6 +70,9 @@ def process_query():
         return jsonify({"error": "Missing requests data"}), 400
     
     limit = request.args.get('limit')
+    take = request.args.get('take', default=10)
+    page = request.args.get('page', default=1)
+
     properties = request.args.get('properties')
     
     if properties:
@@ -86,7 +89,6 @@ def process_query():
         limit = None
     try:
         requests = data['requests']
-        
         # Validate the request data before processing
         node_map = validate_request(requests, schema_manager.schema)
         if node_map is None:
@@ -99,8 +101,8 @@ def process_query():
         requests = db_instance.parse_id(requests)
 
         # Generate the query code
-        query_code = db_instance.query_Generator(requests, node_map)
-        
+        query_code = db_instance.query_Generator(requests, node_map,take, page)
+
         # Run the query and parse the results
         result = db_instance.run_query(query_code)
         parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)

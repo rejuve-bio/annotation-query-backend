@@ -64,9 +64,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             result_list = [record for record in results]
             return result_list
 
-    def query_Generator(self, requests, node_map):
+    def query_Generator(self, requests, node_map,take, page):
         nodes = requests['nodes']
-
         if "predicates" in requests:
             predicates = requests["predicates"]
         else:
@@ -76,6 +75,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # node_dict = {node['node_id']: node for node in nodes}
 
         match_preds = []
+        optional_match_preds = []
+        edges = [] # added edges to separate nodes
+        return_edges = []
+        edge_returns = []
         return_preds = []
         match_no_preds = []
         return_no_preds = []
@@ -87,8 +90,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             for node in nodes:
                 var_name = f"n_{node['node_id']}"
                 match_no_preds.append(self.match_node(node, var_name))
+                optional_match_preds.append(self.optional_child_match(var_name))
                 return_no_preds.append(var_name)
-            cypher_query = self.construct_clause(match_no_preds, return_no_preds)
+            cypher_query = self.construct_clause(match_no_preds, return_no_preds, return_edges, [], optional_match_preds,page, take)
             cypher_queries.append(cypher_query)
         else:
             for i, predicate in enumerate(predicates):
@@ -99,11 +103,20 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 target_var = target_node['node_id']
 
                 source_match = self.match_node(source_node, source_var)
+                optional_match_preds.append(self.optional_child_match(source_var))
                 match_preds.append(source_match)
                 target_match = self.match_node(target_node, target_var)
+                optional_match_preds.append(self.optional_child_match(target_var))
+
 
                 match_preds.append(f"({source_var})-[r{i}:{predicate_type}]->{target_match}")
-                return_preds.append(f"r{i}")
+                edges.append(f"r{i}")
+                edges.append(f"labels(startNode(r{i})) AS startNodeLabels_r{i}")
+                edges.append(f"labels(endNode(r{i})) AS  endNodeLabels_r{i}")
+
+                edge_returns.append(f"r{i}")
+                
+                return_edges.append(f"{{relationship: r{i}, startNodeLabel: startNodeLabels_r{i}, endNodeLabel: endNodeLabels_r{i}}} AS r{i}")
 
                 used_nodes.add(predicate['source'])
                 used_nodes.add(predicate['target'])
@@ -119,26 +132,64 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return_preds.extend(list(node_ids))
                 
             if (len(match_no_preds) == 0):
-                cypher_query = self.construct_clause(match_preds, return_preds)
+                cypher_query = self.construct_clause(match_preds, return_preds, return_edges, edges, optional_match_preds,page, take)
                 cypher_queries.append(cypher_query)
             else:
-                cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds)
+                cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges, return_edges, edge_returns, page, take)
                 cypher_queries.append(cypher_query)
+        
         return cypher_queries
-    
-    def construct_clause(self, match_clause, return_clause):
+    def construct_clause(self, match_clause, return_clause, return_edges, edges, optional_match_preds, page, take):
         match_clause = f"MATCH {', '.join(match_clause)}"
-        return_clause = f"RETURN {', '.join(return_clause)}"
-        query = f"{match_clause} {return_clause}"
+
+        optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
+        collect_child_nodes = [f"collect(distinct id(child{var_name})) AS child{var_name}" for var_name in return_clause]
+
+        if len(edges) != 0:
+            with_clause = f"WITH {', '.join(edges + return_clause + collect_child_nodes )}"
+        else:
+            with_clause = f"WITH {', '.join(return_clause + collect_child_nodes)}"
+        nodes = [f"CASE WHEN {var_name} IS NOT NULL THEN {{ properties: {var_name}{{.*, child: child{var_name}}}, id: id({var_name}), labels: labels({var_name}), elementId: elementId({var_name}) }} ELSE null END AS {var_name}" for var_name in return_clause]
+        return_clause = f"RETURN {', '.join(nodes + return_edges)}"
+        [limit, skip] = self.add_pagination_to_query(take, page)
+        query = f"{match_clause} {optional_clause} {with_clause} {return_clause} SKIP {skip} LIMIT {limit}"
         return query
 
-    def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds):
+    def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds,edges, return_edges, edge_returns, page, take):
         match_preds = f"MATCH {', '.join(match_preds)}"
-        tmp_return_preds = return_preds
-        return_preds = f"RETURN {', '.join(return_preds)} , null AS {', null AS '.join(return_no_preds)}"
+        # child field returns null if more than one node is not present
+        # multiline optional match
+        optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
+        
+        # make the ids into a list with distinct values to avoid node duplication
+        collect_child_nodes = [f"collect(distinct id(child{var_name})) AS child{var_name}" for var_name in return_preds]
+        with_clause = f"WITH {', '.join(return_preds + edges + collect_child_nodes)}"
+        tmp_return_preds = return_preds + edge_returns
+
+        
+        nodes = [f"CASE WHEN {var_name} IS NOT NULL THEN {{ properties: {var_name}{{.*, child: child{var_name}}}, id: id({var_name}), labels: labels({var_name}), elementId: elementId({var_name}) }} ELSE null END AS {var_name}" for var_name in return_preds]
+
+
+        # output example
+        # { node: n2{.*, child: childn2}}
+        #   { 
+        #            node: {
+        #              identity: id(n2),
+        #              labels: labels(n2),
+        #              properties: n2 {.*, child: childn2 },
+        #              elementId: elementId(n2)
+        #            }
+        #          }
+        # OR
+        # null AS n2
+        
+        nodes_no_pred = [f"null AS {var_name}" for var_name in return_no_preds]
+        return_preds = f"RETURN {', '.join(return_edges + nodes + nodes_no_pred)}"
         match_no_preds = f"MATCH {', '.join(match_no_preds)}"
-        return_no_preds = f"RETURN  {', '.join(return_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
-        query = f"{match_preds} {return_preds} UNION {match_no_preds} {return_no_preds}"
+        tmp_no_preds = [f"{{ properties: properties({var_name}), id: id({var_name}), labels: labels({var_name}), elementId: elementId({var_name})}} AS {var_name}" for var_name in return_no_preds]
+        return_no_preds = f"RETURN  {', '.join(tmp_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
+        [limit,skip] = self.add_pagination_to_query(take, page)
+        query = f"{match_preds} {optional_clause} {with_clause} ORDER BY n3.id {return_preds}  SKIP {skip} LIMIT {limit} UNION {match_no_preds} {return_no_preds}"
         return query
 
     def match_node(self, node, var_name):
@@ -161,7 +212,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     def convert_to_dict(self, results, schema):
         (_, _, node_dict, edge_dict) = self.process_result(results, True)
         return (node_dict, edge_dict)
-
+    
+    def is_dict_node(self, item):
+        # Check if the item contains the typical node structure (identity, labels, properties)
+        return isinstance(item, dict) and 'id' in item and 'labels' in item and 'properties' in item and 'elementId' in item
+    
     def process_result(self, results, all_properties):
         nodes = []
         edges = []
@@ -175,53 +230,86 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         for record in results:
             for item in record.values():
-                if isinstance(item, neo4j.graph.Node):
-                    node_id = f"{list(item.labels)[0]} {item['id']}"
+
+                if item is None:
+                    continue
+                # Checking if the item is a node of our return type
+                if self.is_dict_node(item) or isinstance(item, neo4j.graph.Node):
+                    label = None
+                    properties = None
+                    if self.is_dict_node(item):
+                        label = list(item['labels'])[0]
+                        properties = item['properties']['id']
+                        node_id = f"{item['id']}"
+                        
+                    else:
+                        label = list(item.labels)[0]
+                        # properties = item['id']
+                        node_id = f"{item['id']}"
+                        
                     if node_id not in node_dict:
                         node_data = {
                             "data": {
                                 "id": node_id,
-                                "type": list(item.labels)[0],
+                                "type": label,
                             }
                         }
-
+                        
                         for key, value in item.items():
                             if all_properties:
                                 if key != "id" and key != "synonyms":
                                     node_data["data"][key] = value
                             else:
-                                if key in named_types:
-                                    node_data["data"]["name"] = value
+                                if key == 'properties':
+                                    node_data["data"]['properties'] = {}
+                                    for properties_name, property_value in value.items():
+                                        if properties_name in named_types:
+                                            node_data["data"]['properties']["name"] = property_value
+                                        if properties_name == 'child':
+                                            node_data["data"]['properties'][properties_name] = property_value
                         nodes.append(node_data)
                         if node_data["data"]["type"] not in node_type:
                             node_type.add(node_data["data"]["type"])
                             node_to_dict[node_data['data']['type']] = []
                         node_to_dict[node_data['data']['type']].append(node_data)
                         node_dict[node_id] = node_data
-                elif isinstance(item, neo4j.graph.Relationship):
-                    source_id = f"{list(item.start_node.labels)[0]} {item.start_node['id']}"
-                    target_id = f"{list(item.end_node.labels)[0]} {item.end_node['id']}"
+                elif "relationship" in item or isinstance(item, neo4j.graph.Relationship):
+                    source_label = item["startNodeLabel"][0]
+                    target_label = item["endNodeLabel"][0]
+                    if "relationship" in item:
+                        item = item["relationship"]
+
+                    source_id = f"{item.nodes[0].id}"
+                    target_id = f"{item.nodes[1].id}"
+                    #source_label = f"{list(item.labels)[0]}"
                     edge_data = {
                         "data": {
                             # "id": item.id,
                             "label": item.type,
                             "source": source_id,
                             "target": target_id,
+                            "source_label": source_label,
+                            "target_label": target_label
                         }
                     }
-
-                    for key, value in item.items():
-                        if key == 'source':
-                            edge_data["data"]["source_data"] = value
-                        else:
-                            edge_data["data"][key] = value
+                    if item is not None or isinstance(item, type):
+                        for key, value in item.items():
+                            if key == 'source':
+                                edge_data["data"]["source_data"] = value
+                            else:
+                                edge_data["data"][key] = value
                     edges.append(edge_data)
                     if edge_data["data"]["label"] not in edge_type:
                         edge_type.add(edge_data["data"]["label"])
                         edge_to_dict[edge_data['data']['label']] = []
                     edge_to_dict[edge_data['data']['label']].append(edge_data)
-    
         return (nodes, edges, node_to_dict, edge_to_dict)
+
+    def optional_child_match(self, var_name):
+        # Add OPTIONAL MATCH for outgoing relationships from the nodes that are included in the relationships
+        optional_child_match = f"({var_name})-[]->(child{var_name})"
+
+        return optional_child_match
 
     def parse_id(self, request):
         nodes = request["nodes"]
@@ -238,3 +326,17 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 node['id'] = ''
             node["id"] = node["id"].lower()
         return request
+
+    def add_pagination_to_query(self , take: str = "1", page: str = "1") -> str:
+        # Ensure 'take' and 'page' are strings and parse them, with defaults of 10 and 1 respectively
+        take = str(take) if not isinstance(take, str) else take
+        page = str(page) if not isinstance(page, str) else page
+
+        parsed_limit = int(take) if take.isdigit() else 10  # Default to 10 if invalid
+        parsed_page = int(page) if page.isdigit() else 1    # Default to page 1 if invalid
+        skip = (parsed_page - 1) * parsed_limit
+
+        # return LIMIT and SKIP to the query string on new lines
+
+        return parsed_limit, skip 
+
