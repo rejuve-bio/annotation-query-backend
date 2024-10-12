@@ -92,7 +92,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 match_no_preds.append(self.match_node(node, var_name))
                 optional_match_preds.append(self.optional_child_match(var_name))
                 return_no_preds.append(var_name)
-            cypher_query = self.construct_clause(match_no_preds, return_no_preds, return_edges, [], optional_match_preds)
+            cypher_query = self.construct_clause(match_no_preds, return_no_preds, return_edges, [], optional_match_preds,page, take)
             cypher_queries.append(cypher_query)
         else:
             for i, predicate in enumerate(predicates):
