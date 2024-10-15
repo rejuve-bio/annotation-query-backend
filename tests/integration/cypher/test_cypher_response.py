@@ -4,6 +4,7 @@ import logging
 from app import app
 import os
 import yaml
+from tests.lib.header_generator import generate_headers
 
 # Disable logging for cleaner test output
 logging.getLogger('neo4j').setLevel(logging.CRITICAL)
@@ -37,7 +38,9 @@ def test_process_query(query_list, schema):
     # make a call to the /query endpoint
 
     with app.test_client() as client:
-        response = client.post('/query', data=json.dumps(query_list), content_type='application/json')
+        headers = generate_headers()
+
+        response = client.post('/query', data=json.dumps(query_list), headers=headers, content_type='application/json')
         assert response._status == '200 OK'
 
         # test output dict keys
