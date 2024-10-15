@@ -43,8 +43,6 @@ def validate_request(request, schema):
         else:
             raise Exception('Repeated Node_id')
 
-    print(request)
-
     # validate predicates
     if 'predicates' in request:
         predicates = request['predicates']
