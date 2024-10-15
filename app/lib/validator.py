@@ -17,8 +17,14 @@ def validate_request(request, schema):
             raise Exception("type is required")
         if 'node_id' not in node or node['node_id'] == "":
             raise Exception("node_id is required")
-        if 'properties' not in node:
-            node["properties"] = {}
+        
+        node.setdefault('properties', {})
+       
+        if 'chr' in node["properties"]:
+            chr_property = node["properties"]["chr"]
+            chr_property = str(chr_property)
+            if chr_property and not chr_property.startswith('chr'):
+                node["properties"]["chr"] = 'chr' + chr_property
 
     ''''
     # validate properties of nodes
@@ -30,7 +36,14 @@ def validate_request(request, schema):
                 raise Exception(f"{property} doesn't exsist in the schema!")
     '''
 
-    node_map = {node['node_id']: node for node in nodes}
+    node_map = {}
+    for node in nodes:
+        if node['node_id'] not in node_map:
+            node_map[node['node_id']] = node
+        else:
+            raise Exception('Repeated Node_id')
+
+    print(request)
 
     # validate predicates
     if 'predicates' in request:
