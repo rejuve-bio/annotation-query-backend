@@ -12,6 +12,8 @@ from app.lib.auth import token_required
 from app.lib.email import init_mail, send_email
 from dotenv import load_dotenv
 from distutils.util import strtobool
+from app.services.llm_handler import LLMHandler
+from app.persistence.storage_service import StorageService
 
 # Load environmental variables
 load_dotenv()
@@ -114,7 +116,26 @@ def process_query(current_user_id):
             "nodes": parsed_result[0],
             "edges": parsed_result[1]
         }
+
+        llm = LLMHandler()
+        title = llm.generate_title(query_code)
+        summary = llm.generate_summary(response_data)
         
+        storage_service = StorageService()
+        
+        data = None
+        type = None
+
+        if len(response_data['nodes']) > 100:
+            data = query_code
+            type = 'query'
+        else:
+            data = response_data
+            type = 'graph'
+
+        storage_service.save(current_user_id, type, data, title, summary)
+
+
         if limit:
             response_data = limit_graph(response_data, limit)
 
