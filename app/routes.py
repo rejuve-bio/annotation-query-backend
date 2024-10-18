@@ -8,9 +8,12 @@ from app import app, databases, schema_manager
 from app.lib import validate_request
 from flask_cors import CORS
 from app.lib import limit_graph
+from app.lib.auth import token_required
 from app.lib.email import init_mail, send_email
 from dotenv import load_dotenv
 from distutils.util import strtobool
+from app.services.llm_handler import LLMHandler
+from app.persistence.storage_service import StorageService
 
 # Load environmental variables
 load_dotenv()
@@ -49,22 +52,26 @@ def load_config():
 config = load_config()
 
 @app.route('/nodes', methods=['GET'])
-def get_nodes_endpoint():
+@token_required
+def get_nodes_endpoint(current_user_id):
     nodes = json.dumps(schema_manager.get_nodes(), indent=4)
     return Response(nodes, mimetype='application/json')
 
 @app.route('/edges', methods=['GET'])
-def get_edges_endpoint():
+@token_required
+def get_edges_endpoint(current_user_id):
     edges = json.dumps(schema_manager.get_edges(), indent=4)
     return Response(edges, mimetype='application/json')
 
 @app.route('/relations/<node_label>', methods=['GET'])
-def get_relations_for_node_endpoint(node_label):
+@token_required
+def get_relations_for_node_endpoint(current_user_id, node_label):
     relations = json.dumps(schema_manager.get_relations_for_node(node_label), indent=4)
     return Response(relations, mimetype='application/json')
 
 @app.route('/query', methods=['POST'])
-def process_query():
+@token_required
+def process_query(current_user_id):
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
@@ -109,7 +116,26 @@ def process_query():
             "nodes": parsed_result[0],
             "edges": parsed_result[1]
         }
+
+        llm = LLMHandler()
+        title = llm.generate_title(query_code)
+        summary = llm.generate_summary(response_data)
         
+        storage_service = StorageService()
+        
+        data = None
+        type = None
+
+        if len(response_data['nodes']) > 100:
+            data = query_code
+            type = 'query'
+        else:
+            data = response_data
+            type = 'graph'
+
+        storage_service.save(current_user_id, type, data, title, summary)
+
+
         if limit:
             response_data = limit_graph(response_data, limit)
 
@@ -120,7 +146,8 @@ def process_query():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/email-query', methods=['POST'])
-def process_email_query():
+@token_required
+def process_email_query(current_user_id):
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
