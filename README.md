@@ -8,6 +8,7 @@ _Supported OS:_ **Linux & Mac**
 
 - Docker
 - Neo4j or Neo4j Aura account
+- Mongodb database
 
 **Follow these steps to run :**
 
