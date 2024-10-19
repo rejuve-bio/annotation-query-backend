@@ -8,6 +8,7 @@ _Supported OS:_ **Linux & Mac**
 
 - Docker
 - Neo4j or Neo4j Aura account
+- Mongodb database
 
 **Follow these steps to run :**
 
@@ -70,6 +71,7 @@ _Supported OS:_ **Linux & Mac**
    metta_data: Folder for storing Metta data.
    cypher_data: Folder for storing Neo4j data.
 
+
 7. **Choose Your Database Type**
    In the config directory modify config.yaml to change between databses.
 
@@ -82,8 +84,22 @@ _Supported OS:_ **Linux & Mac**
    database
     type = cypher  # Change to 'metta' if needed
    ```
+8. **Set Up MongoDB Database and LLM Keys**:
 
-8. **Run the Application**:
+   Configure the `.env` file with the following settings:
+
+   - Set the `MONGO_URI` to your MongoDB database URL, where the history will be stored:
+
+     ```plaintext
+     MONGO_URI=your_mongodb_url
+     ```
+
+   - For title generation and graph summarization, set the `LLM_MODEL` in the `.env` file to specify the large language model:
+
+     - If `LLM_MODEL` is set to `openai`, the application will use the `OPENAI_API_KEY` from the `.env` file.
+     - If `LLM_MODEL` is set to `gemini`, the application will use the `GEMINI_API_KEY` from the `.env` file.
+
+9. **Run the Application**:
 
 ```sh
 flask run
