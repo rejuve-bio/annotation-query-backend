@@ -18,6 +18,9 @@ from app.persistence.storage_service import StorageService
 # Load environmental variables
 load_dotenv()
 
+# set mongo loggin
+logging.getLogger('pymongo').setLevel(logging.CRITICAL)
+
 # Flask-Mail configuration
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER') 
 app.config['MAIL_PORT'] = os.getenv('MAIL_PORT')
@@ -102,6 +105,8 @@ def process_query(current_user_id):
         database_type = config['database']['type']
         db_instance = databases[database_type]
 
+        print(database_type)
+
         #convert id to appropriate format
         requests = db_instance.parse_id(requests)
 
@@ -122,19 +127,11 @@ def process_query(current_user_id):
         summary = llm.generate_summary(response_data)
         
         storage_service = StorageService()
-        
-        data = None
-        type = None
 
-        if len(response_data['nodes']) > 100:
-            data = query_code
-            type = 'query'
-        else:
-            data = response_data
-            type = 'graph'
+        if isinstance(query_code, list):
+            query_code = query_code[0]
 
-        storage_service.save(current_user_id, type, data, title, summary)
-
+        storage_service.save(str(current_user_id), query_code, title, summary)
 
         if limit:
             response_data = limit_graph(response_data, limit)
@@ -186,3 +183,79 @@ def process_email_query(current_user_id):
     sender = threading.Thread(name='main_sender', target=send_full_data)
     sender.start() 
     return jsonify({'message': 'Email sent successfully'}), 200
+
+@app.route('/history', methods=['GET'])
+@token_required
+def process_user_history(current_user_id):
+    page_number = request.args.get('page_number')
+    if page_number is not None:
+        page_number = int(page_number)
+    else:
+        page_number = 1
+    return_value = []
+    storage_service = StorageService()
+    cursor = storage_service.get_all(str(current_user_id), page_number)
+
+    if cursor is None:
+        return jsonify('No value Found'), 200
+
+    for document in cursor:
+        return_value.append({
+            'id': str(document['_id']),
+            'title': document['title'],
+            'summary': document['summary']
+        })
+    return Response(json.dumps(return_value, indent=4), mimetype='application/json')
+
+@app.route('/history/<id>', methods=['GET'])
+@token_required
+def process_user_history_by_id(current_user_id, id):
+    storage_service = StorageService()
+
+    cursor = storage_service.get_by_id(id)
+
+    print(type(cursor))
+
+    if cursor is None:
+        return jsonify('No value Found'), 200
+    
+    query = cursor.query
+
+    limit = request.args.get('limit')
+    properties = request.args.get('properties')
+    
+    if properties:
+        properties = bool(strtobool(properties))
+    else:
+        properties = False
+
+    if limit:
+        try:
+            limit = int(limit)
+        except ValueError:
+            return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
+    else:
+        limit = None
+
+
+    try:
+        database_type = config['database']['type']
+        db_instance = databases[database_type]
+        
+        # Run the query and parse the results
+        result = db_instance.run_query(query)
+        parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+        
+        response_data = {
+            "nodes": parsed_result[0],
+            "edges": parsed_result[1]
+        }
+
+        if limit:
+            response_data = limit_graph(response_data, limit)
+
+        formatted_response = json.dumps(response_data, indent=4)
+        return Response(formatted_response, mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
+        return jsonify({"error": str(e)}), 500

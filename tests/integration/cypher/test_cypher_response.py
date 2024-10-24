@@ -1,3 +1,5 @@
+from unittest.mock import patch, MagicMock
+from db import mongo_init
 import pytest
 import json
 import logging
@@ -5,6 +7,7 @@ from app import app
 import os
 import yaml
 from tests.lib.header_generator import generate_headers
+from db import mongo_init
 
 # Disable logging for cleaner test output
 logging.getLogger('neo4j').setLevel(logging.CRITICAL)
@@ -34,7 +37,12 @@ def setup_database():
     # Ensure the config change is applied
     yield config
 
-def test_process_query(query_list, schema):
+@patch('app.services.llm_handler.LLMHandler')
+def test_process_query(mock_llm_handler_class, query_list, schema):
+    # Setup mock behavior for LLMHandler
+    mock_llm_handler_instance = mock_llm_handler_class.return_value
+    mock_llm_handler_instance.generate_title.return_value = "Mocked Title"
+    mock_llm_handler_instance.generate_summary.return_value = "Mocked Summary"
     # make a call to the /query endpoint
 
     with app.test_client() as client:

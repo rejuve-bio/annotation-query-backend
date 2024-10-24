@@ -2,6 +2,7 @@ import pytest
 import logging
 from app import app
 from app.services.schema_data import SchemaManager
+import time
 
 # Fixture to suppress logging during tests
 @pytest.fixture(autouse=True)
@@ -14,6 +15,13 @@ def suppress_logging():
 
     # Re-enable logging after tests
     logging.disable(logging.NOTSET)
+
+@pytest.fixture(scope="session", autouse=True)
+def wait_for_db_connection():
+    # Wait for 3 seconds before starting the tests
+    time.sleep(3)
+    # Here you can add code to establish the database connection if needed
+    yield
 
 # Initializes a test client
 @pytest.fixture
