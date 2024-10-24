@@ -9,33 +9,31 @@ class Storage(Schema):
     # Attributes
     id = None
     user_id = None
-    result = None
-    type = None
+    query = None
     title = None
     summary = None
+
     def __init__(self, **kwargs):
         self.schema = {
             "user_id": {
                 "type": Types.String,
                 "required": True,
             },
-            "result": {
+            "query": {
                 "type": Types.String,
                 "required": True,
             },
-            "type": {
-                "type": Types.String,
-                "enum": ["graph", "query"]
-            },
             "title": {
                 "type": Types.String,
+                "required": True,
             },
             "summary": {
                 "type": Types.String,
+                "required": True,
             }
         }
         
         super().__init__(self.schema_name, self.schema, kwargs)
 
     def __str__(self):
-        return f"user_id: {self.user_id}, result: {self.result}, type: {self.type}"
+        return f"user_id: {self.user_id}, query: {self.query}, title: {self.title}, summary: {self.summary}"
