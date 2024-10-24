@@ -12,8 +12,6 @@ from app.lib.auth import token_required
 from app.lib.email import init_mail, send_email
 from dotenv import load_dotenv
 from distutils.util import strtobool
-from app.services.llm_handler import LLMHandler
-from app.persistence.storage_service import StorageService
 
 # Load environmental variables
 load_dotenv()
@@ -29,6 +27,9 @@ app.config['MAIL_USE_SSL'] = bool(strtobool(os.getenv('MAIL_USE_SSL')))
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER')
+
+llm = app.config['llm_handler']
+storage_service = app.config['storage_service']
 
 # Initialize Flask-Mail
 init_mail(app)
@@ -120,11 +121,8 @@ def process_query(current_user_id):
             "edges": parsed_result[1]
         }
 
-        llm = LLMHandler()
         title = llm.generate_title(query_code)
         summary = llm.generate_summary(response_data)
-        
-        storage_service = StorageService()
 
         if isinstance(query_code, list):
             query_code = query_code[0]
@@ -191,7 +189,6 @@ def process_user_history(current_user_id):
     else:
         page_number = 1
     return_value = []
-    storage_service = StorageService()
     cursor = storage_service.get_all(str(current_user_id), page_number)
 
     if cursor is None:
@@ -208,11 +205,7 @@ def process_user_history(current_user_id):
 @app.route('/history/<id>', methods=['GET'])
 @token_required
 def process_user_history_by_id(current_user_id, id):
-    storage_service = StorageService()
-
     cursor = storage_service.get_by_id(id)
-
-    print(type(cursor))
 
     if cursor is None:
         return jsonify('No value Found'), 200
