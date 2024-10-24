@@ -105,8 +105,6 @@ def process_query(current_user_id):
         database_type = config['database']['type']
         db_instance = databases[database_type]
 
-        print(database_type)
-
         #convert id to appropriate format
         requests = db_instance.parse_id(requests)
 
