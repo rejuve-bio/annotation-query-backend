@@ -3,4 +3,5 @@ biocypher-log/
 cypher_data/
 metta_data/
 .venv
+venv
 .env
