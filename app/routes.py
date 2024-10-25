@@ -55,6 +55,12 @@ def load_config():
 
 config = load_config()
 
+@app.route('/kg-info', methods=['GET'])
+@token_required
+def get_graph_info():
+    graph_info = json.dumps(schema_manager.graph_info, indent=4)
+    return Response(graph_info, mimetype='application/json')
+
 @app.route('/nodes', methods=['GET'])
 @token_required
 def get_nodes_endpoint(current_user_id):
@@ -250,3 +256,4 @@ def process_user_history_by_id(current_user_id, id):
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
+    
