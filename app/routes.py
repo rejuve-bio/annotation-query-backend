@@ -57,7 +57,7 @@ config = load_config()
 
 @app.route('/kg-info', methods=['GET'])
 @token_required
-def get_graph_info():
+def get_graph_info(current_user_id):
     graph_info = json.dumps(schema_manager.graph_info, indent=4)
     return Response(graph_info, mimetype='application/json')
 

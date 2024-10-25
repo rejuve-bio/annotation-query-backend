@@ -13,6 +13,7 @@ class SchemaManager:
         self.parent_nodes =self.parent_nodes()
         self.parent_edges =self.parent_edges()
         self.graph_info = self.get_graph_info()
+        print(self.graph_info)
     
     def process_schema(self, schema):
         process_schema = {}
@@ -128,7 +129,7 @@ class SchemaManager:
 
         return schema  
     
-    def get_graph_info(file_path='./Data/graph_info.json'):
+    def get_graph_info(self, file_path='./Data/graph_info.json'):
         try:
             with open(file_path, 'r') as file:
                 graph_info = json.load(file)
