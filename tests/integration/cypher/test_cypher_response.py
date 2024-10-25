@@ -37,14 +37,9 @@ def setup_database():
     # Ensure the config change is applied
     yield config
 
-@patch('app.services.llm_handler.LLMHandler')
-def test_process_query(mock_llm_handler_class, query_list, schema):
-    # Setup mock behavior for LLMHandler
-    mock_llm_handler_instance = mock_llm_handler_class.return_value
-    mock_llm_handler_instance.generate_title.return_value = "Mocked Title"
-    mock_llm_handler_instance.generate_summary.return_value = "Mocked Summary"
-    # make a call to the /query endpoint
-
+@patch.object(app.config['llm_handler'], 'generate_title', return_value="Mocked Title")
+@patch.object(app.config['llm_handler'], 'generate_summary', return_value="Mocked Summary")
+def test_process_query(mock_generate_title, mock_generate_summary, query_list, schema):
     with app.test_client() as client:
         headers = generate_headers()
 
