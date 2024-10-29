@@ -66,6 +66,7 @@ epigenomic feature:
   represented_as: node
   is_a: position entity
   input_label: 3d_genome_structure
+  inherit_properties: true
   description: >-
     A region of the genome that is associated with 3D genome structure
   properties:
@@ -77,6 +78,10 @@ ontology term:
   represented_as: node
   input_label: ontology term
   properties:
+    id: str
+    term_name: str
+    description: str
+    synonyms: str[]
     source: str
     source_url: str
 
@@ -109,6 +114,7 @@ protein:
   preferred_id: uniprot
   input_label: protein
   is_a: coding element
+  inherit_properties: true
   properties:
     accessions: str[]
     protein_name: str
@@ -169,8 +175,9 @@ structural variant:
   is_a: genomic variant
   inherit_properties: true
   properties:
-    variant_type: str
-    evidence: str
+      variant_accession: str
+      variant_type: str
+      evidence: str
 
 sequence variant:
   represented_as: node
@@ -186,7 +193,6 @@ sequence variant:
     raw_cadd_score: float
     phred_score: float
 
-
 # ---
 # non-coding elements
 enhancer:
@@ -196,6 +202,7 @@ enhancer:
   inherit_properties: true
   properties:
     data_source: str
+    enhancer_id: str
 
 promoter:
   represented_as: node
@@ -208,6 +215,8 @@ super enhancer:
   input_label: super_enhancer
   is_a: non coding element
   inherit_properties: true
+  properties:
+    se_id: str
 
 non coding rna:
   represented_as: node
@@ -230,6 +239,8 @@ pathway:
   properties:
     pathway_name: str
     evidence: str
+    source: str
+    source_url: str
 
 regulatory region:
   represented_as: node
@@ -259,10 +270,8 @@ go:
   is_a: ontology term
   represented_as: node
   input_label: go
+  inherit_properties: true
   properties:
-    term_name: str
-    description: str
-    synonyms: str[]
     subontology: str
 
 # Uberon Ontology
@@ -270,60 +279,41 @@ uberon:
   is_a: ontology term
   represented_as: node
   input_label: uberon
-  properties:
-    uberon_id: str
-    uberon_name: str
-    uberon_definition: str
-    uberon_synonyms: str[]
+  inherit_properties: true
 
 # Cell line Ontology
 clo:
   is_a: ontology term
   represented_as: node
   input_label: clo
-  properties:
-    clo_id: str
-    clo_name: str
-    clo_definition: str
-    clo_synonyms: str[]
+  inherit_properties: true
 
 # Cell Ontology
 cl:
   is_a: ontology term
   represented_as: node
   input_label: cl
-  properties:
-    cl_id: str
-    cl_name: str
-    cl_definition: str
-    cl_synonyms: str[]
+  inherit_properties: true
 
 # Experimental Factor Ontology
 efo:
   is_a: ontology term
   represented_as: node
   input_label: efo
-  properties:
-    efo_id: str
-    efo_name: str
-    efo_definition: str
-    efo_synonyms: str[]
+  inherit_properties: true
 
 # BRENDA Tissue Ontology
 bto:
   is_a: ontology term
   represented_as: node
   input_label: bto
-  properties:
-    bto_id: str
-    bto_name: str
-    bto_definition: str
-    bto_synonyms: str[]
+  inherit_properties: true
 
 motif:
   represented_as: node
   is_a: epigenomic feature
   input_label: motif
+  inherit_properties: true
   accessible_via:
     name: motifs
     description: "TF binding motifs."
@@ -395,7 +385,6 @@ transcribed to:
   exact_mappings:
     - RO:0002511
     - SIO:010080
-
 
 transcribed from:
   is_a: expression
@@ -471,7 +460,7 @@ expressed in:
   represented_as: edge
   input_label: expressed_in
   source: gene
-  target: ontology term
+  target: [cl, clo, uberon, efo]
   properties:
     score: float
     p_value: float
@@ -484,8 +473,8 @@ has part:
   inherit_properties: true
   represented_as: edge
   input_label: has_part
-  source: ontology term
-  target: ontology term
+  # source: ontology term
+  # target: ontology term
 
 part of:
   is_a: annotation
@@ -500,13 +489,15 @@ subclass of:
   inherit_properties: true
   represented_as: edge
   input_label: subclass_of
-  source: ontology term
-  target: ontology term
-  properties:
-    rel_type: str
+  # source: ontology term
+  # target: ontology term
+  # properties:
+  #   rel_type: str
+
 
 cl capable of:
   is_a: annotation
+  inherit_properties: true
   represented_as: edge
   input_label: cl_capable_of
   output_label: capable_of
@@ -517,6 +508,7 @@ cl capable of:
 
 cl part of:
   is_a: part of
+  inherit_properties: true
   represented_as: edge
   input_label: cl_part_of
   output_label: part_of
@@ -557,6 +549,7 @@ child pathway of:
 
 bto subclass of:
   is_a: subclass of
+  inherit_properties: true
   represented_as: edge
   input_label: bto_subclass_of
   output_label: subclass_of
@@ -565,15 +558,16 @@ bto subclass of:
 
 efo subclass of:
   is_a: subclass of
+  inherit_properties: true
   represented_as: edge
   input_label: efo_subclass_of
   output_label: subclass_of
   source: efo
   target: efo
 
-
 uberon subclass of:
   is_a: subclass of
+  inherit_properties: true
   represented_as: edge
   input_label: uberon_subclass_of
   output_label: subclass_of
@@ -582,6 +576,7 @@ uberon subclass of:
 
 clo subclass of:
   is_a: subclass of
+  inherit_properties: true
   represented_as: edge
   input_label: clo_subclass_of
   output_label: subclass_of
@@ -590,6 +585,7 @@ clo subclass of:
 
 cl subclass of:
   is_a: subclass of
+  inherit_properties: true
   represented_as: edge
   input_label: cl_subclass_of
   output_label: subclass_of
@@ -598,6 +594,7 @@ cl subclass of:
 
 go subclass of:
   is_a: subclass of
+  inherit_properties: true
   represented_as: edge
   input_label: go_subclass_of
   output_label: subclass_of
@@ -747,7 +744,6 @@ closest gene to variant association:
     source: str
     source_url: str
 
-
 upstream gene to variant association:
   is_a: closest gene to variant association
   inherit_properties: true
@@ -778,6 +774,7 @@ downstream gene to variant association:
 
 in gene to variant association:
   is_a: closest gene to variant association
+  inherit_properties: true
   description: >-
     holds between a sequence variant and a gene that is within the gene body
   represented_as: edge
@@ -875,7 +872,7 @@ chromatin state:
   represented_as: edge
   input_label: chromatin_state
   source: snp
-  target: uberon #TODO replace by cell ontology
+  target: [uberon, cl, clo, efo] #TODO replace by cell ontology
   properties:
     state: str
 
@@ -886,8 +883,7 @@ dnase I hotspot:
   represented_as: edge
   input_label: in_dnase_I_hotspot
   source: snp
-  target: uberon #TODO replace by cell ontology
-
+  target: [uberon, cl, clo] #TODO replace by cell ontology
 
 histone modification:
   is_a: related to at instance level
@@ -896,10 +892,10 @@ histone modification:
   represented_as: edge
   input_label: histone_modification
   source: snp
-  target: uberon #TODO replace by cell ontology
+  target: [uberon, cl, clo] #TODO replace by cell ontology
   properties:
     modification: str
-    
+
 transcript_to_exon:
   is_a: related to at instance
   description: >-

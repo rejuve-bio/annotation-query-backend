@@ -1,3 +1,4 @@
+import json
 from biocypher import BioCypher
 import logging
 import yaml
@@ -11,24 +12,31 @@ class SchemaManager:
         self.schema = self.process_schema(self.bcy._get_ontology_mapping()._extend_schema())
         self.parent_nodes =self.parent_nodes()
         self.parent_edges =self.parent_edges()
+        self.graph_info = self.get_graph_info()
+        print(self.graph_info)
     
     def process_schema(self, schema):
         process_schema = {}
-        for _, value in schema.items():
+
+        for value in schema.values():
             input_label = value.get("input_label")
             output_label = value.get("output_label")
             source = value.get("source")
             target = value.get("target")
 
-            label = output_label if output_label else input_label
-            if isinstance(label, list):
-                for i_label in label:
-                    key_label = f'{source}-{i_label}-{target}' if source and target else i_label
-                    process_schema[key_label] = {**value, "key": key_label}
-            else:
-                key_label = f'{source}-{label}-{target}' if source and target else label
-                process_schema[key_label] = {**value, "key": key_label}
+            labels = output_label or input_label
+            labels = labels if isinstance(labels, list) else [labels]
+            sources = source if isinstance(source, list) else [source]
+            targets = target if isinstance(target, list) else [target]
+
+            for i_label in labels:
+                for s in sources:
+                    for t in targets:
+                        key_label = f'{s}-{i_label}-{t}' if s and t else i_label
+                        process_schema[key_label] = {**value, "key": key_label}
+
         return process_schema
+
     
     def parent_nodes(self):
         parent_nodes = set()
@@ -120,3 +128,11 @@ class SchemaManager:
                 }
 
         return schema  
+    
+    def get_graph_info(self, file_path='./Data/graph_info.json'):
+        try:
+            with open(file_path, 'r') as file:
+                graph_info = json.load(file)
+                return graph_info
+        except Exception as e:
+            return {"error": str(e)}    
