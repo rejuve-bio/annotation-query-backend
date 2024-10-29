@@ -177,6 +177,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         edge_to_dict = {}
         node_type = set()
         edge_type = set()
+        visited_relations = set()
 
         named_types = ['gene_name', 'transcript_name', 'protein_name']
 
@@ -199,6 +200,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                             else:
                                 if key in named_types:
                                     node_data["data"]["name"] = value
+                        if "name" not in node_data["data"]:
+                            node_data["data"]["name"] = node_id
                         nodes.append(node_data)
                         if node_data["data"]["type"] not in node_type:
                             node_type.add(node_data["data"]["type"])
@@ -216,6 +219,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                             "target": target_id,
                         }
                     }
+                    temp_relation_id = f"{source_id} - {item.type} - {target_id}"
+                    if temp_relation_id in visited_relations:
+                        continue
+                    visited_relations.add(temp_relation_id)
 
                     for key, value in item.items():
                         if key == 'source':
