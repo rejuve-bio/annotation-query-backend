@@ -118,13 +118,13 @@ class GraphSummarizer:
                         f"Your task is to analyze and summarize the most important trends, patterns, and relationships.\n"
                         f"Instructions:\n"
                         f"- Identify key trends, relationships.\n"
-                        f"- Use bullet points or numbered lists to break down core details when necessary.\n"
+                        # f"- Use bullet points or numbered lists to break down core details when necessary.\n"
                         f"- Format the response clearly and concisely.\n\n"
                         f"Count and list important metrics"
                         F"Identify any central nodes or relationships and highlight any important patterns."
                         f"Also, mention key relationships between nodes and any interesting structures (such as chains or hubs)."
                         f"Please provide a summary based solely on the graph information."
-                        f"Start with: 'The graph shows:'"
+                        f"Write it in a paragraph way"
                     )
 
 
