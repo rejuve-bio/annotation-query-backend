@@ -129,7 +129,8 @@ def process_query(current_user_id):
 
         title = llm.generate_title(query_code)
         summary = llm.generate_summary(response_data)
-
+        response_data["title"] = title
+        response_data["summary"] = summary
         if isinstance(query_code, list):
             query_code = query_code[0]
 
