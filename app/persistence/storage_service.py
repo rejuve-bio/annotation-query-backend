@@ -25,4 +25,12 @@ class StorageService():
     def get_by_id(self, id):
         data = Storage.find_by_id(id)
         return data
+    
+    def get_user_query(self, user_id, query):
+        data = Storage.find_one({"user_id": user_id, "query": query})
+        return data
+    
+    def update(self, id, data):
+        data = Storage.update({"_id": id}, {"$set": data}, many=False)
+
         

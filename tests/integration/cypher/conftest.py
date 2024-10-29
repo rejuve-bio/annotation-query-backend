@@ -220,6 +220,55 @@ test_three_node_two_edge = {
     }
 }
 
+one_node_id_propoerties_case_insansative = {
+    "requests": {
+        "nodes": [
+        {
+            "node_id": "n1",
+            "id": "ensg00000101349",
+            "type": "gene",
+            "properties": {
+                "gene_type": "Protein_coding"
+            }
+        }]
+    }
+}
+
+test_two_node_id_property_case_insanative = {
+    "requests": {
+        "nodes": [
+        {
+            "node_id": "n1",
+            "id": "ensg00000101349",
+            "type": "gene",
+            "properties": {}
+        },
+        {
+            "node_id": "n2",
+            "id": "",
+            "type": "protein",
+            "properties": {
+                "protein_name": "Snp25"
+            }
+        }
+        ]
+    }    
+}
+
+one_node_noid_properties_case_insansative = {
+    "requests": {
+        "nodes": [
+        {
+            "node_id": "n1",
+            "id": "",
+            "type": "protein",
+            "properties": {
+                "protein_name": "LaMp2"
+            }
+        }]
+    }
+}
+
 @pytest.fixture(params=[
     one_node_id_noproperties,
     one_node_id_propoerties,
@@ -229,7 +278,10 @@ test_three_node_two_edge = {
     test_two_node_id_one_edge,
     test_two_node_two_edge,
     test_three_node_one_edge,
-    test_three_node_two_edge
+    test_three_node_two_edge,
+    one_node_id_propoerties_case_insansative,
+    test_two_node_id_property_case_insanative,
+    one_node_noid_properties_case_insansative
 ])
 def query_list(request):
     return request.param

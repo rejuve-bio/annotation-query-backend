@@ -1,7 +1,5 @@
-from pymongoose import methods
-from pymongoose.mongo_types import Types, Schema, MongoException, MongoError
-from bson import json_util
-from bson.objectid import ObjectId
+from pymongoose.mongo_types import Types, Schema
+import datetime
 
 class Storage(Schema):
     schema_name = 'storage'
@@ -30,6 +28,16 @@ class Storage(Schema):
             "summary": {
                 "type": Types.String,
                 "required": True,
+            },
+            "created_at": {
+                "type": Types.Date,
+                "required": True,
+                "default": datetime.datetime.now()
+            },
+            "updated_at": {
+                "type": Types.Date,
+                "required": True,
+                "default": datetime.datetime.now()
             }
         }
         

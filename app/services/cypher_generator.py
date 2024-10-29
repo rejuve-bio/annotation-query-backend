@@ -77,8 +77,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         match_preds = []
         return_preds = []
+        where_preds = []
         match_no_preds = []
         return_no_preds = []
+        where_no_preds = []
         node_ids = set()
         # Track nodes that are included in relationships
         used_nodes = set()
@@ -87,8 +89,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             for node in nodes:
                 var_name = f"n_{node['node_id']}"
                 match_no_preds.append(self.match_node(node, var_name))
+                if node['properties']:
+                    where_no_preds.extend(self.where_construct(node, var_name))
                 return_no_preds.append(var_name)
-            cypher_query = self.construct_clause(match_no_preds, return_no_preds)
+            cypher_query = self.construct_clause(match_no_preds, return_no_preds, where_no_preds)
             cypher_queries.append(cypher_query)
         else:
             for i, predicate in enumerate(predicates):
@@ -99,8 +103,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 target_var = target_node['node_id']
 
                 source_match = self.match_node(source_node, source_var)
+                where_preds.extend(self.where_construct(source_node, source_var))
                 match_preds.append(source_match)
                 target_match = self.match_node(target_node, target_var)
+                where_preds.extend(self.where_construct(target_node, target_var))
 
                 match_preds.append(f"({source_var})-[r{i}:{predicate_type}]->{target_match}")
                 return_preds.append(f"r{i}")
@@ -114,41 +120,56 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 if node_id not in used_nodes:
                     var_name = f"n_{node_id}"
                     match_no_preds.append(self.match_node(node, var_name))
+                    where_no_preds.extend(self.where_construct(node, var_name))
                     return_no_preds.append(var_name)
-
-            return_preds.extend(list(node_ids))
+            list_of_node_ids = list(node_ids)
+            list_of_node_ids.sort()
+            return_preds.extend(list(list_of_node_ids))
                 
             if (len(match_no_preds) == 0):
-                cypher_query = self.construct_clause(match_preds, return_preds)
+                cypher_query = self.construct_clause(match_preds, return_preds, where_preds)
                 cypher_queries.append(cypher_query)
             else:
-                cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds)
+                cypher_query = self.construct_union_clause(match_preds, return_preds, where_preds, match_no_preds, return_no_preds, where_no_preds)
                 cypher_queries.append(cypher_query)
         return cypher_queries
     
-    def construct_clause(self, match_clause, return_clause):
+    def construct_clause(self, match_clause, return_clause, where_no_preds  ):
         match_clause = f"MATCH {', '.join(match_clause)}"
         return_clause = f"RETURN {', '.join(return_clause)}"
-        query = f"{match_clause} {return_clause}"
-        return query
+        if len(where_no_preds) > 0:
+            where_clause = f"WHERE {' AND '.join(where_no_preds)}"
+            return f"{match_clause} {where_clause} {return_clause}"
+        return f"{match_clause} {return_clause}"
 
-    def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds):
+    def construct_union_clause(self, match_preds, return_preds, where_preds ,match_no_preds, return_no_preds, where_no_preds):
+        where_clause = ""
+        where_no_clause = ""
         match_preds = f"MATCH {', '.join(match_preds)}"
         tmp_return_preds = return_preds
         return_preds = f"RETURN {', '.join(return_preds)} , null AS {', null AS '.join(return_no_preds)}"
+        if len(where_preds) > 0:
+            where_clause = f"WHERE {' AND '.join(where_preds)}"
         match_no_preds = f"MATCH {', '.join(match_no_preds)}"
         return_no_preds = f"RETURN  {', '.join(return_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
-        query = f"{match_preds} {return_preds} UNION {match_no_preds} {return_no_preds}"
+        if len(where_no_preds) > 0:
+            where_no_clause = f"WHERE {' AND '.join(where_no_preds)}"
+        query = f"{match_preds} {where_clause} {return_preds} UNION {match_no_preds} {where_no_clause} {return_no_preds}"
         return query
 
     def match_node(self, node, var_name):
         if node['id']:
             return f"({var_name}:{node['type']} {{id: '{node['id']}'}})"
-        elif node['properties']:
-            properties = ", ".join([f"{k}: '{v}'" for k, v in node['properties'].items()])
-            return f"({var_name}:{node['type']} {{{properties}}})"
         else:
             return f"({var_name}:{node['type']})"
+        
+    def where_construct(self, node, var_name):
+        properties = []
+        if node['id']: 
+            return properties
+        for key, property in node['properties'].items():
+            properties.append(f"{var_name}.{key} =~ '(?i){property}'")
+        return properties
 
     def parse_neo4j_results(self, results, all_properties):
         (nodes, edges, _, _) = self.process_result(results, all_properties)
