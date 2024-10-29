@@ -47,6 +47,15 @@ jobs:
           docker run --name mongodb -p 27017:27017 -d mongo:latest
           sleep 5
 
+      - name: Verify MONGO_URI usage
+        run: |
+          if [ -z "$MONGO_URI" ]; then
+            echo "MONGO_URI is not set or being used in this workflow."
+            exit 1
+          else
+            echo "MONGO_URI is set and being used."
+          fi
+
       - name: Run tests with pytest
         run: |
           pytest
