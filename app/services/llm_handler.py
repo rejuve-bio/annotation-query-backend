@@ -22,7 +22,7 @@ class LLMHandler:
             raise ValueError("Invalid model type in configuration")
 
     def generate_title(self, query):
-        prompt = f'''From this query generate approperiate title
+        prompt = f'''From this query generate approperiate title. Only give the title sentence don't add any prefix.
                      Query: {query}'''
         title = self.model.generate(prompt)
         return title

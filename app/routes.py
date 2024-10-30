@@ -119,7 +119,7 @@ def process_query(current_user_id):
         query_code = db_instance.query_Generator(requests, node_map)
         
         # Run the query and parse the results
-        result = db_instance.run_query(query_code)
+        result = db_instance.run_query(query_code, limit)
         parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
         
         response_data = {
@@ -130,13 +130,16 @@ def process_query(current_user_id):
         title = llm.generate_title(query_code)
         summary = llm.generate_summary(response_data)
 
+        response_data["title"] = title
+        response_data["summary"] = summary
+
         if isinstance(query_code, list):
             query_code = query_code[0]
 
         storage_service.save(str(current_user_id), query_code, title, summary)
 
-        if limit:
-            response_data = limit_graph(response_data, limit)
+        # if limit:
+        #     response_data = limit_graph(response_data, limit)
 
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')

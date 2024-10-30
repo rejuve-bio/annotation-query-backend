@@ -56,13 +56,19 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         logger.info(f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code):
+    def run_query(self, query_code, limit):
         if isinstance(query_code, list):
             query_code = query_code[0]
+        try:
+            curr_limit = min(5000, int(limit)) # TODO: Find a better way for the max limit
+        except (ValueError, TypeError):
+            curr_limit = 5000
+
+        query_code += f"\nLIMIT {curr_limit}"
+        
         with self.driver.session() as session:
             results = session.run(query_code)
-            result_list = [record for record in results]
-            return result_list
+            return list(results)
 
     def query_Generator(self, requests, node_map):
         nodes = requests['nodes']
@@ -170,8 +176,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         edge_to_dict = {}
         node_type = set()
         edge_type = set()
+        visited_relations = set()
 
-        named_types = ['gene_name', 'transcript_name', 'protein_name']
+        named_types = ['gene_name', 'transcript_name', 'protein_name', 'pathway_name', 'term_name']
 
         for record in results:
             for item in record.values():
@@ -192,6 +199,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                             else:
                                 if key in named_types:
                                     node_data["data"]["name"] = value
+                        if "name" not in node_data["data"]:
+                            node_data["data"]["name"] = node_id
                         nodes.append(node_data)
                         if node_data["data"]["type"] not in node_type:
                             node_type.add(node_data["data"]["type"])
@@ -209,6 +218,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                             "target": target_id,
                         }
                     }
+                    temp_relation_id = f"{source_id} - {item.type} - {target_id}"
+                    if temp_relation_id in visited_relations:
+                        continue
+                    visited_relations.add(temp_relation_id)
 
                     for key, value in item.items():
                         if key == 'source':
