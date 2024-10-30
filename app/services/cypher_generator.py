@@ -179,7 +179,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         edge_type = set()
         visited_relations = set()
 
-        named_types = ['gene_name', 'transcript_name', 'protein_name']
+        named_types = ['gene_name', 'transcript_name', 'protein_name', 'pathway_name', 'term_name']
 
         for record in results:
             for item in record.values():
