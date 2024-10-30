@@ -12,6 +12,7 @@ from app.lib.auth import token_required
 from app.lib.email import init_mail, send_email
 from dotenv import load_dotenv
 from distutils.util import strtobool
+import datetime
 
 # Load environmental variables
 load_dotenv()
@@ -127,16 +128,24 @@ def process_query(current_user_id):
             "edges": parsed_result[1]
         }
 
-        title = llm.generate_title(query_code)
-        summary = llm.generate_summary(response_data)
+        if isinstance(query_code, list):
+            query_code = query_code[0]
+
+        existing_query = storage_service.get_user_query(str(current_user_id), query_code)
+
+        if existing_query is None:
+            title = llm.generate_title(query_code)
+            summary = llm.generate_summary(response_data)
+
+            storage_service.save(str(current_user_id), query_code, title, summary)
+        else:
+            title = existing_query.title
+            summary = existing_query.summary
+            storage_service.update(existing_query.id, {"updated_at": datetime.datetime.now()})
 
         response_data["title"] = title
         response_data["summary"] = summary
 
-        if isinstance(query_code, list):
-            query_code = query_code[0]
-
-        storage_service.save(str(current_user_id), query_code, title, summary)
 
         # if limit:
         #     response_data = limit_graph(response_data, limit)
