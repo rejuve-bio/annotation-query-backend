@@ -131,3 +131,22 @@ flask run
    ```
 
    This will build the Docker image and run the container, exposing the application on port 5000.
+
+# Another Alternative, you can use Docker compose file to run the applicaton:
+  - Build and start the services with Docker Compose:
+
+    ```bash
+    docker-compose up --build
+    ```
+   This command will build the Flask app's Docker image, set up MongoDB with data persistence, and configure Caddy as the reverse proxy.
+   
+   ### Accessing the Application
+
+      - Flask App: Access the application through Caddy on http://localhost:5000.
+
+   ### Stopping the Services
+
+      To stop the services, use:
+
+      ```bash
+      docker-compose down
