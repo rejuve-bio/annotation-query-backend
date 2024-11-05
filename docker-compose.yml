@@ -1,5 +1,6 @@
 services:
-  flask_catalog:
+  annotation_service:
+    image: deazstar/annotation-service:latest  # Add this line
     build:
       context: .
       dockerfile: Dockerfile
@@ -29,10 +30,10 @@ services:
     volumes:
       - caddy_data:/data
       - caddy_config:/config
-    command: caddy reverse-proxy --from http://localhost:5000 --to http://flask_catalog:8000
+    command: caddy reverse-proxy --from http://localhost:5000 --to http://annotation_service:8000
     restart: always
     depends_on:
-      - flask_catalog
+      - annotation_service
 
 volumes:
   mongo_data:
