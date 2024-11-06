@@ -1,5 +1,6 @@
 #!/bin/bash
-
+#read the environment variables
+source .env
 # Define the network name
 NETWORK_NAME="annotation_network"
 
@@ -21,7 +22,7 @@ if [ "$1" == "run" ]; then
     # Pull the necessary images
     echo "Pulling Docker images..."
     docker pull mongo:latest
-    docker pull deazstar/annoation-service:latest
+    docker pull $DOCKER_HUB_REPO
     docker pull caddy:latest
 
     # Run MongoDB container
@@ -29,7 +30,7 @@ if [ "$1" == "run" ]; then
     sudo docker run -d \
       --name mongodb \
       --network $NETWORK_NAME \
-      -p 27018:27017 \
+      -p $MONGODB_DOCKER_PORT:27017 \
       -v mongo_data:/data/db \
       mongo:latest
 
@@ -42,7 +43,7 @@ if [ "$1" == "run" ]; then
     sudo docker run -d \
       --name annotation_service \
       --network $NETWORK_NAME \
-      -p 8000:8000 \
+      -p $APP_PORT:$APP_PORT \
       -e MONGO_URI=mongodb://mongodb:27017/annotation \
       deazstar/annoation-service:latest
 
@@ -55,11 +56,11 @@ if [ "$1" == "run" ]; then
     sudo docker run -d \
       --name caddy \
       --network $NETWORK_NAME \
-      -p 5000:5000 \
+      -p $CADDY_PORT:$CADDY_PORT_FORWARD \
       -v caddy_data:/data \
       -v caddy_config:/config \
       caddy:latest \
-      caddy reverse-proxy --from http://localhost:5000 --to http://annotation_service:8000
+      caddy reverse-proxy --from http://localhost:$CADDY_PORT --to http://annotation_service:$APP_PORT
 
     echo "All containers are up and running!"
 
@@ -94,7 +95,7 @@ elif [ "$1" == "re-run" ]; then
         sudo docker run -d \
           --name mongodb \
           --network annotation_network \
-          -p 27018:27017 \
+          -p $MONGODB_DOCKER_PORT:27017 \
           -v mongo_data:/data/db \
           mongo:latest
     }
@@ -105,7 +106,7 @@ elif [ "$1" == "re-run" ]; then
         sudo docker run -d \
           --name annotation_service \
           --network annotation_network \
-          -p 8000:8000 \
+          -p $APP_PORT:$APP_PORT \
           -e MONGO_URI=mongodb://mongodb:27017/annotation \
           deazstar/annoation-service:latest
     }
@@ -116,11 +117,11 @@ elif [ "$1" == "re-run" ]; then
         sudo docker run -d \
           --name caddy \
           --network annotation_network \
-          -p 5000:5000 \
+          -p $CADDY_PORT:$CADDY_PORT_FORWARD \
           -v caddy_data:/data \
           -v caddy_config:/config \
           caddy:latest \
-          caddy reverse-proxy --from http://localhost:5000 --to http://annotation_service:8000
+          caddy reverse-proxy --from http://localhost:$CADDY_PORT --to http://annotation_service:$APP_PORT
     }
 
     echo "Containers are started or running!"
