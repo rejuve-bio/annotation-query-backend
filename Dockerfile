@@ -12,4 +12,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["gunicorn", "-w", "16", "--bind", "0.0.0.0:8000", "run:app"]
+CMD ["flask", "run", "--host=0.0.0.0"]
