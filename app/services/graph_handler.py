@@ -141,16 +141,19 @@ class Graph_Summarizer:
 
 
     def get_graph_info(self):
-        # get the graph from the annotation endpoint
+        # get the graph summary from mongo
         pass
 
     def summary(self,graph,user_query=None,graph_id=None,query_json_format = None):
         prev_summery=[]
         try:
 
-            if graph_id and user_query:
-                graph = self.get_graph_info()
-                prompt = SUMMARY_PROMPT_BASED_ON_USER_QUERY.format(description=graph,user_query=user_query)
+            if graph_id:
+                graph_summary = self.get_graph_info()
+                if user_query:
+                    prompt = SUMMARY_PROMPT_BASED_ON_USER_QUERY.format(description=graph_summary,user_query=user_query)
+                else:
+                    prompt = SUMMARY_PROMPT.format(description=graph_summary)
                 response = self.llm.generate(prompt)
                 return response
 
