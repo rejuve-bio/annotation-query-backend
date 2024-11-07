@@ -1,36 +1,36 @@
 services:
   annotation_service:
-    image: deazstar/annotation-service:latest  # Add this line
+    image: "${DOCKER_HUB_REPO}"
     build:
       context: .
       dockerfile: Dockerfile
     volumes:
       - .:/app
     ports:
-      - "8000:8000"
-    command: gunicorn -w 16 --bind 0.0.0.0:8000 run:app
+      - "${APP_PORT}:8000"
+    command: gunicorn -w 16 --bind 0.0.0.0:${APP_PORT} run:app
     restart: always
     depends_on:
       - mongodb
     environment:
-      - MONGO_URI=mongodb://mongodb:27017/annotation
+      - MONGO_URI=${MONGO_URI}
 
   mongodb:
     image: mongo:latest
     volumes:
       - mongo_data:/data/db
     ports:
-      - "27018:27017"
+      - "${MONGODB_DOCKER_PORT}:27017"
     restart: always
 
   caddy:
     image: caddy:latest
     ports:
-      - "5000:5000"
+      - "${CADDY_PORT}:${CADDY_PORT_FORWARD}"
     volumes:
       - caddy_data:/data
       - caddy_config:/config
-    command: caddy reverse-proxy --from http://localhost:5000 --to http://annotation_service:8000
+    command: caddy reverse-proxy --from http://localhost:${CADDY_PORT} --to http://annotation_service:${APP_PORT}
     restart: always
     depends_on:
       - annotation_service

@@ -163,6 +163,19 @@ Make sure you have the following installed:
 - Docker Compose
 - Bash shell (default on most Unix/Linux systems)
 
+There should be this environment variable in your .env file 
+   ```bash
+   APP_PORT=<the port on which the application will be exposed>
+
+   DOCKER_HUB_REPO=<Docker Hub repository in the format {username}/{repository}>
+
+   MONGODB_DOCKER_PORT=<the port on which MongoDB will be accessible inside the Docker container, typically 27017>
+
+   CADDY_PORT=<the port on which Caddy will listen for incoming requests>
+
+   CADDY_PORT_FORWARD=<the internal port inside the Docker container where Caddy forwards requests to>
+   ```
+
 ## Script Usage
 
 The `run.sh` script supports the following commands:
@@ -211,7 +224,6 @@ sudo ./run.sh re-run
 
 - The script requires `sudo` permissions to run Docker commands.
 - Ensure that you have the correct Docker images and that you have permissions to push to your Docker Hub account.
-- If you encounter any issues, check the console output for error messages, or refer to Docker's documentation for further troubleshooting.
 
 ## Example Workflow
 
