@@ -117,7 +117,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         return metta_output
 
 
-    def run_query(self, query_code, limit=None):
+    def run_query(self, query_code, limit=None, apply_limit=True):
         return self.metta.run(query_code)
 
     def parse_and_serialize(self, input, schema, all_properties):

@@ -56,15 +56,17 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         logger.info(f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code, limit):
+    def run_query(self, query_code, limit, apply_limit=True):
         if isinstance(query_code, list):
             query_code = query_code[0]
-        try:
-            curr_limit = min(5000, int(limit)) # TODO: Find a better way for the max limit
-        except (ValueError, TypeError):
-            curr_limit = 5000
 
-        query_code += f"\nLIMIT {curr_limit}"
+        if apply_limit:
+            try:
+                curr_limit = min(5000, int(limit)) # TODO: Find a better way for the max limit
+            except (ValueError, TypeError):
+                curr_limit = 5000
+
+            query_code += f"\nLIMIT {curr_limit}"
         
         with self.driver.session() as session:
             results = session.run(query_code)
