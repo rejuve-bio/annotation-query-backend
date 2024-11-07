@@ -141,10 +141,10 @@ class Graph_Summarizer:
 
 
     def get_graph_info(self):
-        # get the graph summary from mongo
+        # get the graph summary from the annotation endpoint to get the summary of the graph
         pass
 
-    def summary(self,graph,user_query=None,graph_id=None,query_json_format = None):
+    def summary(self,graph,user_query=None,graph_id=None):
         prev_summery=[]
         try:
 
@@ -161,7 +161,6 @@ class Graph_Summarizer:
                 prev_summery=[]
                 self.graph_description(graph)
                 for i, batch in enumerate(self.descriptions):  
-                    print('batch', batch)   
                     if prev_summery:
                         if user_query:
                             prompt = SUMMARY_PROMPT_CHUNKING_USER_QUERY.format(description=batch,user_query=user_query,prev_summery=prev_summery)
