@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from app.services.llm_models import OpenAIModel, GeminiModel
-from app.services.graph_handler import GraphSummarizer
+from app.services.graph_handler import Graph_Summarizer
 load_dotenv()
 
 class LLMHandler:
@@ -28,6 +28,6 @@ class LLMHandler:
         return title
 
     def generate_summary(self, graph):
-        summarizer = GraphSummarizer(self.model)
+        summarizer = Graph_Summarizer(self.model)
         summary = summarizer.ai_summarizer(graph)
         return summary
