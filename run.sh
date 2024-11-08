@@ -1,6 +1,7 @@
 #!/bin/bash
-#read the environment variables
+# Load the environment variables from the .env file
 source .env
+
 # Define the network name
 NETWORK_NAME="annotation_network"
 
@@ -38,20 +39,21 @@ if [ "$1" == "run" ]; then
     echo "Waiting for MongoDB to start..."
     sleep 10
 
-    # Run Annotation Service container
+    # Run Annotation Service container with environment variables
     echo "Running Annotation Service container..."
     sudo docker run -d \
       --name annotation_service \
       --network $NETWORK_NAME \
       -p $APP_PORT:$APP_PORT \
       -e MONGO_URI=mongodb://mongodb:27017/annotation \
-      deazstar/annoation-service:latest
+      -e APP_PORT=$APP_PORT \
+      $DOCKER_HUB_REPO
 
     # Wait for Annotation Service to start
     echo "Waiting for Annotation Service to start..."
     sleep 10
 
-    # Run Caddy container
+    # Run Caddy container with environment variables
     echo "Running Caddy container..."
     sudo docker run -d \
       --name caddy \
@@ -72,7 +74,6 @@ elif [ "$1" == "push" ]; then
     sudo docker-compose push
 
     echo "Pushing to Docker Hub is finished."
-
 
 elif [ "$1" == "clean" ]; then
     cleanup
@@ -108,7 +109,8 @@ elif [ "$1" == "re-run" ]; then
           --network annotation_network \
           -p $APP_PORT:$APP_PORT \
           -e MONGO_URI=mongodb://mongodb:27017/annotation \
-          deazstar/annoation-service:latest
+          -e APP_PORT=$APP_PORT\
+          $DOCKER_HUB_REPO
     }
 
     echo "Starting Caddy container..."
