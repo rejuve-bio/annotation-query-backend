@@ -45,7 +45,7 @@ if [ "$1" == "run" ]; then
       --network $NETWORK_NAME \
       -p $APP_PORT:$APP_PORT \
       -e MONGO_URI=mongodb://mongodb:27017/annotation \
-      deazstar/annoation-service:latest
+      $DOCKER_HUB_REPO
 
     # Wait for Annotation Service to start
     echo "Waiting for Annotation Service to start..."
@@ -108,7 +108,7 @@ elif [ "$1" == "re-run" ]; then
           --network annotation_network \
           -p $APP_PORT:$APP_PORT \
           -e MONGO_URI=mongodb://mongodb:27017/annotation \
-          deazstar/annoation-service:latest
+          $DOCKER_HUB_REPO
     }
 
     echo "Starting Caddy container..."

@@ -7,7 +7,7 @@ services:
     volumes:
       - .:/app
     ports:
-      - "${APP_PORT}:8000"
+      - "${APP_PORT}:${APP_PORT}"
     command: gunicorn -w 16 --bind 0.0.0.0:${APP_PORT} run:app
     restart: always
     depends_on:
