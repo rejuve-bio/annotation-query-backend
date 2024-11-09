@@ -1,16 +1,25 @@
-# Handles graph-related operations like processing nodes, edges, generating responses ...
+
 from collections import defaultdict
 import re
 import traceback
 import json
-
-class GraphSummarizer:
-    
+import tiktoken
+from app.prompts.summarizer_prompts import SUMMARY_PROMPT, SUMMARY_PROMPT_BASED_ON_USER_QUERY,SUMMARY_PROMPT_CHUNKING,SUMMARY_PROMPT_CHUNKING_USER_QUERY
+class Graph_Summarizer: 
+    '''
+    Handles graph-related operations like processing nodes, edges, generating responses ...
+    '''
     def __init__(self,llm) -> None:
         self.llm = llm
+        self.llm = llm
+      
+        if self.llm.__class__.__name__ == 'GeminiModel':
+            self.max_token=2000
+        elif self.llm.__class__.__name__ == 'OpenAIModel':
+            self.max_token=100000     
+        self.tokenizer = tiktoken.get_encoding("cl100k_base")
 
     def clean_and_format_response(self,desc):
-        """Cleans the response from a model and formats it with multiple lines."""
         desc = desc.strip()
         desc = re.sub(r'\n\s*\n', '\n', desc)
         desc = re.sub(r'^\s*[\*\-]\s*', '', desc, flags=re.MULTILINE)
@@ -29,7 +38,7 @@ class GraphSummarizer:
         """Group edges by source_node."""
         grouped_edges = defaultdict(list)
         for edge in edges:
-            source_node_id = edge["source_node"].split(' ')[-1]  # Extract ID
+            source_node_id = edge["source"].split(' ')[-1]  # Extract ID
             grouped_edges[source_node_id].append(edge)
         return grouped_edges
 
@@ -67,13 +76,13 @@ class GraphSummarizer:
             # Collect descriptions for all target nodes linked to this source node
             target_descriptions = []
             for edge in related_edges:
-                target_node_id = edge["target_node"].split(' ')[-1]
+                target_node_id = edge["target"].split(' ')[-1]
                 target_node = nodes.get(target_node_id, {})
                 target_desc = self.generate_node_description(target_node)
 
                 # Add the relationship and target node description
                 label = edge["label"]
-                target_descriptions.append(f"{label} -> Target Node ({edge['target_node']}): {target_desc}")
+                target_descriptions.append(f"{label} -> Target Node ({edge['target']}): {target_desc}")
 
             # Combine the source node description with all target node descriptions
             source_and_targets = (f"Source Node ({source_node_id}): {source_desc}\n" +
@@ -88,66 +97,89 @@ class GraphSummarizer:
 
     def nodes_description(self,nodes):
         nodes_descriptions = []
-        # Process each source node and its related target nodes
         for source_node_id in nodes:
             source_node = nodes.get(source_node_id, {})
             source_desc = self.generate_node_description(source_node)
             nodes_descriptions.append(source_desc)
         return nodes_descriptions
     
+    def num_tokens_from_string(self, encoding_name: str):
+        """Calculates the number of tokens in each description and groups them into batches under a token limit."""
+        encoding = tiktoken.get_encoding(encoding_name)
+        accumulated_tokens = 0
+        grouped_batched_descriptions = []
+        self.current_batch = []  
+        for i, desc in enumerate(self.description):          
+            desc_tokens = len(encoding.encode(desc))
+            if accumulated_tokens + desc_tokens <= self.max_token:
+                self.current_batch.append(desc)
+                accumulated_tokens += desc_tokens
+            else:
+                grouped_batched_descriptions.append(self.current_batch)
+                self.current_batch = [desc]
+                accumulated_tokens = desc_tokens  
+        if self.current_batch:
+            grouped_batched_descriptions.append(self.current_batch)         
+        return grouped_batched_descriptions
+
+
+    
     def graph_description(self,graph):
         nodes = {node['data']['id']: node['data'] for node in graph['nodes']}
     
         # Check if the 'edges' key exists in the graph
-        if len(graph['edges']) != 0:  # Corrected to check for 'edges' key
-            edges = [{'source_node': edge['data']['source'],
-                    'target_node': edge['data']['target'],
+        if len(graph['edges']) > 0:
+            edges = [{'source': edge['data']['source'],
+                    'target': edge['data']['target'],
                     'label': edge['data']['label']} for edge in graph['edges']]
             self.description = self.generate_grouped_descriptions(edges, nodes, batch_size=10)
+            self.descriptions = self.num_tokens_from_string("cl100k_base")
         else:
-            self.description = self.nodes_description(nodes)
+            self.descriptions = self.nodes_description(nodes)
         
-        return self.description
+        return self.descriptions
 
-    
-    def ai_summarizer(self,graph,user_query=None, query_json_format = None):
+
+    def get_graph_info(self):
+        # get the graph summary from the annotation endpoint to get the summary of the graph
+        pass
+
+    def summary(self,graph,user_query=None,graph_id=None):
+        prev_summery=[]
         try:
-            self.graph_description(graph)
-            
-            if user_query and query_json_format:
-                prompt = (
-                        f"You are an expert biology assistant on summarizing graph data.\n\n"
-                        f"User Query: {user_query}\n\n"
-                        f"Given the following data visualization:\n{self.description}\n\n"
-                        f"Your task is to analyze the graph and summarize the most important trends, patterns, and relationships.\n"
-                        f"Instructions:\n"
-                        f"- Begin by restating the user's query from {query_json_format} to show its relevance to the graph.\n"
-                        f"- Focus on identifying key trends, relationships, or anomalies directly related to the user's question.\n"
-                        f"- Highlight specific comparisons (if applicable) or variables shown in the graph.\n"
-                        f"- Use bullet points or numbered lists to break down core details when necessary.\n"
-                        f"- Format the response in a clear, concise, and easy-to-read manner.\n\n"
-                        f"Please provide a summary based solely on the information shown in the graph."
-                    )
-            else:
-                prompt = (
-                        f"You are an expert biology assistant on summarizing graph data.\n\n"
-                        f"Given the following graph data:\n{self.description}\n\n"
-                        f"Your task is to analyze and summarize the most important trends, patterns, and relationships.\n"
-                        f"Instructions:\n"
-                        f"- Identify key trends, relationships.\n"
-                        # f"- Use bullet points or numbered lists to break down core details when necessary.\n"
-                        f"- Format the response clearly and concisely.\n\n"
-                        f"Count and list important metrics"
-                        F"Identify any central nodes or relationships and highlight any important patterns."
-                        f"Also, mention key relationships between nodes and any interesting structures (such as chains or hubs)."
-                        f"Please provide a summary based solely on the graph information."
-                        f"Write it in a paragraph way"
-                    )
 
+            if graph_id:
+                graph_summary = self.get_graph_info()
+                if user_query:
+                    prompt = SUMMARY_PROMPT_BASED_ON_USER_QUERY.format(description=graph_summary,user_query=user_query)
+                else:
+                    prompt = SUMMARY_PROMPT.format(description=graph_summary)
+                response = self.llm.generate(prompt)
+                return response
 
-            response = self.llm.generate(prompt)
-            # cleaned_desc = self.clean_and_format_response(response)
-            return response
+            if graph:
+                prev_summery=[]
+                self.graph_description(graph)
+                for i, batch in enumerate(self.descriptions):  
+                    if prev_summery:
+                        if user_query:
+                            prompt = SUMMARY_PROMPT_CHUNKING_USER_QUERY.format(description=batch,user_query=user_query,prev_summery=prev_summery)
+                        else:
+                            prompt = SUMMARY_PROMPT_CHUNKING.format(description=batch,prev_summery=prev_summery)
+                    else:
+                        if user_query:
+                            prompt = SUMMARY_PROMPT_BASED_ON_USER_QUERY.format(description=batch,user_query=user_query)
+                            print("prompt", prompt)
+                        else:
+                            prompt = SUMMARY_PROMPT.format(description=batch)
+                            print("prompt", prompt)
+
+                    response = self.llm.generate(prompt)
+                    prev_summery = [response]  
+                # cleaned_desc = self.clean_and_format_response(response)
+                return response
         except:
             traceback.print_exc()
+   
 
+              
