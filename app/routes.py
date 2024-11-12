@@ -1,4 +1,4 @@
-from flask import copy_current_request_context, request, jsonify, Response
+from flask import copy_current_request_context, request, jsonify, Response, send_from_directory
 import logging
 import json
 import yaml
@@ -13,6 +13,9 @@ from app.lib.email import init_mail, send_email
 from dotenv import load_dotenv
 from distutils.util import strtobool
 import datetime
+from app.lib import convert_to_csv
+from app.lib import generate_file_path
+from app.lib import adjust_file_path
 
 # Load environmental variables
 load_dotenv()
@@ -132,19 +135,27 @@ def process_query(current_user_id):
             query_code = query_code[0]
 
         existing_query = storage_service.get_user_query(str(current_user_id), query_code)
+        empty = len(response_data["nodes"]) == 0 and len(response_data['edges']) == 0
 
         if existing_query is None:
-            title = llm.generate_title(query_code)
-            summary = llm.generate_summary(response_data)
+            if not empty:
+                title = llm.generate_title(query_code)
+                summary = llm.generate_summary(response_data)
 
-            storage_service.save(str(current_user_id), query_code, title, summary)
+                annotation_id = storage_service.save(str(current_user_id), query_code, title, summary)
+            else:
+                title = ''
+                summary = ''
+                annotation_id = ''
         else:
             title = existing_query.title
             summary = existing_query.summary
-            storage_service.update(existing_query.id, {"updated_at": datetime.datetime.now()})
+            annotation_id = existing_query.id
+            storage_service.update(annotation_id, {"updated_at": datetime.datetime.now()})
 
         response_data["title"] = title
         response_data["summary"] = summary
+        response_data["annotation_id"] = str(annotation_id)
 
 
         # if limit:
@@ -156,41 +167,23 @@ def process_query(current_user_id):
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/email-query', methods=['POST'])
+@app.route('/email-query/<id>', methods=['POST'])
 @token_required
-def process_email_query(current_user_id):
+def process_email_query(current_user_id, id):
     data = request.get_json()
-    if not data or 'requests' not in data:
-        return jsonify({"error": "Missing requests data"}), 400
     if 'email' not in data:
         return jsonify({"error": "Email missing"}), 400
     @copy_current_request_context
     def send_full_data():
         try:
-            requests = data['requests']
             email = data['email']
         
-            # Validate the request data before processing
-            node_map = validate_request(requests, schema_manager.schema)
-            if node_map is None:
-                return jsonify({"error": "Invalid node_map returned by validate_request"}), 400
-        
-            database_type = config['database']['type']
-            db_instance = databases[database_type]
-            
-            requests = db_instance.parse_id(requests)
-
-            # Generate the query code
-            query_code = db_instance.query_Generator(requests, node_map)
-        
-            # Run the query and parse the results
-            result = db_instance.run_query(query_code)
-            parsed_result = db_instance.convert_to_dict(result, schema_manager.schema)
+            link = process_full_data(current_user_id=current_user_id, annotation_id=id)
             
             subject = 'Full Data'
-            body = f'Hello {email} here is the full data you requested'
+            body = f'Hello {email}. click this link {link} to download the full data you requested.'
 
-            send_email(subject, [email], body, parsed_result)
+            send_email(subject, [email], body)
         except Exception as e:
             logging.error(f"Error processing query: {e}")
 
@@ -214,21 +207,24 @@ def process_user_history(current_user_id):
 
     for document in cursor:
         return_value.append({
-            'id': str(document['_id']),
+            'annotation_id': str(document['_id']),
             'title': document['title'],
             'summary': document['summary']
         })
     return Response(json.dumps(return_value, indent=4), mimetype='application/json')
 
-@app.route('/history/<id>', methods=['GET'])
+@app.route('/annotation/<id>', methods=['GET'])
 @token_required
-def process_user_history_by_id(current_user_id, id):
+def process_by_id(current_user_id, id):
     cursor = storage_service.get_by_id(id)
 
     if cursor is None:
         return jsonify('No value Found'), 200
     
     query = cursor.query
+    title = cursor.title
+    summary = cursor.summary
+    annotation_id = cursor.id
 
     limit = request.args.get('limit')
     properties = request.args.get('properties')
@@ -252,16 +248,19 @@ def process_user_history_by_id(current_user_id, id):
         db_instance = databases[database_type]
         
         # Run the query and parse the results
-        result = db_instance.run_query(query)
+        result = db_instance.run_query(query, limit)
         parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
         
         response_data = {
+            "annotation_id": str(annotation_id),
             "nodes": parsed_result[0],
-            "edges": parsed_result[1]
+            "edges": parsed_result[1],
+            "title": title,
+            "summary": summary
         }
 
-        if limit:
-            response_data = limit_graph(response_data, limit)
+        # if limit:
+            # response_data = limit_graph(response_data, limit)
 
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
@@ -269,3 +268,58 @@ def process_user_history_by_id(current_user_id, id):
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
     
+
+@app.route('/annotation/<id>/full', methods=['GET'])
+@token_required
+def process_full_annotation(current_user_id, id):
+    link = process_full_data(current_user_id=current_user_id, annotation_id=id)
+    if link is None:
+        return jsonify('No value Found'), 200
+
+    response_data = {
+        'link': link
+    }
+
+    formatted_response = json.dumps(response_data, indent=4)
+    return Response(formatted_response, mimetype='application/json')
+
+
+@app.route('/public/<file_name>')
+def serve_file(file_name):
+    public_folder = os.path.join(os.getcwd(), 'public')
+    return send_from_directory(public_folder, file_name)
+
+def process_full_data(current_user_id, annotation_id):
+    cursor = storage_service.get_by_id(annotation_id)
+
+    if cursor is None:
+        return None
+    
+    query, title = cursor.query, cursor.title
+    
+    try:
+        file_path = generate_file_path(file_name=title, user_id=current_user_id, extension='xls')
+        exists = os.path.exists(file_path)
+
+        if exists:
+            file_path = adjust_file_path(file_path)
+            link = f'{request.host_url}{file_path}'
+
+            return link
+
+        database_type = config['database']['type']
+        db_instance = databases[database_type]
+    
+        # Run the query and parse the results
+        result = db_instance.run_query(query, None, apply_limit=False)
+        parsed_result = db_instance.convert_to_dict(result, schema_manager.schema)
+
+        file_path = convert_to_csv(parsed_result, user_id= current_user_id, file_name=title)
+        file_path = adjust_file_path(file_path)
+
+
+        link = f'{request.host_url}{file_path}'
+        return link
+
+    except Exception as e:
+        raise e

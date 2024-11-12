@@ -6,7 +6,7 @@ class QueryGeneratorInterface(ABC):
         pass
 
     @abstractmethod
-    def run_query(self, query_code, limit)-> list:
+    def run_query(self, query_code, limit, apply_limit)-> list:
         pass
 
     @abstractmethod

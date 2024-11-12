@@ -12,7 +12,8 @@ class StorageService():
                 summary=summary
                 )
 
-        data.save()
+        id = data.save()
+        return id
 
     def get(self, user_id):
         data = Storage.find({"user_id": user_id}, one=True)
@@ -32,4 +33,3 @@ class StorageService():
     
     def update(self, id, data):
         data = Storage.update({"_id": id}, {"$set": data}, many=False)
-        
