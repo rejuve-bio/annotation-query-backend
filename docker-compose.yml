@@ -31,7 +31,7 @@ services:
     volumes:
       - caddy_data:/data
       - caddy_config:/config
-    command: caddy reverse-proxy --from http://localhost:${CADDY_PORT} --to http://annotation_service:${APP_PORT}
+    command: caddy reverse-proxy --from http://0.0.0.0:${CADDY_PORT} --to http://annotation_service:${APP_PORT}
     restart: always
     depends_on:
       - annotation_service
