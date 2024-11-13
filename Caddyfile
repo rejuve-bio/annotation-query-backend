@@ -1,0 +1,4 @@
+# Caddyfile for Caddy running as a reverse proxy over HTTP
+http://0.0.0.0:{$CADDY_PORT} {
+    reverse_proxy / annotation_service:{$APP_PORT}
+}

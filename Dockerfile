@@ -14,4 +14,4 @@ COPY . .
 
 EXPOSE $APP_PORT
 
-CMD gunicorn -w 16 --bind 0.0.0.0:$APP_PORT run:app
+CMD gunicorn -w 16 --bind 0.0.0.0:$APP_PORT --timeout 300 run:app

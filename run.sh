@@ -68,7 +68,7 @@ if [ "$1" == "run" ]; then
 
 elif [ "$1" == "push" ]; then
     echo "Building Docker images..."
-    sudo docker-compose build
+     sudo docker-compose build
 
     echo "Pushing Docker images to Docker Hub..."
     sudo docker-compose push
