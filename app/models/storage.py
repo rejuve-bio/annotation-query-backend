@@ -13,6 +13,7 @@ class Storage(Schema):
     query = None
     title = None
     summary = None
+    answer = None
 
     def __init__(self, **kwargs):
         self.schema = {
@@ -32,6 +33,12 @@ class Storage(Schema):
                 "type": Types.String,
                 "required": True,
             },
+            "question": {
+                "type": Types.String
+            },
+            "answer": {
+                "type": Types.String
+            },
             "created_at": {
                 "type": Types.Date,
                 "required": True,
@@ -47,4 +54,4 @@ class Storage(Schema):
         super().__init__(self.schema_name, self.schema, kwargs)
 
     def __str__(self):
-        return f"user_id: {self.user_id}, query: {self.query}, title: {self.title}, summary: {self.summary}"
+        return f"user_id: {self.user_id}, query: {self.query}, title: {self.title}, summary: {self.summary}, question: {self.question}, answer: {self.answer}"
