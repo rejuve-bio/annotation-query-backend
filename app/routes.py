@@ -107,6 +107,15 @@ def process_query(current_user_id):
         limit = None
     try:
         requests = data['requests']
+        annotation_id = None
+        question = None
+        answer = None
+        
+        if 'annotation_id' in requests:
+            annotation_id = requests['annotation_id'] 
+        
+        if 'question' in requests:
+            question = requests['question']
         
         # Validate the request data before processing
         node_map = validate_request(requests, schema_manager.schema)
@@ -134,20 +143,27 @@ def process_query(current_user_id):
         if isinstance(query_code, list):
             query_code = query_code[0]
 
-        existing_query = storage_service.get_user_query(str(current_user_id), query_code)
         empty = len(response_data["nodes"]) == 0 and len(response_data['edges']) == 0
 
-        if existing_query is None:
-            if not empty:
-                title = llm.generate_title(query_code)
-                summary = llm.generate_summary(response_data)
-
-                annotation_id = storage_service.save(str(current_user_id), query_code, title, summary)
-            else:
-                title = ''
-                summary = ''
-                annotation_id = ''
+        if annotation_id:
+            existing_query = storage_service.get_user_query(annotation_id, str(current_user_id), query_code)
         else:
+            existing_query = None
+
+        if existing_query is None:
+            title = llm.generate_title(query_code)
+            summary = llm.generate_summary(response_data)
+            answer = llm.generate_summary(response_data, question, True, summary) if question else None
+            
+            if annotation_id is not None:
+                annotation = {"query": query_code, "summary": summary, "update_at": datetime.datetime.now()}
+                storage_service.update(annotation_id, annotation)
+            else:
+                annotation_id = storage_service.save(str(current_user_id), query_code, title, summary, question, answer)
+        else:
+            title, summary, annotation_id = '', '', ''
+
+        if existing_query:
             title = existing_query.title
             summary = existing_query.summary
             annotation_id = existing_query.id
@@ -157,6 +173,11 @@ def process_query(current_user_id):
         response_data["summary"] = summary
         response_data["annotation_id"] = str(annotation_id)
 
+        if question:
+            response_data["question"] = question
+
+        if answer:
+            response_data["answer"] = answer
 
         # if limit:
         #     response_data = limit_graph(response_data, limit)
@@ -225,6 +246,8 @@ def process_by_id(current_user_id, id):
     title = cursor.title
     summary = cursor.summary
     annotation_id = cursor.id
+    question = cursor.question
+    answer = cursor.answer
 
     limit = request.args.get('limit')
     properties = request.args.get('properties')
@@ -259,6 +282,12 @@ def process_by_id(current_user_id, id):
             "summary": summary
         }
 
+        if question:
+            response_data["question"] = question
+
+        if answer:
+            response_data["answer"] = answer
+
         # if limit:
             # response_data = limit_graph(response_data, limit)
 
@@ -272,16 +301,20 @@ def process_by_id(current_user_id, id):
 @app.route('/annotation/<id>/full', methods=['GET'])
 @token_required
 def process_full_annotation(current_user_id, id):
-    link = process_full_data(current_user_id=current_user_id, annotation_id=id)
-    if link is None:
-        return jsonify('No value Found'), 200
+    try:
+        link = process_full_data(current_user_id=current_user_id, annotation_id=id)
+        if link is None:
+            return jsonify('No value Found'), 200
 
-    response_data = {
-        'link': link
-    }
+        response_data = {
+            'link': link
+        }
 
-    formatted_response = json.dumps(response_data, indent=4)
-    return Response(formatted_response, mimetype='application/json')
+        formatted_response = json.dumps(response_data, indent=4)
+        return Response(formatted_response, mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/public/<file_name>')
@@ -322,4 +355,58 @@ def process_full_data(current_user_id, annotation_id):
         return link
 
     except Exception as e:
-        raise e
+            raise e
+
+@app.route('/annotation/<id>', methods=['DELETE'])
+@token_required
+def delete_by_id(current_user_id, id):
+    try:
+        existing_record = storage_service.get_by_id(id)
+
+        if existing_record is None:
+            return jsonify('No value Found'), 404
+        
+        deleted_record = storage_service.delete(id)
+
+        if deleted_record is None:
+            return jsonify('Failed to delete the annotation'), 500
+        
+        response_data = {
+            'message': 'Annotation deleted successfully'
+        }
+
+        formatted_response = json.dumps(response_data, indent=4)
+        return Response(formatted_response, mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error deleting annotation: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/annotation/<id>/title', methods=['PUT'])
+@token_required
+def update_title(current_user_id, id):
+    data = request.get_json()
+
+    if 'title' not in data:
+        return jsonify({"error": "Title is required"}), 400
+
+    title = data['title']
+
+    try:
+        existing_record = storage_service.get_by_id(id)
+
+        if existing_record is None:
+            return jsonify('No value Found'), 404
+
+        updated_data = storage_service.update(id,{'title': title})
+        
+        response_data = {
+            'message': 'title updated successfully',
+            'title': title,
+        }
+
+        formatted_response = json.dumps(response_data, indent=4)
+        return Response(formatted_response, mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error updating title: {e}")
+        return jsonify({"error": str(e)}), 500

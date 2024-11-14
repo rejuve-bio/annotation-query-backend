@@ -4,12 +4,14 @@ class StorageService():
     def __init__(self):
         pass
     
-    def save(self, user_id, data, title, summary):
+    def save(self, user_id, data, title, summary, question, answer):
         data = Storage(
                 user_id=user_id,
                 query=data,
                 title=title,
-                summary=summary
+                summary=summary,
+                question=question,
+                answer=answer
                 )
 
         id = data.save()
@@ -27,9 +29,13 @@ class StorageService():
         data = Storage.find_by_id(id)
         return data
 
-    def get_user_query(self, user_id, query):
-        data = Storage.find_one({"user_id": user_id, "query": query})
+    def get_user_query(self, annotation_id, user_id, query):
+        data = Storage.find_one({"_id": annotation_id, "user_id": user_id, "query": query})
         return data
     
     def update(self, id, data):
         data = Storage.update({"_id": id}, {"$set": data}, many=False)
+
+    def delete(self, id):
+        data = Storage.delete({"_id": id})
+        return data

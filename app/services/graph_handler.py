@@ -139,17 +139,12 @@ class Graph_Summarizer:
         
         return self.descriptions
 
-
-    def get_graph_info(self):
-        # get the graph summary from the annotation endpoint to get the summary of the graph
-        pass
-
-    def summary(self,graph,user_query=None,graph_id=None):
+    def summary(self,graph,user_query=None,graph_id=None, summary=None):
         prev_summery=[]
         try:
 
             if graph_id:
-                graph_summary = self.get_graph_info()
+                graph_summary = summary
                 if user_query:
                     prompt = SUMMARY_PROMPT_BASED_ON_USER_QUERY.format(description=graph_summary,user_query=user_query)
                 else:
