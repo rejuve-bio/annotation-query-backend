@@ -62,7 +62,7 @@ if [ "$1" == "run" ]; then
       -v caddy_data:/data \
       -v caddy_config:/config \
       caddy:latest \
-      caddy reverse-proxy --from http://localhost:$CADDY_PORT --to http://annotation_service:$APP_PORT
+      caddy reverse-proxy --from http://0.0.0.0:$CADDY_PORT --to http://annotation_service:$APP_PORT
 
     echo "All containers are up and running!"
 
@@ -123,7 +123,7 @@ elif [ "$1" == "re-run" ]; then
           -v caddy_data:/data \
           -v caddy_config:/config \
           caddy:latest \
-          caddy reverse-proxy --from http://localhost:$CADDY_PORT --to http://annotation_service:$APP_PORT
+          caddy reverse-proxy --from http://0.0.0.0:$CADDY_PORT --to http://annotation_service:$APP_PORT
     }
 
     echo "Containers are started or running!"
