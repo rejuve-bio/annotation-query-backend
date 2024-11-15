@@ -189,7 +189,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         tmp_no_preds = [f"{{ properties: properties({var_name}), id: id({var_name}), labels: labels({var_name}), elementId: elementId({var_name})}} AS {var_name}" for var_name in return_no_preds]
         return_no_preds = f"RETURN  {', '.join(tmp_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
         [limit,skip] = self.add_pagination_to_query(take, page)
-        query = f"{match_preds} {optional_clause} {with_clause} ORDER BY n1.id {return_preds}  SKIP {skip} LIMIT {limit} UNION {match_no_preds} {return_no_preds}"
+
+        query = f"{match_preds} CALL{{ {optional_clause} LIMIT 10 }} {with_clause} ORDER BY n1.id {return_preds}  SKIP {skip} LIMIT {limit} UNION {match_no_preds} {return_no_preds}"
         return query
 
     def match_node(self, node, var_name):
