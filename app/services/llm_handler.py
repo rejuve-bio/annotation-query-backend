@@ -30,3 +30,4 @@ class LLMHandler:
     def generate_summary(self, graph, user_query=None,graph_id=None, summary=None):
         summarizer = Graph_Summarizer(self.model)
         summary = summarizer.summary(graph, user_query, graph_id, summary)
+        return summary
