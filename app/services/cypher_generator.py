@@ -163,7 +163,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # multiline optional match
         child_nodes = [f"child{var_name}" for var_name in return_preds]
         # optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
-        optional_clause = f" CALL {{ {' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])} RETURN {', '.join(child_nodes)} LIMIT 10 }}"
+        optional_clause = f" CALL {{ {' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])} RETURN {', '.join(child_nodes)} LIMIT 2 }}"
         # make the ids into a list with distinct values to avoid node duplication
         collect_child_nodes = [f"collect(distinct id(child{var_name})) AS child{var_name}" for var_name in return_preds]
         with_clause = f"WITH {', '.join(return_preds + edges + collect_child_nodes)}"
@@ -191,7 +191,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return_no_preds = f"RETURN  {', '.join(tmp_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
         [limit,skip] = self.add_pagination_to_query(take, page)
 
-        query = f"{match_preds}  {optional_clause} {with_clause} ORDER BY n1.id {return_preds}  SKIP {skip} LIMIT {limit} UNION {match_no_preds} {return_no_preds}"
+        query = f"{match_preds}  {optional_clause} {with_clause} {return_preds}  SKIP {skip} LIMIT {limit} UNION {match_no_preds} {return_no_preds} SKIP {skip} LIMIT {limit}"
         return query
 
     def match_node(self, node, var_name):
@@ -214,7 +214,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     def convert_to_dict(self, results, schema):
         (_, _, node_dict, edge_dict) = self.process_result(results, True)
         return (node_dict, edge_dict)
-    
+
     def is_dict_node(self, item):
         # Check if the item contains the typical node structure (identity, labels, properties)
         return isinstance(item, dict) and 'id' in item and 'labels' in item and 'properties' in item and 'elementId' in item
