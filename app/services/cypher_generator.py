@@ -263,7 +263,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                                     node_data["data"][key] = value
                             else:
                                 if key == 'properties':
-                                    node_data["data"]['properties'] = {}
+                                    node_data["data"]['properties'] = {'id': value['id']}
                                     for properties_name, property_value in value.items():
                                         if properties_name in named_types:
                                             node_data["data"]['properties']["name"] = property_value
