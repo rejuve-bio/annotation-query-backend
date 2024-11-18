@@ -142,7 +142,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     def construct_clause(self, match_clause, return_clause, return_edges, edges, optional_match_preds, page, take):
         match_clause = f"MATCH {', '.join(match_clause)}"
 
-        optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
+        # optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
+        child_nodes = [f"child{var_name}" for var_name in return_clause]
+        optional_clause = f" CALL {{ {' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])} RETURN {', '.join(child_nodes)} LIMIT 10 }} "
         collect_child_nodes = [f"collect(distinct id(child{var_name})) AS child{var_name}" for var_name in return_clause]
 
         if len(edges) != 0:
@@ -159,16 +161,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         match_preds = f"MATCH {', '.join(match_preds)}"
         # child field returns null if more than one node is not present
         # multiline optional match
-        optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
-        
+        child_nodes = [f"child{var_name}" for var_name in return_preds]
+        # optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
+        optional_clause = f" CALL {{ {' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])} RETURN {', '.join(child_nodes)} LIMIT 10 }}"
         # make the ids into a list with distinct values to avoid node duplication
         collect_child_nodes = [f"collect(distinct id(child{var_name})) AS child{var_name}" for var_name in return_preds]
         with_clause = f"WITH {', '.join(return_preds + edges + collect_child_nodes)}"
         tmp_return_preds = return_preds + edge_returns
 
-        
         nodes = [f"CASE WHEN {var_name} IS NOT NULL THEN {{ properties: {var_name}{{.*, child: child{var_name}}}, id: id({var_name}), labels: labels({var_name}), elementId: elementId({var_name}) }} ELSE null END AS {var_name}" for var_name in return_preds]
-
 
         # output example
         # { node: n2{.*, child: childn2}}
@@ -190,7 +191,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return_no_preds = f"RETURN  {', '.join(tmp_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
         [limit,skip] = self.add_pagination_to_query(take, page)
 
-        query = f"{match_preds} CALL{{ {optional_clause} LIMIT 10 }} {with_clause} ORDER BY n1.id {return_preds}  SKIP {skip} LIMIT {limit} UNION {match_no_preds} {return_no_preds}"
+        query = f"{match_preds}  {optional_clause} {with_clause} ORDER BY n1.id {return_preds}  SKIP {skip} LIMIT {limit} UNION {match_no_preds} {return_no_preds}"
         return query
 
     def match_node(self, node, var_name):
