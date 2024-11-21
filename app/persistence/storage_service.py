@@ -4,14 +4,17 @@ class StorageService():
     def __init__(self):
         pass
     
-    def save(self, user_id, data, title, summary, question, answer):
+    def save(self, user_id, data, title, summary, question, answer, node_count, edge_count, node_types):
         data = Storage(
                 user_id=user_id,
                 query=data,
                 title=title,
                 summary=summary,
                 question=question,
-                answer=answer
+                answer=answer,
+                node_count=node_count,
+                edge_count=edge_count,
+                node_types=node_types
                 )
 
         id = data.save()

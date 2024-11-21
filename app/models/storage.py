@@ -25,6 +25,17 @@ class Storage(Schema):
                 "type": Types.String,
                 "required": True,
             },
+            "node_count": {
+                "type": Types.Number,
+                "required": True
+            },
+            "edge_count": {
+                "type": Types.Number,
+                "required": True
+            },
+            "node_types": [{
+                "type": Types.String,
+            }],
             "title": {
                 "type": Types.String,
                 "required": True,

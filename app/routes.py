@@ -133,17 +133,19 @@ def process_query(current_user_id):
         
         # Run the query and parse the results
         result = db_instance.run_query(query_code, limit)
-        parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
-        
-        response_data = {
-            "nodes": parsed_result[0],
-            "edges": parsed_result[1]
-        }
+        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+
+        # Extract node types
+        nodes = requests['nodes']
+        node_types = set()
+
+        for node in nodes:
+            node_types.add(node["type"])
+
+        node_types = list(node_types)
 
         if isinstance(query_code, list):
             query_code = query_code[0]
-
-        empty = len(response_data["nodes"]) == 0 and len(response_data['edges']) == 0
 
         if annotation_id:
             existing_query = storage_service.get_user_query(annotation_id, str(current_user_id), query_code)
@@ -152,14 +154,19 @@ def process_query(current_user_id):
 
         if existing_query is None:
             title = llm.generate_title(query_code)
-            summary = llm.generate_summary(response_data)
+            summary = llm.generate_summary(response_data) if llm.generate_summary(response_data) else 'Graph to big could not summarize'
             answer = llm.generate_summary(response_data, question, True, summary) if question else None
-            
+            node_count = response_data['node_count']
+            edge_count = response_data['edge_count'] if "edge_count" in response_data else 0
             if annotation_id is not None:
-                annotation = {"query": query_code, "summary": summary, "update_at": datetime.datetime.now()}
+                annotation = {"query": query_code, "summary": summary, "node_count": response_data["node_count"], 
+                              "edge_count": response_data["edge_count"], "node_types": node_types, 
+                              "updated_at": datetime.datetime.now()}
                 storage_service.update(annotation_id, annotation)
             else:
-                annotation_id = storage_service.save(str(current_user_id), query_code, title, summary, question, answer)
+                annotation_id = storage_service.save(str(current_user_id), query_code, title, 
+                                                     summary, question, answer, node_count, edge_count, 
+                                                     node_types)
         else:
             title, summary, annotation_id = '', '', ''
 
@@ -169,9 +176,14 @@ def process_query(current_user_id):
             annotation_id = existing_query.id
             storage_service.update(annotation_id, {"updated_at": datetime.datetime.now()})
 
+        
+        updated_data = storage_service.get_by_id(annotation_id)
+
         response_data["title"] = title
         response_data["summary"] = summary
         response_data["annotation_id"] = str(annotation_id)
+        response_data["created_at"] = updated_data.created_at.isoformat()
+        response_data["updated_at"] = updated_data.updated_at.isoformat()
 
         if question:
             response_data["question"] = question
@@ -230,7 +242,11 @@ def process_user_history(current_user_id):
         return_value.append({
             'annotation_id': str(document['_id']),
             'title': document['title'],
-            'summary': document['summary']
+            'node_count': document['node_count'],
+            'edge_count': document['edge_count'],
+            'node_types': document['node_types'],
+            "created_at": document['created_at'].isoformat(),
+            "updated_at": document["updated_at"].isoformat()
         })
     return Response(json.dumps(return_value, indent=4), mimetype='application/json')
 
@@ -241,13 +257,14 @@ def process_by_id(current_user_id, id):
 
     if cursor is None:
         return jsonify('No value Found'), 200
-    
     query = cursor.query
     title = cursor.title
     summary = cursor.summary
     annotation_id = cursor.id
     question = cursor.question
     answer = cursor.answer
+    node_count = cursor.node_count
+    edge_count = cursor.edge_count
 
     limit = request.args.get('limit')
     properties = request.args.get('properties')
@@ -272,15 +289,13 @@ def process_by_id(current_user_id, id):
         
         # Run the query and parse the results
         result = db_instance.run_query(query, limit)
-        parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
         
-        response_data = {
-            "annotation_id": str(annotation_id),
-            "nodes": parsed_result[0],
-            "edges": parsed_result[1],
-            "title": title,
-            "summary": summary
-        }
+        response_data["annotation_id"] = str(annotation_id)
+        response_data["title"] = title
+        response_data["summary"] = summary
+        response_data["node_count"] = node_count
+        response_data["edge_count"] = edge_count
 
         if question:
             response_data["question"] = question

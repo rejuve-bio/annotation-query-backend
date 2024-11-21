@@ -48,7 +48,11 @@ def test_process_query(mock_generate_title, mock_generate_summary, query_list, s
 
         # test output dict keys
         response_json = response.get_json()
-        assert tuple(response_json.keys()) == ('nodes', "edges", "title", "summary", "annotation_id")
+        print(response_json.keys())
+        assert sorted(response_json.keys()) == sorted(['nodes', 'edges', 'title', 'summary', 
+                                               'annotation_id', 'node_count', 'edge_count', 
+                                               'created_at', 'updated_at'])
+
 
         # test the nodes response value is a list
         assert isinstance(response_json['nodes'], list) == True
