@@ -133,17 +133,10 @@ def process_query(current_user_id):
         
         # Run the query and parse the results
         result = db_instance.run_query(query_code, limit)
-        parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
-        
-        response_data = {
-            "nodes": parsed_result[0],
-            "edges": parsed_result[1]
-        }
+        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
 
         if isinstance(query_code, list):
             query_code = query_code[0]
-
-        empty = len(response_data["nodes"]) == 0 and len(response_data['edges']) == 0
 
         if annotation_id:
             existing_query = storage_service.get_user_query(annotation_id, str(current_user_id), query_code)
@@ -152,7 +145,7 @@ def process_query(current_user_id):
 
         if existing_query is None:
             title = llm.generate_title(query_code)
-            summary = llm.generate_summary(response_data)
+            summary = llm.generate_summary(response_data) if llm.generate_summary(response_data) else 'Graph to big could not summarize'
             answer = llm.generate_summary(response_data, question, True, summary) if question else None
             
             if annotation_id is not None:
@@ -272,15 +265,11 @@ def process_by_id(current_user_id, id):
         
         # Run the query and parse the results
         result = db_instance.run_query(query, limit)
-        parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
         
-        response_data = {
-            "annotation_id": str(annotation_id),
-            "nodes": parsed_result[0],
-            "edges": parsed_result[1],
-            "title": title,
-            "summary": summary
-        }
+        response_data["annotation_id"] = str(annotation_id)
+        response_data["title"] = title
+        response_data["summary"] = summary
 
         if question:
             response_data["question"] = question
