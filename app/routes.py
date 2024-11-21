@@ -244,7 +244,9 @@ def process_user_history(current_user_id):
             'title': document['title'],
             'node_count': document['node_count'],
             'edge_count': document['edge_count'],
-            'node_types': document['node_types']
+            'node_types': document['node_types'],
+            "created_at": document['created_at'].isoformat(),
+            "updated_at": document["updated_at"].isoformat()
         })
     return Response(json.dumps(return_value, indent=4), mimetype='application/json')
 
