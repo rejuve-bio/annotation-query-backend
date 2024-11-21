@@ -50,7 +50,7 @@ def test_process_query(mock_generate_title, mock_generate_summary, query_list, s
         response_json = response.get_json()
         
         # Check mandatory keys
-        mandatory_keys = {'nodes', 'title', 'summary', 'annotation_id', 'node_count'}
+        mandatory_keys = {'nodes', 'edges', 'title', 'summary', 'annotation_id', 'node_count', 'edge_count'}
         assert mandatory_keys.issubset(response_json.keys()), f"Missing mandatory keys: {mandatory_keys - set(response_json.keys())}"
         
         # Check optional key
