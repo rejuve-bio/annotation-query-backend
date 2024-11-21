@@ -156,7 +156,7 @@ def process_query(current_user_id):
             answer = llm.generate_summary(response_data, question, True, summary) if question else None
             
             if annotation_id is not None:
-                annotation = {"query": query_code, "summary": summary, "update_at": datetime.datetime.now()}
+                annotation = {"query": query_code, "summary": summary, "updated_at": datetime.datetime.now()}
                 storage_service.update(annotation_id, annotation)
             else:
                 annotation_id = storage_service.save(str(current_user_id), query_code, title, summary, question, answer)
