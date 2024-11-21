@@ -61,20 +61,24 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         if isinstance(query_code, list):
             find_query = query_code[0]
             count_query = query_code[1]
+        else:
+            find_query = query_code
+            count_query = None
 
         if apply_limit:
             try:
                 curr_limit = min(5000, int(limit)) # TODO: Find a better way for the max limit
             except (ValueError, TypeError):
                 curr_limit = 5000
+                find_query += f"\nLIMIT {curr_limit}"
 
-            find_query += f"\nLIMIT {curr_limit}"
         
         with self.driver.session() as session:
             results.append(list(session.run(find_query)))
 
-        with self.driver.session() as session:
-            results.append(list(session.run(count_query)))
+        if count_query:
+            with self.driver.session() as session:
+                results.append(list(session.run(count_query)))
 
         return results
 
@@ -308,10 +312,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def parse_neo4j_results(self, results, all_properties):
         (nodes, edges, _, _, node_count, edge_count) = self.process_result(results, all_properties)
-        if edge_count:
-            return {"nodes": nodes, "edges": edges, "node_count": node_count, "edge_count": edge_count}
-        else:
-            return {"nodes": nodes, "edges": edges, "node_count": node_count}
+        return {"nodes": nodes, "edges": edges, "node_count": node_count, "edge_count": edge_count}
 
     def parse_and_serialize(self, input, schema, all_properties):
         parsed_result = self.parse_neo4j_results(input, all_properties)
@@ -323,7 +324,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def process_result(self, results, all_properties):
         match_result = results[0]
-        count_result = results[1]
+        if len(results) > 1:
+            count_result = results[1]
+        else:
+            count_result = None
+        node_count = None
+        edge_count = None
         nodes = []
         edges = []
         node_dict = {}
@@ -389,9 +395,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         edge_to_dict[edge_data['data']['label']] = []
                     edge_to_dict[edge_data['data']['label']].append(edge_data)
 
-        for count_record in count_result:
-            node_count = count_record['total_nodes']
-            edge_count = count_record.get('total_edges', None)
+        if count_result:
+            for count_record in count_result:
+                node_count = count_record['total_nodes']
+                edge_count = count_record.get('total_edges', 0)
     
         return (nodes, edges, node_to_dict, edge_to_dict, node_count, edge_count)
 
