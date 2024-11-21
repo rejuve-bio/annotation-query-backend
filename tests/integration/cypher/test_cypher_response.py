@@ -48,17 +48,10 @@ def test_process_query(mock_generate_title, mock_generate_summary, query_list, s
 
         # test output dict keys
         response_json = response.get_json()
-        
-        # Check mandatory keys
-        mandatory_keys = {'nodes', 'edges', 'title', 'summary', 'annotation_id', 'node_count'}
-        assert mandatory_keys.issubset(response_json.keys()), f"Missing mandatory keys: {mandatory_keys - set(response_json.keys())}"
-        
-        # Check optional key
-        optional_keys = {'edge_count'}
-        all_keys = mandatory_keys.union(optional_keys)
-        
-        # Assert that no unexpected keys are present
-        assert set(response_json.keys()).issubset(all_keys), f"Unexpected keys: {set(response_json.keys()) - all_keys}"
+        print(response_json.keys())
+        assert sorted(response_json.keys()) == sorted(['nodes', 'edges', 'title', 'summary', 
+                                               'annotation_id', 'node_count', 'edge_count', 
+                                               'created_at', 'updated_at'])
 
 
         # test the nodes response value is a list
