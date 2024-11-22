@@ -11,6 +11,7 @@ from app.lib import limit_graph
 from app.lib.email import init_mail, send_email
 from dotenv import load_dotenv
 from distutils.util import strtobool
+import math
 
 # Load environmental variables
 load_dotenv()
@@ -105,12 +106,27 @@ def process_query():
 
         # Run the query and parse the results
         result = db_instance.run_query(query_code)
+
+        # Get the counts from the last item in results
+        counts = next((item for item in result if "totalNodes" in item and "totalEdges" in item), None)
+        # Remove counts from results
+        result = [item for item in result if "totalNodes" not in item and "totalEdges" not in item]
+
         parsed_result = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+
+        total_nodes = counts["totalNodes"] if counts else None
         
         response_data = {
-            "nodes": parsed_result[0],
-            "edges": parsed_result[1]
+        "nodes": parsed_result[0],
+        "edges": parsed_result[1],
+        "metadata": {
+            "total_nodes": total_nodes,
+            "total_edges": counts["totalEdges"] if counts else None,
+            "page": int(page),
+            "items_per_page": int(take),
+            "max_page": math.ceil(total_nodes / int(take))
         }
+    }
         
         if limit:
             response_data = limit_graph(response_data, limit)

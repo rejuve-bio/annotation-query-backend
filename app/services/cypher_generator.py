@@ -58,11 +58,32 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def run_query(self, query_code):
         if isinstance(query_code, list):
-            query_code = query_code[0]
-        with self.driver.session() as session:
-            results = session.run(query_code)
-            result_list = [record for record in results]
-            return result_list
+            with self.driver.session() as session:
+                try:
+                    # Execute count query
+                    count_results = session.run(query_code[0])
+                    counts = count_results.single()
+                    
+                    # Execute data query
+                    data_results = session.run(query_code[1])
+                    result_list = [record for record in data_results]
+                    
+                    # Add counts to results
+                    result_list.append({
+                        "totalNodes": counts["nodeCount"],
+                        "totalEdges": counts["edgeCount"]
+                    })
+                    
+                    return result_list
+                except Exception as e:
+                    logger.error(f"Query execution error: {e}")
+                    logger.error(f"Count query: {query_code[0]}")
+                    logger.error(f"Data query: {query_code[1]}")
+                    raise
+        else:
+            with self.driver.session() as session:
+                results = session.run(query_code)
+                return [record for record in results]
 
     def query_Generator(self, requests, node_map,take, page):
         nodes = requests['nodes']
@@ -92,8 +113,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 match_no_preds.append(self.match_node(node, var_name))
                 optional_match_preds.append(self.optional_child_match(var_name))
                 return_no_preds.append(var_name)
-            cypher_query = self.construct_clause(match_no_preds, return_no_preds, return_edges, [], optional_match_preds,page, take)
-            cypher_queries.append(cypher_query)
+            
+            count_query = self.construct_count_clause(match_no_preds, return_no_preds, [], [], optional_match_preds)
+            data_query = self.construct_clause(match_no_preds, return_no_preds, return_edges, [], optional_match_preds,page, take)
+            cypher_queries.extend([count_query, data_query])
+            
         else:
             for i, predicate in enumerate(predicates):
                 predicate_type = predicate['type'].replace(" ", "_").lower()
@@ -132,13 +156,114 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return_preds.extend(list(node_ids))
                 
             if (len(match_no_preds) == 0):
-                cypher_query = self.construct_clause(match_preds, return_preds, return_edges, edges, optional_match_preds,page, take)
-                cypher_queries.append(cypher_query)
+                count_query = self.construct_count_clause(match_preds, return_preds, return_edges, edges, optional_match_preds)
+                data_query = self.construct_clause(match_preds, return_preds, return_edges, edges, optional_match_preds,page, take)
+                cypher_queries.extend([count_query, data_query])
             else:
-                cypher_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges, return_edges, edge_returns, page, take)
-                cypher_queries.append(cypher_query)
+                count_query = self.construct_union_count_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges)
+                data_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges, return_edges, edge_returns, page, take)
+                cypher_queries.extend([count_query, data_query])
         
         return cypher_queries
+    
+    def construct_count_clause(self, match_clause, return_clause, return_edges, edges, optional_match_preds):
+        """
+        Constructs an optimized count query for nodes and relationships.
+        Uses direct counting instead of collecting IDs.
+        """
+        # Join match clauses
+        match_statement = f"MATCH {', '.join(match_clause)}"
+        
+        # Build counting query with direct count
+        query = f"""
+        {match_statement}
+        WITH count(DISTINCT 
+            CASE 
+                WHEN size([{', '.join(return_clause)}]) > 0 
+                THEN [{', '.join(f'id({n})' for n in return_clause)}] 
+                ELSE null 
+            END
+        ) as nodeCount
+        
+        OPTIONAL {match_statement}
+        WITH nodeCount, count(DISTINCT 
+            CASE 
+                WHEN size([{', '.join(e for e in edges if not e.startswith('labels'))}]) > 0 
+                THEN [{', '.join(f'id({e})' for e in edges if not e.startswith('labels'))}]
+                ELSE null 
+            END
+        ) as edgeCount
+        
+        RETURN nodeCount, edgeCount
+        """
+        
+        return query
+
+    def construct_union_count_clause(self, match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges):
+        """
+        Constructs an optimized count query for union operations.
+        Uses direct counting and handles both predicate and non-predicate matches efficiently.
+        """
+        # Build predicate matches count if they exist
+        pred_query = ""
+        if match_preds:
+            pred_query = f"""
+            MATCH {', '.join(match_preds)}
+            RETURN count(DISTINCT 
+                CASE 
+                    WHEN size([{', '.join(return_preds)}]) > 0 
+                    THEN [{', '.join(f'id({n})' for n in return_preds)}]
+                    ELSE null 
+                END
+            ) as predNodeCount,
+            count(DISTINCT 
+                CASE 
+                    WHEN size([{', '.join(e for e in edges if not e.startswith('labels'))}]) > 0 
+                    THEN [{', '.join(f'id({e})' for e in edges if not e.startswith('labels'))}]
+                    ELSE null 
+                END
+            ) as predEdgeCount
+            """
+
+        # Build non-predicate matches count if they exist
+        no_pred_query = ""
+        if match_no_preds:
+            no_pred_query = f"""
+            MATCH {', '.join(match_no_preds)}
+            RETURN count(DISTINCT 
+                CASE 
+                    WHEN size([{', '.join(return_no_preds)}]) > 0 
+                    THEN [{', '.join(f'id({n})' for n in return_no_preds)}]
+                    ELSE null 
+                END
+            ) as noPredNodeCount,
+            0 as noPredEdgeCount
+            """
+
+        # Combine queries based on what we have
+        if match_preds and match_no_preds:
+            query = f"""
+            CALL {{ {pred_query} }}
+            WITH predNodeCount, predEdgeCount
+            CALL {{ {no_pred_query} }}
+            RETURN predNodeCount + noPredNodeCount as nodeCount,
+                predEdgeCount + noPredEdgeCount as edgeCount
+            """
+        elif match_preds:
+            query = f"""
+            {pred_query}
+            WITH predNodeCount as nodeCount, predEdgeCount as edgeCount
+            RETURN nodeCount, edgeCount
+            """
+        else:
+            query = f"""
+            {no_pred_query}
+            WITH noPredNodeCount as nodeCount, noPredEdgeCount as edgeCount
+            RETURN nodeCount, edgeCount
+            """
+
+        return query
+    
     def construct_clause(self, match_clause, return_clause, return_edges, edges, optional_match_preds, page, take):
         match_clause = f"MATCH {', '.join(match_clause)}"
 
