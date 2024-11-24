@@ -4,7 +4,7 @@ import json
 import yaml
 import os
 import threading
-from app import app, databases, schema_manager
+from app import app, databases, schema_manager, db_instance
 from app.lib import validate_request
 from flask_cors import CORS
 from app.lib import limit_graph
@@ -42,22 +42,6 @@ CORS(app)
 
 # Setup basic logging
 logging.basicConfig(level=logging.DEBUG)
-
-def load_config():
-    config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.yaml')
-    try:
-        with open(config_path, 'r') as file:
-            config = yaml.safe_load(file)
-        logging.info("Configuration loaded successfully.")
-        return config
-    except FileNotFoundError:
-        logging.error(f"Config file not found at: {config_path}")
-        raise
-    except yaml.YAMLError as e:
-        logging.error(f"Error parsing YAML file: {e}")
-        raise
-
-config = load_config()
 
 @app.route('/kg-info', methods=['GET'])
 @token_required
@@ -121,9 +105,6 @@ def process_query(current_user_id):
         node_map = validate_request(requests, schema_manager.schema)
         if node_map is None:
             return jsonify({"error": "Invalid node_map returned by validate_request"}), 400
-
-        database_type = config['database']['type']
-        db_instance = databases[database_type]
 
         #convert id to appropriate format
         requests = db_instance.parse_id(requests)
@@ -283,10 +264,7 @@ def process_by_id(current_user_id, id):
         limit = None
 
 
-    try:
-        database_type = config['database']['type']
-        db_instance = databases[database_type]
-        
+    try:       
         # Run the query and parse the results
         result = db_instance.run_query(query, limit)
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
@@ -354,9 +332,6 @@ def process_full_data(current_user_id, annotation_id):
             link = f'{request.host_url}{file_path}'
 
             return link
-
-        database_type = config['database']['type']
-        db_instance = databases[database_type]
     
         # Run the query and parse the results
         result = db_instance.run_query(query, None, apply_limit=False)

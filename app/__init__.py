@@ -7,8 +7,27 @@ from app.services.metta_generator import MeTTa_Query_Generator
 from db import mongo_init
 from app.services.llm_handler import LLMHandler
 from app.persistence.storage_service import StorageService
+import os
+import logging
+import yaml
 
 app = Flask(__name__)
+
+def load_config():
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.yaml')
+    try:
+        with open(config_path, 'r') as file:
+            config = yaml.safe_load(file)
+        logging.info("Configuration loaded successfully.")
+        return config
+    except FileNotFoundError:
+        logging.error(f"Config file not found at: {config_path}")
+        raise
+    except yaml.YAMLError as e:
+        logging.error(f"Error parsing YAML file: {e}")
+        raise
+
+config = load_config()
 
 limiter = Limiter(
     get_remote_address,
@@ -19,11 +38,14 @@ limiter = Limiter(
 mongo_init()
 
 databases = {
-    "metta": MeTTa_Query_Generator("./Data"),
-    "cypher": CypherQueryGenerator("./cypher_data")
+    "metta": lambda: MeTTa_Query_Generator("./Data"),
+    "cypher": lambda: CypherQueryGenerator("./cypher_data")
     
     # Add other database instances here
 }
+
+database_type = config['database']['type']
+db_instance = databases[database_type]()
 
 llm = LLMHandler()  # Initialize the LLMHandler
 storage_service = StorageService() # Initialize the storage service
