@@ -56,7 +56,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         logger.info(f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code, limit, apply_limit=True):
+    def run_query(self, query_code):
         results = []
         if isinstance(query_code, list):
             find_query = query_code[0]
@@ -64,14 +64,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         else:
             find_query = query_code
             count_query = None
-
-        if apply_limit:
-            try:
-                curr_limit = min(5000, int(limit)) # TODO: Find a better way for the max limit
-            except (ValueError, TypeError):
-                curr_limit = 5000
-                find_query += f"\nLIMIT {curr_limit}"
-
         
         with self.driver.session() as session:
             results.append(list(session.run(find_query)))
@@ -82,7 +74,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         return results
 
-    def query_Generator(self, requests, node_map):
+    def query_Generator(self, requests, node_map, limit=None):
         nodes = requests['nodes']
 
         if "predicates" in requests:
@@ -112,7 +104,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     where_no_preds.extend(self.where_construct(node, var_name))
                 return_no_preds.append(var_name)
                 list_of_node_ids.append(var_name)
-            cypher_query = self.construct_clause(match_no_preds, return_no_preds, where_no_preds)
+            cypher_query = self.construct_clause(match_no_preds, return_no_preds, where_no_preds, limit)
             cypher_queries.append(cypher_query)
             query_clauses = {
                     "match_no_preds": match_no_preds,
@@ -154,10 +146,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             list_of_node_ids = list(node_ids)
             list_of_node_ids.sort()
             full_return_preds = return_preds + list_of_node_ids
-            #return_preds.extend(list(list_of_node_ids))
                 
             if (len(match_no_preds) == 0):
-                cypher_query = self.construct_clause(match_preds, full_return_preds, where_preds)
+                cypher_query = self.construct_clause(match_preds, full_return_preds, where_preds, limit)
                 cypher_queries.append(cypher_query)
 
                 query_clauses = {
@@ -170,9 +161,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 count = self.construct_count_clause(query_clauses)
                 cypher_queries.append(count)
             else:
-                cypher_query = self.construct_union_clause(match_preds, full_return_preds, where_preds, match_no_preds, return_no_preds, where_no_preds)
-                cypher_queries.append(cypher_query)
-
                 query_clauses = {
                     "match_preds": match_preds, 
                     "full_return_preds": full_return_preds,
@@ -183,32 +171,54 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "list_of_node_ids": list_of_node_ids,
                     "return_preds": return_preds
                 }
+                cypher_query = self.construct_union_clause(query_clauses, limit)
+                cypher_queries.append(cypher_query)
 
                 count = self.construct_count_clause(query_clauses)
                 cypher_queries.append(count)
         return cypher_queries
     
-    def construct_clause(self, match_clause, return_clause, where_no_preds):
+    def construct_clause(self, match_clause, return_clause, where_no_preds, limit):
         match_clause = f"MATCH {', '.join(match_clause)}"
         return_clause = f"RETURN {', '.join(return_clause)}"
         if len(where_no_preds) > 0:
             where_clause = f"WHERE {' AND '.join(where_no_preds)}"
-            return f"{match_clause} {where_clause} {return_clause}"
-        return f"{match_clause} {return_clause}"
+            return f"{match_clause} {where_clause} {return_clause} {self.limit_query(limit)}"
+        return f"{match_clause} {return_clause} {self.limit_query(limit)}"
 
-    def construct_union_clause(self, match_preds, return_preds, where_preds ,match_no_preds, return_no_preds, where_no_preds):
-        where_clause = ""
-        where_no_clause = ""
-        match_preds = f"MATCH {', '.join(match_preds)}"
-        tmp_return_preds = return_preds
-        return_preds = f"RETURN {', '.join(return_preds)} , null AS {', null AS '.join(return_no_preds)}"
-        if len(where_preds) > 0:
-            where_clause = f"WHERE {' AND '.join(where_preds)}"
-        match_no_preds = f"MATCH {', '.join(match_no_preds)}"
-        return_no_preds = f"RETURN  {', '.join(return_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
-        if len(where_no_preds) > 0:
-            where_no_clause = f"WHERE {' AND '.join(where_no_preds)}"
-        query = f"{match_preds} {where_clause} {return_preds} UNION {match_no_preds} {where_no_clause} {return_no_preds}"
+    def construct_union_clause(self, query_clauses, limit):
+        match_no_clause = ''
+        where_no_clause = ''
+        return_count_no_preds_clause = ''
+        match_clause = ''
+        where_clause = ''
+        return_count_preds_clause = ''
+
+        # Check and construct clause for match with no predicates
+        if 'match_no_preds' in query_clauses and query_clauses['match_no_preds']:
+            match_no_clause = f"MATCH {', '.join(query_clauses['match_no_preds'])}"
+            if 'where_no_preds' in query_clauses and query_clauses['where_no_preds']:
+                where_no_clause = f"WHERE {' AND '.join(query_clauses['where_no_preds'])}"
+            return_count_no_preds_clause = "RETURN " + ', '.join(query_clauses['return_no_preds'])
+
+        # Construct a clause for match with predicates
+        if 'match_preds' in query_clauses and query_clauses['match_preds']:
+            match_clause = f"MATCH {', '.join(query_clauses['match_preds'])}"
+            if 'where_preds' in query_clauses and query_clauses['where_preds']:
+                where_clause = f"WHERE {' AND '.join(query_clauses['where_preds'])}"
+            return_count_preds_clause = "RETURN " + ', '.join(query_clauses['full_return_preds'])
+
+        clauses = {}
+
+        # Update the query_clauses dictionary with the constructed clauses
+        clauses['match_no_clause'] = match_no_clause
+        clauses['where_no_clause'] = where_no_clause
+        clauses['return_no_clause'] = return_count_no_preds_clause
+        clauses['match_clause'] = match_clause
+        clauses['where_clause'] = where_clause
+        clauses['return_clause'] = return_count_preds_clause
+        
+        query = self.construct_call_clause(clauses, limit)
         return query
 
     def construct_count_clause(self, query_clauses):
@@ -224,7 +234,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         # Check and construct clause for match with no predicates
         if 'match_no_preds' in query_clauses and query_clauses['match_no_preds']:
-            print(query_clauses['return_no_preds'])
             match_no_clause = f"MATCH {', '.join(query_clauses['match_no_preds'])}"
             if 'where_no_preds' in query_clauses and query_clauses['where_no_preds']:
                 where_no_clause = f"WHERE {' AND '.join(query_clauses['where_no_preds'])}"
@@ -271,28 +280,46 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         # Construct the final call query using the updated query_clauses
         count = self.construct_call_clause(query_clauses)
-        print(count)
 
         return count
 
-    def construct_call_clause(self, clauses):
-        # For both nodes without prediacate and with predicate
-        if "match_no_clause" in clauses and clauses["match_no_clause"] != "" and \
-           "match_clause" in clauses and clauses["match_clause"] != "":
-            return f'CALL() {{ {clauses["match_no_clause"]} {clauses["where_no_clause"]} {clauses["return_no_clause"]} }} ' \
-                   f'CALL() {{ {clauses["match_clause"]} {clauses["where_clause"]} {clauses["return_clause"]} }} ' \
-                   f'{clauses["return_count_sum"]}'
-        # For only nodes with predicate
-        elif "match_clause" in clauses and clauses["match_clause"] != "":
-            return f'CALL() {{ {clauses["match_clause"]} {clauses["where_clause"]} {clauses["return_clause"]} }} ' \
-                   f'{clauses["return_count_sum"]}'
-        # For only nodes with out predicate
-        elif "match_no_clause" in clauses and clauses["match_no_clause"] != "":
-            return f'CALL() {{ {clauses["match_no_clause"]} {clauses["where_no_clause"]} {clauses["return_no_clause"]} }}' \
-                   f'{clauses["return_count_sum"]}'
+    def limit_query(self, limit):
+        if limit:
+            curr_limit = min(5000, int(limit))
         else:
-            raise Exception("match clause or match_no_clause need to be present")
+            curr_limit = 5000
+        return f"LIMIT {curr_limit}"
 
+    def construct_call_clause(self, clauses, limit=None):
+        if not ("match_no_clause" in clauses or "match_clause" in clauses):
+            raise Exception("Either 'match_clause' or 'match_no_clause' must be present")
+
+        # Build CALL clauses
+        call_clauses = []
+
+        # For both nodes without predicate and with predicate
+        if "match_no_clause" in clauses and clauses["match_no_clause"]:
+            call_clauses.append(
+                f'CALL() {{ {clauses["match_no_clause"]} '
+                f'{clauses.get("where_no_clause", "")} '
+                f'{clauses["return_no_clause"]} '
+                f'{self.limit_query(limit) if "return_count_sum" not in clauses else ""} }}'
+            )
+
+        if "match_clause" in clauses and clauses["match_clause"]:
+            call_clauses.append(
+                f'CALL() {{ {clauses["match_clause"]} '
+                f'{clauses.get("where_clause", "")} '
+                f'{clauses["return_clause"]} '
+                f'{self.limit_query(limit) if "return_count_sum" not in clauses else ""} }}'
+            )
+
+        # Add any additional return clause sum/norma query
+        final_clause = clauses.get("return_count_sum", "RETURN *")
+        call_clauses.append(final_clause)
+
+        # Combine clauses into a single string
+        return " ".join(call_clauses)
 
 
 
