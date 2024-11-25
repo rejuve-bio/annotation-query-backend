@@ -285,9 +285,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def limit_query(self, limit):
         if limit:
-            curr_limit = min(5000, int(limit))
+            curr_limit = min(1000, int(limit))
         else:
-            curr_limit = 5000
+            curr_limit = 1000
         return f"LIMIT {curr_limit}"
 
     def construct_call_clause(self, clauses, limit=None):
@@ -314,7 +314,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 f'{self.limit_query(limit) if "return_count_sum" not in clauses else ""} }}'
             )
 
-        # Add any additional return clause sum/norma query
+        # Add any additional return clause sum/normal query
         final_clause = clauses.get("return_count_sum", "RETURN *")
         call_clauses.append(final_clause)
 
