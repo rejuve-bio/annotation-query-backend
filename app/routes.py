@@ -176,6 +176,7 @@ def process_query(current_user_id):
         #     response_data = limit_graph(response_data, limit)
 
         formatted_response = json.dumps(response_data, indent=4)
+        logging.info(f"\n\n============== Query ==============\n\n{query_code}")
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing query: {e}")
