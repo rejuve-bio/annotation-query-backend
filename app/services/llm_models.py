@@ -48,7 +48,7 @@ class GeminiModel(LLMInterface):
 
 
 class OpenAIModel(LLMInterface):
-    def __init__(self, api_key: str, model_name: str = "gpt-3.5-turbo"):
+    def __init__(self, api_key: str, model_name: str = "gpt-4o-mini"):
         self.api_key = api_key
         self.model_name = model_name
         openai.api_key = self.api_key
