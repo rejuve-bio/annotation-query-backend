@@ -12,8 +12,8 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
         self.metta = MeTTa()
         self.initialize_space()
-        self.dataset_path = dataset_path
-        self.load_dataset(self.dataset_path)
+        # self.dataset_path = dataset_path
+        # self.load_dataset(self.dataset_path)
 
     def initialize_space(self):
         self.metta.run("!(bind! &space (new-space))")
