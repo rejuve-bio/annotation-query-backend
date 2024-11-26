@@ -67,9 +67,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         if apply_limit:
             try:
-                curr_limit = min(5000, int(limit)) # TODO: Find a better way for the max limit
+                curr_limit = min(1000, int(limit)) # TODO: Find a better way for the max limit
             except (ValueError, TypeError):
-                curr_limit = 5000
+                curr_limit = 1000
                 find_query += f"\nLIMIT {curr_limit}"
 
         
@@ -371,9 +371,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 elif isinstance(item, neo4j.graph.Relationship):
                     source_id = f"{list(item.start_node.labels)[0]} {item.start_node['id']}"
                     target_id = f"{list(item.end_node.labels)[0]} {item.end_node['id']}"
+                    id = f"{list(item.start_node.labels)[0]}-{item.start_node['id']}_{list(item.end_node.labels)[0]}-{item.end_node['id']}"
                     edge_data = {
                         "data": {
-                            # "id": item.id,
+                            "id": id,
                             "label": item.type,
                             "source": source_id,
                             "target": target_id,
