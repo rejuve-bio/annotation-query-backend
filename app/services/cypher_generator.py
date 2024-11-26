@@ -170,6 +170,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 count = self.construct_count_clause(query_clauses)
                 cypher_queries.append(count)
             else:
+                print("in match no preds")
                 cypher_query = self.construct_union_clause(match_preds, full_return_preds, where_preds, match_no_preds, return_no_preds, where_no_preds)
                 cypher_queries.append(cypher_query)
 
@@ -248,6 +249,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return_count_preds_clause = return_count_preds_clause.rstrip(',')
 
         if 'list_of_node_ids' in query_clauses:
+            if 'return_no_preds' in query_clauses:
+                query_clauses['list_of_node_ids'].extend(query_clauses['return_no_preds'])
             total_nodes = ' + '.join([f'{var}_count' for var in query_clauses['list_of_node_ids']]) + ' AS total_nodes'
 
         if 'return_preds' in query_clauses:
