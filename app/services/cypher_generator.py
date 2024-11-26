@@ -70,7 +70,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 curr_limit = min(1000, int(limit)) # TODO: Find a better way for the max limit
             except (ValueError, TypeError):
                 curr_limit = 1000
-                find_query += f"\nLIMIT {curr_limit}"
+            find_query += f"\nLIMIT {curr_limit}"
 
         
         with self.driver.session() as session:
