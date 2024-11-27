@@ -110,10 +110,10 @@ def process_query(current_user_id):
         requests = db_instance.parse_id(requests)
 
         # Generate the query code
-        query_code = db_instance.query_Generator(requests, node_map)
+        query_code = db_instance.query_Generator(requests, node_map, limit)
         
         # Run the query and parse the results
-        result = db_instance.run_query(query_code, limit)
+        result = db_instance.run_query(query_code)
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
 
         # Extract node types
