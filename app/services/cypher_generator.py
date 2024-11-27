@@ -183,8 +183,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return_clause = f"RETURN {', '.join(return_clause)}"
         if len(where_no_preds) > 0:
             where_clause = f"WHERE {' AND '.join(where_no_preds)}"
-            return f"{match_clause} {where_clause} {return_clause}"
-        return f"{match_clause} {return_clause}"
+            return f"{match_clause} {where_clause} {return_clause} {self.limit_query(limit)}"
+        return f"{match_clause} {return_clause} {self.limit_query(limit)}"
 
     def construct_union_clause(self, query_clauses, limit):
         match_no_clause = ''
