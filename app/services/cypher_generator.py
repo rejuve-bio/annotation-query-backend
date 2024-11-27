@@ -221,40 +221,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         query = self.construct_call_clause(clauses, limit)
         return query
 
-    def construct_union_clause(self, query_clauses, limit):
-        match_no_clause = ''
-        where_no_clause = ''
-        match_clause = ''
-        where_clause = ''
-        return_count_preds_clause = ''
-
-        # Check and construct clause for match with no predicates
-        if 'match_no_preds' in query_clauses and query_clauses['match_no_preds']:
-            match_no_clause = f"MATCH {', '.join(query_clauses['match_no_preds'])}"
-            if 'where_no_preds' in query_clauses and query_clauses['where_no_preds']:
-                where_no_clause = f"WHERE {' AND '.join(query_clauses['where_no_preds'])}"
-            return_count_no_preds_clause = "RETURN " + ', '.join(query_clauses['return_no_preds'])
-
-        # Construct a clause for match with predicates
-        if 'match_preds' in query_clauses and query_clauses['match_preds']:
-            match_clause = f"MATCH {', '.join(query_clauses['match_preds'])}"
-            if 'where_preds' in query_clauses and query_clauses['where_preds']:
-                where_clause = f"WHERE {' AND '.join(query_clauses['where_preds'])}"
-            return_count_preds_clause = "RETURN " + ', '.join(query_clauses['full_return_preds'])
-
-        clauses = {}
-
-        # Update the query_clauses dictionary with the constructed clauses
-        clauses['match_no_clause'] = match_no_clause
-        clauses['where_no_clause'] = where_no_clause
-        clauses['return_no_clause'] = return_count_no_preds_clause
-        clauses['match_clause'] = match_clause
-        clauses['where_clause'] = where_clause
-        clauses['return_clause'] = return_count_preds_clause
-        
-        query = self.construct_call_clause(clauses, limit)
-        return query
-
     def construct_count_clause(self, query_clauses):
         match_no_clause = ''
         where_no_clause = ''
