@@ -224,64 +224,59 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     def construct_count_clause(self, query_clauses):
         match_no_clause = ''
         where_no_clause = ''
-        return_count_no_preds_clause = ''
         match_clause = ''
         where_clause = ''
-        return_count_preds_clause = ''
-        total_nodes = ''
-        total_edges = ''
-        return_count_sum = ''
+        count_clause = ''
+        with_clause = ''
+        unwind_clause = ''
+        return_clause = ''
 
         # Check and construct clause for match with no predicates
         if 'match_no_preds' in query_clauses and query_clauses['match_no_preds']:
             match_no_clause = f"MATCH {', '.join(query_clauses['match_no_preds'])}"
             if 'where_no_preds' in query_clauses and query_clauses['where_no_preds']:
                 where_no_clause = f"WHERE {' AND '.join(query_clauses['where_no_preds'])}"
-            return_count_no_preds_clause = "RETURN "
-            for return_no_pred in query_clauses['return_no_preds']:
-                return_count_no_preds_clause += f"COUNT (DISTINCT {return_no_pred}) AS {return_no_pred}_count,"
-
-            # Remove trailing comma from return_count_no_preds_clause
-            return_count_no_preds_clause = return_count_no_preds_clause.rstrip(',')
 
         # Construct a clause for match with predicates
         if 'match_preds' in query_clauses and query_clauses['match_preds']:
             match_clause = f"MATCH {', '.join(query_clauses['match_preds'])}"
             if 'where_preds' in query_clauses and query_clauses['where_preds']:
                 where_clause = f"WHERE {' AND '.join(query_clauses['where_preds'])}"
-            return_count_preds_clause = "RETURN "
-            for return_pred in query_clauses['full_return_preds']:
-                return_count_preds_clause += f"COUNT (DISTINCT {return_pred}) AS {return_pred}_count,"
 
-            # Remove trailing comma from return_count_preds_clause
-            return_count_preds_clause = return_count_preds_clause.rstrip(',')
-
-        if 'list_of_node_ids' in query_clauses:
-            total_nodes = ' + '.join([f'{var}_count' for var in query_clauses['list_of_node_ids']]) + ' AS total_nodes'
-
+        # Construct the COUNT clause
+        if 'return_no_preds' in query_clauses and 'return_preds' in query_clauses:
+            query_clauses['list_of_node_ids'].extend(query_clauses['return_no_preds'])
+        for node_ids in query_clauses['list_of_node_ids']:
+            count_clause += f"COLLECT(DISTINCT {node_ids}) AS {node_ids}_count, "
         if 'return_preds' in query_clauses:
-            total_edges = ' + '.join([f'{var}_count' for var in query_clauses['return_preds']]) + ' AS total_edges'
-
-        # Construct the final return sum
-        if total_edges:
-            return_count_sum = f"RETURN {total_nodes}, {total_edges}"
-        else:
-            return_count_sum = f" RETURN {total_nodes}"
-
-        # Update the query_clauses dictionary with the constructed clauses
-        query_clauses['match_no_clause'] = match_no_clause
-        query_clauses['where_no_clause'] = where_no_clause
-        query_clauses['return_no_clause'] = return_count_no_preds_clause
-        query_clauses['match_clause'] = match_clause
-        query_clauses['where_clause'] = where_clause
-        query_clauses['return_clause'] = return_count_preds_clause
-        query_clauses['return_count_sum'] = return_count_sum
+            for edge_ids in query_clauses['return_preds']:
+                count_clause += f"COLLECT(DISTINCT {edge_ids}) AS {edge_ids}_count, "
+        count_clause = f"WITH {count_clause.rstrip(', ')}"
 
 
-        # Construct the final call query using the updated query_clauses
-        count = self.construct_call_clause(query_clauses)
+        # Construct the WITH and UNWIND clauses
+        combined_nodes = ' + '.join([f"{var}_count" for var in query_clauses['list_of_node_ids']])
+        combined_edges = None
+        if 'return_preds' in query_clauses:
+            combined_edges = ' + '.join([f"{var}_count" for var in query_clauses['return_preds']])
+        with_clause = f"WITH {combined_nodes} AS combined_nodes {f',{combined_edges} AS combined_edges' if combined_edges else ''}"
+        unwind_clause = f"UNWIND combined_nodes AS nodes"
 
-        return count
+        # Construct the RETURN clause
+        return_clause = f"RETURN COUNT(DISTINCT nodes) AS total_nodes {', SIZE(combined_edges) AS total_edges ' if combined_edges else ''}"
+
+        query = f'''
+            {match_no_clause}
+            {where_no_clause}
+            {match_clause}
+            {where_clause}
+            {count_clause}
+            {with_clause}
+            {unwind_clause}
+            {return_clause}
+        '''
+        return query
+
 
     def limit_query(self, limit):
         if limit:
