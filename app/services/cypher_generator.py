@@ -393,9 +393,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 elif isinstance(item, neo4j.graph.Relationship):
                     source_id = f"{list(item.start_node.labels)[0]} {item.start_node['id']}"
                     target_id = f"{list(item.end_node.labels)[0]} {item.end_node['id']}"
+                    id = f"{list(item.start_node.labels)[0]}-{item.start_node['id']}_{list(item.end_node.labels)[0]}-{item.end_node['id']}"
                     edge_data = {
                         "data": {
-                            # "id": item.id,
+                            "id": id,
                             "label": item.type,
                             "source": source_id,
                             "target": target_id,
