@@ -100,9 +100,18 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # Track nodes that are included in relationships
         used_nodes = set()
         no_label_ids = None
+        where_logic = None
+
+        # define an array of nodes with predicates
+        node_predicates = set()
+
+        if predicates:
+            for predicate in predicates:
+                node_predicates.add(predicate['source'])
+                node_predicates.add(predicate['target'])
 
         if logic:
-            where_logic, no_label_ids = self.apply_boolean_operation(logic['children'], node_map)
+            where_logic, no_label_ids = self.apply_boolean_operation(logic['children'], node_map, node_predicates)
 
         if not predicates:
             list_of_node_ids = []
@@ -111,7 +120,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 if node['properties']:
                     where_no_preds.extend(self.where_construct(node))
                 if where_logic:
-                    where_no_preds.extend(where_logic)
+                    where_no_preds.extend(where_logic['where_no_preds'])
                 match_no_preds.append(self.match_node(node, no_label_ids))
                 return_no_preds.append(node['node_id'])
                 list_of_node_ids.append(node['node_id'])
@@ -164,7 +173,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 
             if (len(match_no_preds) == 0):
                 if where_logic:
-                    where_preds.extend(where_logic)
+                    where_preds.extend(where_logic['where_preds'])
                 query_clauses = {
                     'match_clause': match_preds,
                     'return_clause': full_return_preds,
@@ -183,6 +192,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 count = self.construct_count_clause(query_clauses)
                 cypher_queries.append(count)
             else:
+                if where_logic:
+                    where_no_preds.extend(where_logic['where_no_preds'])
+                    where_preds.extend(where_logic['where_preds'])
                 query_clauses = {
                     "match_preds": match_preds, 
                     "full_return_preds": full_return_preds,
@@ -299,13 +311,17 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         '''
         return query
     
-    def apply_boolean_operation(self, logics, node_map):
-        where_clauses = []
+    def apply_boolean_operation(self, logics, node_map, node_predicates):
+        where_clauses = {'where_no_preds': [], 'where_preds': []}
         no_label_ids = set()
+
         for logic in logics:
             if logic['operator'] == "NOT":
-                where_clause, no_label_id = self.construct_not_operation(logic, node_map)
-                where_clauses.append(where_clause)
+                where_query, no_label_id = self.construct_not_operation(logic, node_map)
+                if 'nodes' in logic and logic['nodes']['node_id'] not in node_predicates:
+                    where_clauses['where_no_preds'].append(where_query)
+                elif 'nodes' in logic and logic['nodes']['node_id'] in node_predicates:
+                    where_clauses['where_preds'].append(where_query)
                 no_label_ids.add(no_label_id)
             # TODO: finish other operators
         return where_clauses, no_label_ids
@@ -471,8 +487,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         if count_result:
             for count_record in count_result:
-                node_count = count_record['total_nodes']
+                node_count = count_record.get('total_nodes', 0)
                 edge_count = count_record.get('total_edges', 0)
+        else:
+            node_count = 0
+            edge_count = 0
     
         return (nodes, edges, node_to_dict, edge_to_dict, node_count, edge_count)
 
