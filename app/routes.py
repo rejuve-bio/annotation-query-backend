@@ -4,7 +4,7 @@ import json
 import yaml
 import os
 import threading
-from app import app, databases, schema_manager, db_instance
+from app import app, schema_manager, db_instance
 from app.lib import validate_request
 from flask_cors import CORS
 from app.lib import limit_graph

@@ -100,14 +100,17 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # Track nodes that are included in relationships
         used_nodes = set()
         no_label_ids = None
+
+        if logic:
+            where_logic, no_label_ids = self.apply_boolean_operation(logic['children'], node_map)
+
         if not predicates:
             list_of_node_ids = []
             # Case when there are no predicates
             for node in nodes:
                 if node['properties']:
                     where_no_preds.extend(self.where_construct(node))
-                if logic:
-                    where_logic, no_label_ids = self.apply_boolean_operation(logic['children'], node_map)
+                if where_logic:
                     where_no_preds.extend(where_logic)
                 match_no_preds.append(self.match_node(node, no_label_ids))
                 return_no_preds.append(node['node_id'])
@@ -135,10 +138,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 source_var = source_node['node_id']
                 target_var = target_node['node_id']
 
-                source_match = self.match_node(source_node, source_var)
+                source_match = self.match_node(source_node)
                 where_preds.extend(self.where_construct(source_node))
                 match_preds.append(source_match)
-                target_match = self.match_node(target_node, target_var)
+                target_match = self.match_node(target_node)
                 where_preds.extend(self.where_construct(target_node))
 
                 match_preds.append(f"({source_var})-[r{i}:{predicate_type}]->{target_match}")
@@ -160,6 +163,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             full_return_preds = return_preds + list_of_node_ids
                 
             if (len(match_no_preds) == 0):
+                if where_logic:
+                    where_preds.extend(where_logic)
                 query_clauses = {
                     'match_clause': match_preds,
                     'return_clause': full_return_preds,
@@ -318,7 +323,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             node_type = node_map[node_id]['type']
             no_label_id = (node_id)
             where_clause = (f'NOT ({node_id}: {node_type})')
-
         #TODO: finish this logic for for relationship
         return where_clause, no_label_id
 
