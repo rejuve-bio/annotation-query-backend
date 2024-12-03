@@ -350,8 +350,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             count_result = results[1]
         else:
             count_result = None
-        node_count = None
-        edge_count = None
+        node_count = 0
+        edge_count = 0
         nodes = []
         edges = []
         node_dict = {}
