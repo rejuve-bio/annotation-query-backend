@@ -212,6 +212,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
                 count = self.construct_count_clause(query_clauses)
                 cypher_queries.append(count)
+        print(cypher_queries)
         return cypher_queries
     
     def construct_clause(self, query_clauses, limit):
@@ -333,6 +334,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 elif 'predicates' in logic:
                     where_clauses['where_preds'].append(where_query)
                     no_label_ids['no_predicate_labels'].update(no_label_id['no_predicate_labels'])
+            elif logic['operator'] == "OR":
+                where_query = self.construct_or_operation(logic, node_map, predicate_map)
+                if 'nodes' in logic:
+                    node_id = logic['nodes']['node_id']
+                    if node_id not in node_predicates:
+                        where_clauses['where_no_preds'].append(where_query)
+                    else:
+                        where_clauses['where_preds'].append(where_query)
+               # what's here = self.construct_or_operation(logic, node_map, predicate_map)
 
         return where_clauses, no_label_ids
 
@@ -358,7 +368,21 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             no_label_id['no_predicate_labels'].add(predicate_id)
             where_clause = f"type({predicate_id}) <> '{label}'"
         return where_clause, no_label_id
-
+    
+    def construct_or_operation(self, logic, node_map, predicate_map):
+        where_clause = ''
+        properties_or = []
+        
+        if 'nodes' in logic:
+            node_id = logic['nodes']['node_id']
+            properties = logic['nodes']['properties']
+            for property, value in properties.items():
+                print(value)
+                for single_value in value:
+                    properties_or.append(f"{node_id}.{property} = '{single_value}'")
+        where_clause = ' OR '.join(properties_or)
+        print(where_clause)
+        return where_clause
 
     def limit_query(self, limit):
         if limit:
