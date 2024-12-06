@@ -338,7 +338,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 where_query = self.construct_or_operation(logic, node_map, predicate_map)
                 if 'nodes' in logic:
                     node_id = logic['nodes']['node_id']
-                    if node_id not in node_predicates:
+                    if node_id not in node_predicates:          
                         where_clauses['where_no_preds'].append(where_query)
                     else:
                         where_clauses['where_preds'].append(where_query)
@@ -369,20 +369,86 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             where_clause = f"type({predicate_id}) <> '{label}'"
         return where_clause, no_label_id
     
+
+
     def construct_or_operation(self, logic, node_map, predicate_map):
         where_clause = ''
-        properties_or = []
+        node_conditions = []
+
+        # Check if there are properties to process
+        if logic['nodes']['properties']:
+            # Build OR conditions
+            for node_id, props in logic['nodes']['properties'].items():
+                for key, value in props.items():
+                    node_conditions.append(f"{node_id}.{key} = '{value}'")
+            
+            # Combine OR conditions
+            combined_conditions = f" OR ".join(node_conditions)
+            where_clause += f"({combined_conditions})"
+             
+            # Clear node_conditions for the next set of conditions
+            node_conditions = []
+
+            # Build IS NULL OR conditions
+            for node_id, props in logic['nodes']['properties'].items():
+                for key, value in props.items():
+                    node_conditions.append(f"({node_id}.{key} IS NULL OR {node_id}.{key} = '{value}')")
+            
+            # Combine AND conditions
+            combined_condition_last= f" AND ".join(node_conditions)
+            where_clauses = f"({combined_conditions}) AND {combined_condition_last}"  # Replace the previous clause
+            print("______________________where clause ___________________________________________")
+            print(where_clauses)
+            print("_______________________ where clause __________________________________________")
+
         
-        if 'nodes' in logic:
-            node_id = logic['nodes']['node_id']
-            properties = logic['nodes']['properties']
-            for property, value in properties.items():
-                print(value)
-                for single_value in value:
-                    properties_or.append(f"{node_id}.{property} = '{single_value}'")
-        where_clause = ' OR '.join(properties_or)
-        print(where_clause)
-        return where_clause
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def limit_query(self, limit):
         if limit:
