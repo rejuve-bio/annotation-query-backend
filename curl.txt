@@ -4,8 +4,108 @@ curl -X GET http://localhost:5000/edges
 
 curl -X GET http://localhost:5000/relations/gene
 
-curl -X POST http://localhost:5000/query -H "Content-Type: application/json" -d '{
-  "requests": {
+curl -X POST http://localhost:8000/query?limit=10\
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoic29tZV9pZCJ9.4YPM_qKZzYWtnEoSj9W7F7IlOMmn_pUXl6Pwb1u0UMY" \
+  -d '{"requests": {
+    "nodes": [
+      {
+        "node_id": "n1",
+        "id": "",
+        "type": "gene",
+        "properties": {}
+      },
+      {
+        "node_id": "n2",
+        "id": "",
+        "type": "transcript",
+        "properties": {}
+      },
+      {
+        "node_id": "n3",
+        "id": "",
+        "type": "protein",
+        "properties": {
+          "protein_name": "MKKS"
+        }
+      },
+      {
+        "node_id": "n4",
+        "id": "",
+        "type": "protein",
+        "properties": {
+          "protein_name": "MKKS"
+        }
+      }
+    ],
+    "predicates": [
+      {
+        "type": "transcribed to",
+        "source": "n1",
+        "target": "n2"
+      },
+      {
+        "type": "translates to",
+        "source": "n2",
+        "target": "n3"
+      }
+    ]
+  }
+}'
+
+
+curl -X POST http://localhost:8000/query?limit=10\
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoic29tZV9pZCJ9.4YPM_qKZzYWtnEoSj9W7F7IlOMmn_pUXl6Pwb1u0UMY" \
+  -d '{"requests": {
+    "nodes": [
+      {
+        "node_id": "n1",
+        "id": "",
+        "type": "gene",
+        "properties": {
+          "gene_type": "protein_coding"
+        }
+      },
+      {
+        "node_id": "n2",
+        "id": "",
+        "type": "transcript",
+        "properties": {}
+      }
+    ],
+    "predicates": [
+      {
+        "type": "transcribed to",
+        "source": "n1",
+        "target": "n2"
+      }
+   ]
+  }
+}'
+
+curl -X POST http://localhost:8000/query?limit=10\
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoic29tZV9pZCJ9.4YPM_qKZzYWtnEoSj9W7F7IlOMmn_pUXl6Pwb1u0UMY" \
+  -d '{"requests": {
+    "nodes": [
+      {
+        "node_id": "n1",
+        "id": "",
+        "type": "gene",
+        "properties": {
+        }
+      }
+    ],
+    "predicates": []
+  }
+}'
+
+
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoic29tZV9pZCJ9.4YPM_qKZzYWtnEoSj9W7F7IlOMmn_pUXl6Pwb1u0UMY" \
+  -d '{"requests": {
     "nodes": [
       {
         "node_id": "n1",
@@ -32,7 +132,7 @@ curl -X POST http://localhost:5000/query -H "Content-Type: application/json" -d 
         "id": "",
         "type": "protein",
           "properties": {
-          "protein_name": "MKKS"
+            "protein_name": "MKKS"
         }
       }
     ],
@@ -52,18 +152,14 @@ curl -X POST http://localhost:5000/query -H "Content-Type: application/json" -d 
 }'
 
 
-curl --location 'http://localhost:5000/query' \
---header 'Content-Type: application/json' \
---data '{
+{
   "requests": {
     "nodes": [
       {
         "node_id": "n1",
         "id": "",
         "type": "gene",
-        "properties": {
-          "gene_type": "protein_coding"
-        }
+        "properties": {}
       },
       {
         "node_id": "n2",
@@ -72,38 +168,339 @@ curl --location 'http://localhost:5000/query' \
         "properties": {}
       },
       {
-	"node_id": "n3",
+        "node_id": "n3",
         "id": "",
         "type": "protein",
         "properties": {
-          "protein_name": "ANKE1"
+          "protein_name": "MKKS"
+        }
+      },
+      {
+        "node_id": "n4",
+        "id": "",
+        "type": "protein",
+        "properties": {
+          "protein_name": "MKKS"
+        }
+      },
+      {
+        "node_id": "n5",
+        "id": "",
+        "type": "protein",
+        "properties": {}
+      },
+      {
+        "node_id": "n6",
+        "id": "",
+        "type": "protein",
+        "properties": {
+          "protein_name": "MKKS"
         }
       }
     ],
     "predicates": [
       {
+        "id": "p1",
         "type": "transcribed to",
         "source": "n1",
         "target": "n2"
+      },
+      {
+        "id": "p2",
+        "type": "transcribed to",
+        "source": "n2",
+        "target": "n3"
+      },
+      {
+        "id": "p3",
+        "type": "transcribed to",
+        "source": "n3",
+        "target": "n4"
+      },
+      {
+        "id": "p4",
+        "type": "transcribed to",
+        "source": "n4",
+        "target": "n5"
       }
-   ]
+    ],
+    "logic": {
+      "children": [
+        {
+          "operator": "AND",
+          "predicates": ["p1", "p2"]
+        },
+        {
+          "operator": "OR",
+          "children": [
+            {
+              "operator": "AND",
+              "predicates": ["p1", "p2"]
+            },
+            {
+              "operator": "OR",
+              "predicates": ["p2", "p3"]
+            }
+          ]
+        },
+        {
+          "operator": "NOT",
+          "nodes": {
+            "node_id": "n1"
+          }
+        },
+        {
+          "operator": "NOT",
+          "predicates": ["p1", "p2"]
+        },
+        {
+          "operator": "NOT",
+          "predicates": ["p1"]
+        },
+        {
+          "operator": "NOT",
+          "nodes": {
+            "node_id": "n3",
+            "properties": {
+              "protein_name": "MKKS"
+            }
+          }
+        },
+        {
+          "operator": "NOT",
+          "nodes": {
+            "node_id": "n6"
+          },
+          "properties": {
+            "protein_name": "MKKS"
+          }
+        }
+      ]
+    }
   }
-}'
+}
 
-curl --location 'http://localhost:5000/query' --header 'Content-Type: application/json' --data '{
-  "requests": {
+
+
+
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoic29tZV9pZCJ9.4YPM_qKZzYWtnEoSj9W7F7IlOMmn_pUXl6Pwb1u0UMY" \
+  -d '{"requests": {
     "nodes": [
       {
         "node_id": "n1",
         "id": "",
         "type": "gene",
-        "properties": {
-          "gene_type": "protein_coding"
+        "properties": {}
+      },
+      {
+        "node_id": "n2",
+        "id": "",
+        "type": "transcript",
+        "properties": {}
+      },
+      {
+        "node_id": "n4",
+        "id": "",
+        "type": "protein",
+          "properties": {
+            "protein_name":"MKKS"
         }
       }
     ],
-    "predicates": []
+    "predicates": [
+      {
+        "type": "translates to",
+        "source": "n2",
+        "target": "n4"
+      }
+    ]
   }
 }'
 
+"NOT OPERATION"
 
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoic29tZV9pZCJ9.4YPM_qKZzYWtnEoSj9W7F7IlOMmn_pUXl6Pwb1u0UMY" \
+  -d '{
+    "requests": {
+      "nodes": [
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "gene",
+          "properties": {}
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "children": [
+          {
+            "operator": "NOT",
+            "nodes": {
+              "node_id": "n1"
+            }
+          }
+        ]
+      }
+    }
+  }'
+
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoic29tZV9pZCJ9.4YPM_qKZzYWtnEoSj9W7F7IlOMmn_pUXl6Pwb1u0UMY" \
+  -d '{
+    "requests": {
+      "nodes": [
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "transcript",
+          "properties": {}
+        },
+        {
+          "node_id": "n2",
+          "id": "",
+          "type": "protein",
+          "properties": {
+          }
+        }
+      ],
+      "predicates": [
+        {
+          "type": "translates to",
+          "source": "n1",
+          "target": "n2"
+        }
+      ],
+      "logic": {
+        "children": [
+          {
+            "operator": "NOT",
+            "nodes": {
+              "node_id": "n2",
+              "properties": {
+                "protein_name": "MKKS"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }'
+
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoic29tZV9pZCJ9.4YPM_qKZzYWtnEoSj9W7F7IlOMmn_pUXl6Pwb1u0UMY" \
+  -d '{
+    "requests": {
+      "nodes": [
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "transcript",
+          "properties": {}
+        },
+        {
+          "node_id": "n2",
+          "id": "",
+          "type": "protein",
+          "properties": {
+          }
+        },
+        {
+          "node_id": "n3",
+          "id": "",
+          "type": "protein",
+          "properties": {
+          }
+        }
+      ],
+      "predicates": [
+        {
+          "type": "translates to",
+          "source": "n1",
+          "target": "n2"
+        }
+      ],
+      "logic": {
+        "children": [
+          {
+            "operator": "NOT",
+            "nodes": {
+              "node_id": "n2",
+              "properties": {
+                "protein_name": "MKKS"
+              }
+            }
+          },
+          {
+            "operator": "NOT",
+            "nodes": {
+              "node_id": "n3",
+              "properties": {
+                "protein_name": "MKKS"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }'
+
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoic29tZV9pZCJ9.4YPM_qKZzYWtnEoSj9W7F7IlOMmn_pUXl6Pwb1u0UMY" \
+  -d '{
+    "requests": {
+      "nodes": [
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "gene",
+          "properties": {}
+        },
+        {
+          "node_id": "n2",
+          "id": "",
+          "type": "transcript",
+          "properties": {
+            "transcript_name": "JAG1-201"
+          }
+        },
+        {
+          "node_id": "n3",
+          "id": "",
+          "type": "transcript",
+          "properties": {
+            "transcript_name": "JAG1-208"
+          }
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p1"
+          "type": "translates to",
+          "source": "n1",
+          "target": "n2"
+        },
+        {
+          "predicate_id": "p1"
+          "type": "translates to",
+          "source": "n1",
+          "target": "n3"
+        },
+
+      ],
+      "logic": {
+        "children": [
+          {
+            "operator": "OR",
+            "predicates": [p1, p2]
+          }
+        ]
+      }
+    }
+  }'
