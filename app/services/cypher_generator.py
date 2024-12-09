@@ -208,12 +208,18 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "return_preds": return_preds
                 }
                 cypher_query = self.construct_union_clause(query_clauses, limit)
+                print("cyper_queries before count _____________________________________")
+
                 cypher_queries.append(cypher_query)
+                print(cyper_queries)
+                print("cyper_queries before final count _____________________________________")
 
                 count = self.construct_count_clause(query_clauses)
                 cypher_queries.append(count)
+        print("cyper_queries final aftercount _____________________________________")
         print(cypher_queries)
         return cypher_queries
+        print("cyper_queries afterfinal_____________________________________")
     
     def construct_clause(self, query_clauses, limit):
         match_clause = f"MATCH {', '.join(query_clauses['match_clause'])}"
@@ -221,6 +227,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         if len(query_clauses['where_clause']) > 0:
             where_clause = f"WHERE {' AND '.join(query_clauses['where_clause'])}"
             return f"{match_clause} {where_clause} {return_clause} {self.limit_query(limit)}"
+
+            print("the first return clause is ______________________________")
+            print()
         return f"{match_clause} {return_clause} {self.limit_query(limit)}"
 
     def construct_union_clause(self, query_clauses, limit):
@@ -335,13 +344,17 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     where_clauses['where_preds'].append(where_query)
                     no_label_ids['no_predicate_labels'].update(no_label_id['no_predicate_labels'])
             elif logic['operator'] == "OR":
-                where_query = self.construct_or_operation(logic, node_map, predicate_map)
+                where_query ,return_query= self.construct_or_operation(logic, node_map, predicate_map)
                 if 'nodes' in logic:
-                    node_id = logic['nodes']['node_id']
+                     
+                    for node in logic['nodes']:
+                        node_id=node['node_id']
                     if node_id not in node_predicates:          
                         where_clauses['where_no_preds'].append(where_query)
+                        return_clause['return_no_preds'].append(return_query)
                     else:
                         where_clauses['where_preds'].append(where_query)
+                        return_clause['return_preds'].append(return_query)
                # what's here = self.construct_or_operation(logic, node_map, predicate_map)
 
         return where_clauses, no_label_ids
@@ -373,35 +386,47 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def construct_or_operation(self, logic, node_map, predicate_map):
         where_clause = ''
+        return_clause=""
         node_conditions = []
+        nodes=[]
+        while_conditions=[]
+         
 
         # Check if there are properties to process
-        if logic['nodes']['properties']:
+        if logic['properties']:
             # Build OR conditions
-            for node_id, props in logic['nodes']['properties'].items():
+            for node_id, props in logic['properties'].items():
                 for key, value in props.items():
                     node_conditions.append(f"{node_id}.{key} = '{value}'")
+                    nodes.append(node_id)
+                    
             
             # Combine OR conditions
             combined_conditions = f" OR ".join(node_conditions)
             where_clause += f"({combined_conditions})"
-             
-            # Clear node_conditions for the next set of conditions
-            node_conditions = []
+            while node_conditions and nodes:
+                while_conditions.append(f"WHEN {node_conditions} THEN {nodes} ELSE NULL END AS {nodes}")
 
-            # Build IS NULL OR conditions
-            for node_id, props in logic['nodes']['properties'].items():
-                for key, value in props.items():
-                    node_conditions.append(f"({node_id}.{key} IS NULL OR {node_id}.{key} = '{value}')")
+            return_clause= f" CASE ".join(while_conditions)
+ 
+             
+            # # Clear node_conditions for the next set of conditions
+            # node_conditions = []
+
+            # # Build IS NULL OR conditions
+            # for node_id, props in logic['nodes']['properties'].items():
+            #     for key, value in props.items():
+            #         node_conditions.append(f"({node_id}.{key} IS NULL OR {node_id}.{key} = '{value}')")
             
             # Combine AND conditions
-            combined_condition_last= f" AND ".join(node_conditions)
-            where_clauses = f"({combined_conditions}) AND {combined_condition_last}"  # Replace the previous clause
+            
             print("______________________where clause ___________________________________________")
-            print(where_clauses)
+            print(where_clause)
             print("_______________________ where clause __________________________________________")
-
-        
+            print("________________________return clause _________________________________________")
+            print(return_clause)
+            print("_____________________________return clause________________________________")
+        return where_clause,return_clause
 
 
 

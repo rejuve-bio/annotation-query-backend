@@ -107,3 +107,20 @@ curl --location 'http://localhost:5000/query' --header 'Content-Type: applicatio
 }'
 
 
+
+
+MATCH (n1:transcript)-[r1:transcribed_from]->(n2:gene),
+      (n3:promoter)-[r2:associated_with]->(n2)
+WHERE (n1.id = 'enst00000473416' OR n3.id = 'chr20_11917847_11917906_grch38')
+RETURN
+  CASE
+    WHEN n1.id = 'enst00000473416' THEN n1
+    ELSE NULL
+  END AS n1,
+  CASE
+    WHEN n3.id = 'chr20_11917847_11917906_grch38' THEN n3
+    ELSE NULL
+  END AS n3,
+  n2 AS n2,
+  r1 AS r1,
+  r2 AS r2
