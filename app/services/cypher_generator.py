@@ -150,7 +150,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     source_match = source_var
                     target_match = target_var
                     match_preds.append(f"({source_var})-[{predicate['predicate_id']}]->({target_var})")
-                    return_preds.append(predicate['predicate_id'])
+                    #return_preds.append(predicate['predicate_id'])
                 else:
                     source_match = self.match_node(source_node)
                     where_preds.extend(self.where_construct(source_node))
@@ -160,10 +160,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     where_preds.extend(self.where_construct(target_node))
 
                     match_preds.append(f"({source_var})-[r{i}:{predicate_type}]->{target_match}")
-                    return_preds.append(f"r{i}")
+                    #return_preds.append(f"r{i}")
 
-                optional_match_preds.append(self.optional_child_match(source_var))
-                optional_match_preds.append(self.optional_child_match(target_var))
+                optional_match_preds.append(self.optional_child_match(source_node))
+                optional_match_preds.append(self.optional_child_match(target_node))
 
                 edges.append(f"r{i}")
                 edges.append(f"labels(startNode(r{i})) AS startNodeLabels_r{i}")
@@ -185,19 +185,20 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     return_no_preds.append(node_id)
 
             return_preds.extend(list(node_ids))
+            print(return_preds)
                 
             if (len(match_no_preds) == 0):
                 if where_logic:
                     where_preds.extend(where_logic['where_preds'])
-                count_query = self.construct_count_clause(match_preds, return_preds, return_edges, edges, optional_match_preds)
-                data_query = self.construct_clause(match_preds, return_preds, return_edges, edges, optional_match_preds,page, take)
+                count_query = self.construct_count_clause(match_preds, where_preds, return_preds, return_edges, edges, optional_match_preds)
+                data_query = self.construct_clause(match_preds, where_preds, return_preds, return_edges, edges, optional_match_preds,page, take)
                 cypher_queries.extend([count_query, data_query])
             else:
                 if where_logic:
                     where_no_preds.extend(where_logic['where_no_preds'])
                     where_preds.extend(where_logic['where_preds'])
-                count_query = self.construct_union_count_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges)
-                data_query = self.construct_union_clause(match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges, return_edges, edge_returns, page, take)
+                count_query = self.construct_union_count_clause(match_preds,  where_preds,return_preds, match_no_preds, where_no_preds,return_no_preds, optional_match_preds, edges)
+                data_query = self.construct_union_clause(match_preds, where_preds ,return_preds, match_no_preds, where_no_preds ,return_no_preds, optional_match_preds, edges, return_edges, edge_returns, page, take)
                 cypher_queries.extend([count_query, data_query])
         
         return cypher_queries
@@ -238,16 +239,20 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         
         return query
 
-    def construct_union_count_clause(self, match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds, edges):
+    def construct_union_count_clause(self, match_preds, where_preds ,return_preds, match_no_preds, where_no_preds ,return_no_preds, optional_match_preds, edges):
         """
         Constructs an optimized count query for union operations.
         Uses direct counting and handles both predicate and non-predicate matches efficiently.
         """
         # Build predicate matches count if they exist
         pred_query = ""
+        where_clause = ''
+        if len(where_preds) > 0:
+            where_clause = f"WHERE {' AND '.join(where_preds)}"
         if match_preds:
             pred_query = f"""
             MATCH {', '.join(match_preds)}
+            {where_clause}
             RETURN count(DISTINCT 
                 CASE 
                     WHEN size([{', '.join(return_preds)}]) > 0 
@@ -266,9 +271,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         # Build non-predicate matches count if they exist
         no_pred_query = ""
+        where_no_clause = ''
+        if len(where_no_preds) > 0:
+            where_no_clause = f"WHERE {' AND '.join(where_no_preds)}"
         if match_no_preds:
             no_pred_query = f"""
             MATCH {', '.join(match_no_preds)}
+            {where_no_clause}
             RETURN count(DISTINCT 
                 CASE 
                     WHEN size([{', '.join(return_no_preds)}]) > 0 
@@ -301,12 +310,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             RETURN nodeCount, edgeCount
             """
 
+        print("COUNT QUERY: ", query)
+
         return query
     
-    def construct_clause(self, match_clause, where_clause, return_clause, return_edges, edges, optional_match_preds, page, take):
+    def construct_clause(self, match_clause, where_preds, return_clause, return_edges, edges, optional_match_preds, page, take):
         match_clause = f"MATCH {', '.join(match_clause)}"
+        where_clause = ''
         if len(where_clause) > 0:
-            where_clause = f"WHERE {' AND '.join(where_clause)}"
+            where_clause = f"WHERE {' AND '.join(where_preds)}"
         [limit, skip] = self.add_pagination_to_query(take, page)
         limit_clause = f"SKIP {skip} LIMIT {limit}"
 
@@ -324,13 +336,16 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         query = f"{match_clause} {where_clause} {limit_clause} {optional_clause} {with_clause} {return_clause}"
         return query
 
-    def construct_union_clause(self, match_preds, return_preds, match_no_preds, return_no_preds, optional_match_preds,edges, return_edges, edge_returns, page, take):
-        match_preds = f"MATCH {', '.join(match_preds)}"
+    def construct_union_clause(self, match_preds, where_preds ,return_preds, match_no_preds, where_no_preds,return_no_preds, optional_match_preds,edges, return_edges, edge_returns, page, take):
+        match_clause = f"MATCH {', '.join(match_preds)}"
+        where_clause = ''
+        if len(where_preds) > 0:
+            where_clause = f"WHERE {' AND '.join(where_preds)}"
         # child field returns null if more than one node is not present
         # multiline optional match
         child_nodes = [f"child{var_name}" for var_name in return_preds]
         # optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])}"
-        optional_clause = f" CALL {{ {' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])} RETURN {', '.join(child_nodes)} LIMIT 2 }}"
+        optional_clause = f"{' '.join([f'OPTIONAL MATCH {optional_pred}' for optional_pred in optional_match_preds])} RETURN {', '.join(child_nodes)} LIMIT 2"
         # make the ids into a list with distinct values to avoid node duplication
         collect_child_nodes = [f"collect(distinct id(child{var_name})) AS child{var_name}" for var_name in return_preds]
         with_clause = f"WITH {', '.join(return_preds + edges + collect_child_nodes)}"
@@ -351,14 +366,35 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # OR
         # null AS n2
         
-        nodes_no_pred = [f"null AS {var_name}" for var_name in return_no_preds]
-        return_preds = f"RETURN {', '.join(return_edges + nodes + nodes_no_pred)}"
-        match_no_preds = f"MATCH {', '.join(match_no_preds)}"
+        # nodes_no_pred = [f"null AS {var_name}" for var_name in return_no_preds]
+        return_clause = f"RETURN {', '.join(return_edges + nodes)}"
+
+        match_no_clause = f"MATCH {', '.join(match_no_preds)}"
+        if len(where_no_preds) > 0:
+            where_no_clause = f"WHERE {' AND '.join(where_no_preds)}"
         tmp_no_preds = [f"{{ properties: properties({var_name}), id: id({var_name}), labels: labels({var_name}), elementId: elementId({var_name})}} AS {var_name}" for var_name in return_no_preds]
-        return_no_preds = f"RETURN  {', '.join(tmp_no_preds)} , null AS {', null AS '.join(tmp_return_preds)}"
+        return_no_clause = f"RETURN  {', '.join(tmp_no_preds)}"
         [limit,skip] = self.add_pagination_to_query(take, page)
 
-        query = f"{match_preds}  {optional_clause} {with_clause} {return_preds}  SKIP {skip} LIMIT {limit} UNION {match_no_preds} {return_no_preds} SKIP {skip} LIMIT {limit}"
+        limit_clause = f"SKIP {skip} LIMIT {limit}"
+
+        #query = f"{match_clause}  {optional_clause} {with_clause} {return_clause}  SKIP {skip} LIMIT {limit}"
+        clauses = {}
+
+        clauses['match_clause'] = match_clause
+        clauses['optional_clause'] = optional_clause
+        clauses['with_clause'] = with_clause
+        clauses['return_clause'] = return_clause
+        clauses['match_no_clause'] = match_no_clause
+        clauses['return_no_clause'] = return_no_clause
+        clauses['limit_clause'] = limit_clause
+        clauses['where_clause'] = where_clause
+        clauses['where_no_clause'] = where_no_clause
+
+        query = self.construct_call_clause(clauses)
+
+        print("QUERY: ", query)
+
         return query
 
     def where_construct(self, node):
@@ -368,6 +404,32 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         for key, property in node['properties'].items():
             properties.append(f"{node['node_id']}.{key} =~ '(?i){property}'")
         return properties
+
+    def construct_call_clause(self, clauses):
+        call_clause = ''
+
+        call_clause = f'''CALL() {{
+            {clauses['match_clause']}
+            {clauses['where_clause']}
+            {clauses['limit_clause']}
+
+            CALL() {{
+                {clauses['optional_clause']}
+            }}
+
+            {clauses['with_clause']}
+
+            {clauses['return_clause']}
+        }}
+        
+        CALL() {{
+            {clauses['match_no_clause']}
+            {clauses['where_no_clause']}
+            {clauses['return_no_clause']}
+            {clauses['limit_clause']}
+        }} RETURN *'''
+
+        return call_clause
 
     def apply_boolean_operation(self, logics, node_map, node_predicates, predicate_map):
         where_clauses = {'where_no_preds': [], 'where_preds': []}
