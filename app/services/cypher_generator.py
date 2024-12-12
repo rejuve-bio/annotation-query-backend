@@ -488,6 +488,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             count_result = None
         node_count = 0
         edge_count = 0
+        node_count_by_label = []
+        edge_count_by_label = []
         nodes = []
         edges = []
         node_dict = {}
@@ -555,10 +557,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         if count_result:
             for count_record in count_result:
-                node_count_by_label = count_record['nodes_count_by_label']
-                edge_count_by_label = count_record.get('edges_count_by_type', [])
-                node_count = count_record['total_nodes']
-                edge_count = count_record.get('total_edges', 0)
+                node_count_by_label.extend(count_record['nodes_count_by_label'])
+                edge_count_by_label.extend(count_record.get('edges_count_by_type', []))
+                node_count += count_record['total_nodes']
+                edge_count += count_record.get('total_edges', 0)
 
         meta_data = {
             "node_count": node_count,
