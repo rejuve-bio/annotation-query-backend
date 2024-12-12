@@ -57,6 +57,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         logger.info(f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
     def run_query(self, query_code):
+        print(query_code)
         results = []
         if isinstance(query_code, list):
             find_query = query_code[0]
@@ -115,6 +116,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 if node['properties']:
                     where_no_preds.extend(self.where_construct(node))
                 if where_logic:
+
                     where_no_preds.extend(where_logic['where_no_preds'])
                 
                 match_no_preds.append(self.match_node(node, no_label_ids['no_node_labels'] if no_label_ids else None))
@@ -126,6 +128,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "where_clause": where_no_preds,
                 }
             cypher_query = self.construct_clause(query_clauses, limit)
+            print("_____________________________final code ____________________________________")
+            print(cypher_query)
             cypher_queries.append(cypher_query)
             query_clauses = {
                     "match_no_preds": match_no_preds,
@@ -135,6 +139,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 }
             count = self.construct_count_clause(query_clauses)
             cypher_queries.append(count)
+            print("---------------------------final_code after count ____________________________________")
+            print(len(cypher_queries))
+
         else:
             for i, predicate in enumerate(predicates):
                 predicate_type = predicate['type'].replace(" ", "_").lower()
@@ -229,24 +236,33 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             print("_________________________________final________________________________")
             print(cypher_queries)
             print("__________________________________final _______________________________")
-            return cypher_queries
+        return cypher_queries
             
     
-    def construct_clause(self, query_clauses, limit,return_clause_or):
+    def construct_clause(self, query_clauses, limit,return_clause_or=None):
         
         match_clause = f"MATCH {', '.join(query_clauses['match_clause'])}"
         print("----------------------------------------------before************--------------------------------------------------")
         print(return_clause_or)
-        if return_clause_or:
+        if return_clause_or !=None:
             return_clause=f"RETURN {return_clause_or}"
         else:
             return_clause = f"RETURN {', '.join(query_clauses['return_clause'])}"
+        print(return_clause)
         if len(query_clauses['where_clause']) > 0:
+            print("__________________________________life before everything _______________________________________________")
+            print(query_clauses['where_clause'])
+
             where_clause = f"WHERE {' AND '.join(query_clauses['where_clause'])}"
+            print("match clause",match_clause)
+            print("where clause",where_clause)
+            print("return_clause",return_clause)
             return f"{match_clause} {where_clause} {return_clause} {self.limit_query(limit)}"
 
         print(" ______________after reterun clause *******************________________")
-        print(return_clause)
+        print("match clause",match_clause)
+        
+        print("return_clause",return_clause)
 
         return f"{match_clause} {return_clause} {self.limit_query(limit)}"
 
@@ -373,6 +389,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
                 if 'predicates' in logic:
                     where_clauses['where_preds'].append(where_query)
+                if 'nodes' in  logic :
+                    where_clauses['where_no_preds'].append(where_query)
 
         # Return statement should be outside the loop, after all iterations
         return where_clauses, no_label_ids, return_query_or
@@ -404,6 +422,14 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             where_clause = f"type({predicate_id}) <> '{label}'"
         return where_clause, no_label_id
     def construct_or_operation(self, logic, node_map, predicate_map):
+        where_clause = ""  # Initialize as a string to hold combined conditions
+        # where_clause_dict = {}
+        # return_clause_or = ""
+        # return_clause = ""
+        # all_nodes = []
+        # nodes = []
+        # final_nodes = []
+        # no_label_ids = {'no_node_labels': set(), 'no_predicate_labels': set()}
         where_clause = []
         where_clause_dict = {}
         return_clause_or = ""
@@ -412,6 +438,29 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         nodes = []
         final_nodes = []
         no_label_ids = {'no_node_labels': set(), 'no_predicate_labels': set()}
+
+      
+        if logic.get('nodes'):
+            where_clauses = []  # Collect all conditions
+            node_id = logic['nodes'].get('node_id', None)  # Safely get node_id
+            properties = logic['nodes'].get('properties', {})  # Safely get properties
+
+            # Construct WHERE clause conditions
+            for key, values in properties.items():
+                # Join the conditions for each property using OR
+                conditions = " OR ".join([f"{node_id}.{key} = '{value}'" for value in values])
+                where_clauses.append(conditions)
+
+            # Combine all property-based conditions with the specified operator
+            if where_clauses:
+                where_clause = f"({') OR ('.join(where_clauses)})"
+                
+                print("WHERE clause:", where_clause)
+
+  
+
+        # Handle predicates
+       
 
         if logic and 'predicates' in logic:
             for predicate_id in logic['predicates']:
@@ -444,7 +493,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
             for condition, node in where_clause_dict.items():
                 return_clause += f"CASE WHEN {condition} THEN {node} ELSE NULL END AS {node}, "
-            
+
             # Convert lists to sets for subtraction, then back to list
             final_nodes = list(set(All_nodes) - set(nodes))
 
@@ -455,99 +504,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return_clause_or = return_clause.rstrip(", ")
 
         return where_clause, return_clause_or
-        
-
-
-    
-
-
-    # def construct_or_operation(self, logic, node_map, predicate_map):
-    #     where_clause = ''
-    #     return_clause=""
-    #     node_conditions = []
-    #     nodes=[]
-    #     while_conditions=[]
-         
-
-    #     # Check if there are properties to process
-    #     if logic['properties']:
-    #         # Build OR conditions
-    #         for node_id, props in logic['properties'].items():
-    #             for key, value in props.items():
-    #                 node_conditions.append(f"{node_id}.{key} = '{value
-    #                 nodes.append(node_id)
-                    
-            
-    #         # Combine OR conditions
-    #         combined_conditions = f" OR ".join(node_conditions)
-    #         where_clause += f"({combined_conditions})"
-    #         while node_conditions and nodes:
-    #             while_conditions.append(f"WHEN {node_conditions} THEN {nodes} ELSE NULL END AS {nodes}")
-
-    #         return_clause= f" CASE ".join(while_conditions)
- 
-             
-    #         # # Clear node_conditions for the next set of conditions
-    #         # node_conditions = []
-
-    #         # # Build IS NULL OR conditions
-    #         # for node_id, props in logic['nodes']['properties'].items():
-    #         #     for key, value in props.items():
-    #         #         node_conditions.append(f"({node_id}.{key} IS NULL OR {node_id}.{key} = '{value}')")
-            
-    #         # Combine AND conditions
-            
-    #         print("______________________where clause ___________________________________________")
-    #         print(where_clause)
-    #         print("_______________________ where clause __________________________________________")
-    #         print("________________________return clause _________________________________________")
-    #         print(return_clause)
-    #         print("_____________________________return clause________________________________")
-    #     return where_clause,return_clause
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
