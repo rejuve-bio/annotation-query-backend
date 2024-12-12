@@ -29,22 +29,6 @@
                 return_clause+=f"WHEN {key} THEN {value} ELSE NULL END AS {value},"
             return_clause
 
-
-
-
-                    
-
-
-
-
-
-
-
-
-
-
-
-
             # Build OR conditions
             for node_id, props in logic['properties'].items():
                 for key, value in props.items():
