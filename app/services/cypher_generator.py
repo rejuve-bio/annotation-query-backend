@@ -189,7 +189,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "full_return_preds": full_return_preds,
                     "where_preds": where_preds,
                     "list_of_node_ids": list_of_node_ids,
-                    "return_preds": return_preds
+                    "return_preds": return_preds,
                 }
                 count = self.construct_count_clause(query_clauses)
                 cypher_queries.append(count)
@@ -279,27 +279,75 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             if 'where_preds' in query_clauses and query_clauses['where_preds']:
                 where_clause = f"WHERE {' AND '.join(query_clauses['where_preds'])}"
 
-        # Construct the COUNT clause
-        if 'return_no_preds' in query_clauses and 'return_preds' in query_clauses:
+        if "return_no_preds" in query_clauses:
             query_clauses['list_of_node_ids'].extend(query_clauses['return_no_preds'])
-        for node_ids in query_clauses['list_of_node_ids']:
-            count_clause += f"COLLECT(DISTINCT {node_ids}) AS {node_ids}_count, "
+
+        # Construct the COUNT clause
+        count_clause = f"{' + '.join([f'COLLECT(DISTINCT {node})' for node in query_clauses['list_of_node_ids']])} AS combined_nodes"
         if 'return_preds' in query_clauses:
-            for edge_ids in query_clauses['return_preds']:
-                count_clause += f"COLLECT(DISTINCT {edge_ids}) AS {edge_ids}_count, "
-        count_clause = f"WITH {count_clause.rstrip(', ')}"
+            count_clause += ", " + " + ".join([f"COLLECT(DISTINCT {edge})" for edge in query_clauses['return_preds']]) + " AS combined_edges"
+        count_clause = f"WITH {count_clause}"
 
-
-        # Construct the WITH and UNWIND clauses
-        combined_nodes = ' + '.join([f"{var}_count" for var in query_clauses['list_of_node_ids']])
-        combined_edges = None
         if 'return_preds' in query_clauses:
-            combined_edges = ' + '.join([f"{var}_count" for var in query_clauses['return_preds']])
-        with_clause = f"WITH {combined_nodes} AS combined_nodes {f',{combined_edges} AS combined_edges' if combined_edges else ''}"
-        unwind_clause = f"UNWIND combined_nodes AS nodes"
-
-        # Construct the RETURN clause
-        return_clause = f"RETURN COUNT(DISTINCT nodes) AS total_nodes {', SIZE(combined_edges) AS total_edges ' if combined_edges else ''}"
+            unwind_clause = '''
+                UNWIND combined_nodes AS nodes
+                UNWIND combined_nodes AS node_e
+                UNWIND labels(nodes) AS label
+            '''
+            with_clause = '''
+                WITH
+                    label,
+                    node_e,
+                    COUNT(DISTINCT nodes) AS node_count, 
+                    combined_nodes,
+                    combined_edges
+                ORDER BY label
+                WITH
+                    label,
+                    node_count,
+                    node_e,
+                    combined_edges
+                UNWIND combined_edges AS edges
+                WITH 
+                    label,
+                    node_count,
+                    TYPE(edges) AS edge_type,
+                    COUNT(edges) AS edge_count,
+                    node_e,
+                    combined_edges
+                WITH 
+                    COLLECT(DISTINCT {label: label, count: node_count}) AS nodes_count_by_label,
+                    COLLECT(DISTINCT {label: edge_type, count: edge_count}) AS edges_count_by_type,
+                    COUNT(DISTINCT(node_e)) AS total_nodes,
+                    SIZE(combined_edges) AS total_edges
+            '''
+            return_clause = '''
+                RETURN    
+                    nodes_count_by_label,
+                    edges_count_by_type,
+                    total_nodes,
+                    total_edges
+            '''
+        else:
+            unwind_clause = '''
+                UNWIND combined_nodes AS nodes
+                UNWIND labels(nodes) AS label
+            '''
+            with_clause = '''
+                WITH
+                    label,
+                    COUNT(DISTINCT nodes) AS node_count, 
+                    combined_nodes
+                ORDER BY label
+                WITH 
+                    COLLECT(DISTINCT {label: label, count: node_count}) AS nodes_count_by_label,
+                    node_count AS total_nodes
+            '''
+            return_clause = '''
+                RETURN    
+                    nodes_count_by_label,
+                    total_nodes
+            '''
 
         query = f'''
             {match_no_clause}
@@ -307,8 +355,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             {match_clause}
             {where_clause}
             {count_clause}
-            {with_clause}
             {unwind_clause}
+            {with_clause}
             {return_clause}
         '''
         return query
@@ -418,15 +466,18 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return properties
 
     def parse_neo4j_results(self, results, all_properties):
-        (nodes, edges, _, _, node_count, edge_count) = self.process_result(results, all_properties)
-        return {"nodes": nodes, "edges": edges, "node_count": node_count, "edge_count": edge_count}
+        (nodes, edges, _, _, meta_data) = self.process_result(results, all_properties)
+        return {"nodes": nodes, "edges": edges, "node_count": meta_data['node_count'], 
+                "edge_count": meta_data['edge_count'], "node_count_by_label": meta_data['node_count_by_label'], 
+                "edge_count_by_label": meta_data['edge_count_by_label']
+                }
 
     def parse_and_serialize(self, input, schema, all_properties):
         parsed_result = self.parse_neo4j_results(input, all_properties)
         return parsed_result
 
     def convert_to_dict(self, results, schema):
-        (_, _, node_dict, edge_dict, _, _) = self.process_result(results, True)
+        (_, _, node_dict, edge_dict, _) = self.process_result(results, True)
         return (node_dict, edge_dict)
 
     def process_result(self, results, all_properties):
@@ -504,10 +555,19 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         if count_result:
             for count_record in count_result:
-                node_count = count_record.get('total_nodes')
+                node_count_by_label = count_record['nodes_count_by_label']
+                edge_count_by_label = count_record.get('edges_count_by_type', [])
+                node_count = count_record['total_nodes']
                 edge_count = count_record.get('total_edges', 0)
+
+        meta_data = {
+            "node_count": node_count,
+            "edge_count": edge_count,
+            "node_count_by_label": node_count_by_label,
+            "edge_count_by_label": edge_count_by_label
+        }
     
-        return (nodes, edges, node_to_dict, edge_to_dict, node_count, edge_count)
+        return (nodes, edges, node_to_dict, edge_to_dict, meta_data)
 
     def parse_id(self, request):
         nodes = request["nodes"]

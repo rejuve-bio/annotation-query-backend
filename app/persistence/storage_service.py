@@ -4,18 +4,20 @@ class StorageService():
     def __init__(self):
         pass
     
-    def save(self, user_id, data, title, summary, question, answer, node_count, edge_count, node_types):
+    def save(self, annotation):
         data = Storage(
-                user_id=user_id,
-                query=data,
-                title=title,
-                summary=summary,
-                question=question,
-                answer=answer,
-                node_count=node_count,
-                edge_count=edge_count,
-                node_types=node_types
-                )
+            user_id=annotation["current_user_id"],
+            query=annotation["query"],
+            title=annotation["title"],
+            summary=annotation["summary"],
+            question=annotation["question"],
+            answer=annotation["answer"],
+            node_count=annotation["node_count"],
+            edge_count=annotation["edge_count"],
+            node_types=annotation["node_types"],
+            node_count_by_label=annotation["node_count_by_label"],
+            edge_count_by_label=annotation["edge_count_by_label"]
+            )
 
         id = data.save()
         return id
