@@ -156,7 +156,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "full_return_preds": full_return_preds,
                     "where_preds": where_preds,
                     "list_of_node_ids": list_of_node_ids,
-                    "return_preds": return_preds
+                    "return_preds": return_preds,
                 }
                 count = self.construct_count_clause(query_clauses)
                 cypher_queries.append(count)
@@ -243,7 +243,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             if 'where_preds' in query_clauses and query_clauses['where_preds']:
                 where_clause = f"WHERE {' AND '.join(query_clauses['where_preds'])}"
 
-        query_clauses['list_of_node_ids'].extend(query_clauses['return_no_preds'])
+        if "return_no_preds" in query_clauses:
+            query_clauses['list_of_node_ids'].extend(query_clauses['return_no_preds'])
 
         # Construct the COUNT clause
         count_clause = f"{' + '.join([f'COLLECT(DISTINCT {node})' for node in query_clauses['list_of_node_ids']])} AS combined_nodes"
