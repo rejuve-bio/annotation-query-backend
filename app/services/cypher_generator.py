@@ -106,6 +106,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 else:
                     raise Exception('Repeated predicate_id')
             where_logic, no_label_ids,return_clause_or = self.apply_boolean_operation(logic['children'], node_map, node_predicates, predicate_map)
+            #return_clause_or+=f","
             
         if not predicates:
             list_of_node_ids = []
@@ -157,7 +158,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     where_preds.extend(self.where_construct(target_node))
 
                     match_preds.append(f"({source_var})-[r{i}:{predicate_type}]->{target_match}")
+
+                    if return_clause_or:  # Add comma if return_clause_or is not empty
+                        return_clause_or += ", "
+                    return_clause_or += f" r{i} AS r{i} "
                     return_preds.append(f"r{i}")
+
 
 
                 used_nodes.add(predicate['source'])
@@ -187,7 +193,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     'return_clause': full_return_preds,
                     'where_clause': where_preds
                 }
-                cypher_query = self.construct_clause(query_clauses, limit)
+                cypher_query = self.construct_clause(query_clauses, limit,return_clause_or)
                 cypher_queries.append(cypher_query)
 
                 query_clauses = {
@@ -204,7 +210,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 
                 query_clauses = {
                 "match_preds": match_preds,
-                "full_return_preds": return_clause_or if return_clause_or else full_return_preds,
+                "full_return_preds": full_return_preds,
                 "where_preds": where_preds,
                 "match_no_preds": match_no_preds,
                 "return_no_preds": return_no_preds,
@@ -213,7 +219,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 "return_preds": return_preds
 }
 
-                cypher_query = self.construct_union_clause(query_clauses, limit)
+                cypher_query = self.construct_union_clause(query_clauses, limit,return_clause_or)
                 cypher_queries.append(cypher_query)
 
                 count = self.construct_count_clause(query_clauses)
@@ -226,18 +232,25 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return cypher_queries
             
     
-    def construct_clause(self, query_clauses, limit):
+    def construct_clause(self, query_clauses, limit,return_clause_or):
+        
         match_clause = f"MATCH {', '.join(query_clauses['match_clause'])}"
-        return_clause = f"RETURN {', '.join(query_clauses['return_clause'])}"
+        print("----------------------------------------------before************--------------------------------------------------")
+        print(return_clause_or)
+        if return_clause_or:
+            return_clause=f"RETURN {return_clause_or}"
+        else:
+            return_clause = f"RETURN {', '.join(query_clauses['return_clause'])}"
         if len(query_clauses['where_clause']) > 0:
             where_clause = f"WHERE {' AND '.join(query_clauses['where_clause'])}"
             return f"{match_clause} {where_clause} {return_clause} {self.limit_query(limit)}"
 
-            print("the first return clause is ______________________________")
-            print()
+        print(" ______________after reterun clause *******************________________")
+        print(return_clause)
+
         return f"{match_clause} {return_clause} {self.limit_query(limit)}"
 
-    def construct_union_clause(self, query_clauses, limit):
+    def construct_union_clause(self, query_clauses, limit,return_clause_or):
         match_no_clause = ''
         where_no_clause = ''
         return_count_no_preds_clause = ''
@@ -257,7 +270,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             match_clause = f"MATCH {', '.join(query_clauses['match_preds'])}"
             if 'where_preds' in query_clauses and query_clauses['where_preds']:
                 where_clause = f"WHERE {' AND '.join(query_clauses['where_preds'])}"
-            return_count_preds_clause = "RETURN " + ', '.join(query_clauses['full_return_preds'])
+            
+            if return_clause_or:
+                return_count_preds_clause=f"RETURN {return_clause_or}"
+            else:
+                print("_______________________________hello this is return clause ____________________")
+                return_count_preds_clause = "RETURN " + ', '.join(query_clauses['full_return_preds'])
 
         clauses = {}
 
