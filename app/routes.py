@@ -70,6 +70,7 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
 @app.route('/query', methods=['POST'])
 @token_required
 def process_query(current_user_id):
+    print("PROCESSING REQUEST")
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
@@ -109,8 +110,11 @@ def process_query(current_user_id):
         #convert id to appropriate format
         requests = db_instance.parse_id(requests)
 
+        print("FINISHED VALIDATING REQUEST")
+
         # Generate the query code
         query_code = db_instance.query_Generator(requests, node_map, limit)
+        print("FINISHED GENERATING QUERY")
         
         # Run the query and parse the results
         result = db_instance.run_query(query_code)

@@ -93,10 +93,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         used_nodes = set()
         no_label_ids = None
         where_logic = {}
-        exclude_where = None
+        exclude_where = set()
+        return_or = []
 
         # define a set of nodes with predicates
         node_predicates = {p['source'] for p in predicates}.union({p['target'] for p in predicates})
+
+        print("NODE PREDICATES", node_predicates)
 
         predicate_map = {}
 
@@ -178,7 +181,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             list_of_node_ids = list(node_ids - exclude_where)
             list_of_node_ids.sort()
             full_return_preds = return_preds + list_of_node_ids
-            full_return_preds.append(return_or)
+            full_return_preds.extend(return_or)
             print(full_return_preds)
 
             print("GOIGN")
@@ -335,6 +338,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         no_label_ids = {'no_node_labels': set(), 'no_predicate_labels': set()}
         exclude_where = set()
 
+        print("APPLYING BOOLEAN OPERATION")
+
         for logic in logics:
             if logic['operator'] == "NOT":
                 where_query, no_label_id = self.construct_not_operation(logic, node_map, predicate_map)
@@ -352,8 +357,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     where_clauses['where_preds'].append(where_query)
                     no_label_ids['no_predicate_labels'].update(no_label_id['no_predicate_labels'])
             elif logic['operator'] == "OR":
-                print("AM HERE")
+                print("APPLYING OR OPERATION")
                 where_query, exclude_where, return_or = self.construct_or_operation(logic, node_map, predicate_map)
+                print("WHERE QUERY", where_query)
                 if 'nodes' in logic:
                     node_id = logic['nodes']['node_id']
                     if node_id not in node_predicates:
@@ -404,66 +410,42 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             for property, value in properties.items():
                 for single_value in value:
                     properties_or.append(f"{node_id}.{property} = '{single_value}'")
-        where_clause = ' OR '.join(properties_or)
+            where_clause = ' OR '.join(properties_or)
         
         if 'predicates' in logic:
             predicate_ids = logic['predicates']
+            print("predicate_id", predicate_ids)
             temp_properties_or = []
-            left_operand = ''
-            right_operand = ''
+            operands = []
+            returns = []
 
-            left_predicate_id = predicate_ids[0]
-            right_predicate_id = predicate_ids[1]
+            for index, predicate_id in enumerate(predicate_ids):
+                print("INDEX", index)
+                predicate = predicate_map[predicate_id]
+                print("PREDICATE", predicate)
+                source_node = node_map[predicate['source']]
+                target_node = node_map[predicate['target']]
 
-            print("LEFT PREDICATE", left_predicate_id)
-            print("RIGHT PREDICATE", right_predicate_id)
+                exclude_where.add(source_node['node_id'])
+                exclude_where.add(target_node['node_id'])
 
-            left_predicate = predicate_map[left_predicate_id]
-            right_predicate = predicate_map[right_predicate_id]
+                temp_properties_or.extend(self.where_construct(source_node))
+                temp_properties_or.extend(self.where_construct(target_node))
 
-            print("LEFT PREDICATE", left_predicate)
-            print("RIGHT PREDICATE", right_predicate)
 
-            left_source_node = node_map[left_predicate['source']]
-            left_target_node = node_map[left_predicate['target']]
+                operand = f"({' AND '.join(temp_properties_or)})"
+                operands.append(operand)
+                return_statment = f'CASE WHEN {operand} THEN [{source_node["node_id"]}, {target_node["node_id"]}] ELSE NULL END AS case_result_{index}'
 
-            exclude_where.add(left_source_node['node_id'])
-            exclude_where.add(left_target_node['node_id']) 
-
-            print("LEFT SOURCE NODE", left_source_node)
-            print("LEFT TARGET NODE", left_target_node)
-
-            right_source_node = node_map[right_predicate['source']]
-            right_target_node = node_map[right_predicate['target']]
-
-            exclude_where.add(right_source_node['node_id'])
-            exclude_where.add(right_target_node['node_id'])
-
-            print("RIGHT SOURCE NODE", right_source_node)
-            print("RIGHT TARGET NODE", right_target_node)
-
+                returns.append(return_statment)
+                temp_properties_or = []
             
-            temp_properties_or.extend(self.where_construct(left_source_node))
-            temp_properties_or.extend(self.where_construct(left_target_node))
-            left_operand = f"({' AND '.join(temp_properties_or)})"
+            where_clause = f"({' OR '.join(operands)})"  
 
-            return_or += f'CASE WHEN {left_operand} THEN [{left_source_node["node_id"]}, {left_target_node["node_id"]}] ELSE NULL END AS case_result_1, '
+        print(where_clause)
+        print("return_or", returns)
 
-            temp_properties_or = []
-
-            temp_properties_or.extend(self.where_construct(right_source_node))
-            temp_properties_or.extend(self.where_construct(right_target_node))
-            right_operand = f"({' AND '.join(temp_properties_or)})"
-
-            return_or += f'CASE WHEN {right_operand} THEN [{right_source_node["node_id"]}, {right_target_node["node_id"]}] ELSE NULL END AS case_result_2 '
-
-
-            where_clause = f"{left_operand} OR {right_operand}"
-
-            
-
-        print("OR QUERY", where_clause)
-        return where_clause, exclude_where, return_or
+        return where_clause, exclude_where, returns
 
     def limit_query(self, limit):
         if limit:
