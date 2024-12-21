@@ -252,11 +252,50 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         if "return_preds" in query_clauses:
             return_preds = query_clauses['return_preds']
-        query = ''
 
-        label_clause = 'WITH ' + ' + '.join([f"labels({n})" for n in query_clauses['list_of_node_ids']])
+        label_clause = 'WITH DISTINCT ' + ' + '.join([f"labels({n})" for n in query_clauses['list_of_node_ids']]) + f' AS all_labels, {", ".join(return_preds)}'
 
         unwind_label_clause = 'UNWIND all_labels AS label'
+
+        count_clause = []
+
+        count_clause = []
+        for index, predicate in enumerate(query_clauses['predicates']):
+            count_clause.append(f'WHEN label IN labels(startNode(r{index})) THEN startNode(r{index})')
+            count_clause.append(f'WHEN label IN labels(endNode(r{index})) THEN endNode(r{index})')
+
+        # Add the closing part for CASE and the final count clause
+        count_clause = ' '.join(count_clause)
+        count_clause = f'WITH label, count(DISTINCT CASE {count_clause} ELSE null END) AS node_count'
+
+        node_count_by_label = 'WITH COLLECT({label: label, count: node_count}) AS nodes_count_by_label'
+
+        count_relationships = 'WITH nodes_count_by_label, ' + ' + '.join([f'COLLECT([type(r{i}), r{i}])' for i in range(len(query_clauses['predicates']))]) + ' AS relationships'
+        unwind_relationships = 'UNWIND relationships AS rel'
+
+        count_edge_by_label = 'WITH nodes_count_by_label, rel[0] AS edge_type, COUNT(rel[1]) AS edge_count WITH nodes_count_by_label, COLLECT({label: edge_type, count: edge_count}) AS edges_count_by_type'
+
+        return_clause = 'RETURN  nodes_count_by_label, edges_count_by_type, REDUCE(total = 0, n IN nodes_count_by_label | total + n.count) AS total_nodes, REDUCE(total_edges = 0, e IN edges_count_by_type | total_edges + e.count) AS total_edges'
+
+        query = f'''
+            {match_no_clause}
+            {where_no_clause}
+            {match_clause}
+            {where_clause}
+            {label_clause}
+            {unwind_label_clause}
+            {count_clause}
+            {node_count_by_label}
+            {match_no_clause}
+            {where_no_clause}
+            {match_clause}
+            {where_clause}
+            {count_relationships}
+            {unwind_relationships}
+            {count_edge_by_label}
+            {return_clause}
+        '''
+        print("QUERY: ", query)
         return query
 
 
