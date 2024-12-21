@@ -67,10 +67,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         
         with self.driver.session() as session:
             results.append(list(session.run(find_query)))
-
         if count_query:
-            with self.driver.session() as session:
-                results.append(list(session.run(count_query)))
+            try:
+                with self.driver.session() as session:
+                    results.append(list(session.run(count_query)))
+            except:
+                results.append([])
+                return results
 
         return results
 
