@@ -406,6 +406,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             count_result = None
         node_count = 0
         edge_count = 0
+        node_count_by_label = []
+        edge_count_by_label = []
         nodes = []
         edges = []
         node_dict = {}
