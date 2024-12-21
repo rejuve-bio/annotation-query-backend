@@ -254,8 +254,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return_preds = query_clauses['return_preds']
         query = ''
 
-        lable_clause = 'WITH ' + f"{f"lables{n}" for n in query_clauses['list_of_node_ids']}"
+        label_clause = 'WITH ' + ' + '.join([f"labels({n})" for n in query_clauses['list_of_node_ids']])
 
+        unwind_label_clause = 'UNWIND all_labels AS label'
         return query
 
 
