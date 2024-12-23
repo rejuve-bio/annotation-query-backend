@@ -114,6 +114,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "return_no_preds": return_no_preds,
                     "where_no_preds": where_no_preds,
                     "list_of_node_ids": list_of_node_ids,
+                    "predicates": predicates
                 }
             count = self.construct_count_clause(query_clauses)
             cypher_queries.append(count)
@@ -160,6 +161,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "where_preds": where_preds,
                     "list_of_node_ids": list_of_node_ids,
                     "return_preds": return_preds,
+                    "predicates": predicates
                 }
                 count = self.construct_count_clause(query_clauses)
                 cypher_queries.append(count)
@@ -172,7 +174,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "return_no_preds": return_no_preds,
                     "where_no_preds": where_no_preds,
                     "list_of_node_ids": list_of_node_ids,
-                    "return_preds": return_preds
+                    "return_preds": return_preds,
+                    "predicates": predicates
                 }
                 cypher_query = self.construct_union_clause(query_clauses, limit)
                 cypher_queries.append(cypher_query)
@@ -229,103 +232,110 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         where_no_clause = ''
         match_clause = ''
         where_clause = ''
-        count_clause = ''
-        with_clause = ''
-        unwind_clause = ''
-        return_clause = ''
+        return_preds = []
 
-        # Check and construct clause for match with no predicates
+        # Construct clause for match with no predicates
         if 'match_no_preds' in query_clauses and query_clauses['match_no_preds']:
             match_no_clause = f"MATCH {', '.join(query_clauses['match_no_preds'])}"
             if 'where_no_preds' in query_clauses and query_clauses['where_no_preds']:
                 where_no_clause = f"WHERE {' AND '.join(query_clauses['where_no_preds'])}"
 
-        # Construct a clause for match with predicates
+        # Construct clause for match with predicates
         if 'match_preds' in query_clauses and query_clauses['match_preds']:
             match_clause = f"MATCH {', '.join(query_clauses['match_preds'])}"
             if 'where_preds' in query_clauses and query_clauses['where_preds']:
                 where_clause = f"WHERE {' AND '.join(query_clauses['where_preds'])}"
 
-        if "return_no_preds" in query_clauses:
+        if "return_no_preds" in query_clauses and "return_preds" in query_clauses:
             query_clauses['list_of_node_ids'].extend(query_clauses['return_no_preds'])
 
-        # Construct the COUNT clause
-        count_clause = f"{' + '.join([f'COLLECT(DISTINCT {node})' for node in query_clauses['list_of_node_ids']])} AS combined_nodes"
-        if 'return_preds' in query_clauses:
-            count_clause += ", " + " + ".join([f"COLLECT(DISTINCT {edge})" for edge in query_clauses['return_preds']]) + " AS combined_edges"
-        count_clause = f"WITH {count_clause}"
+        if "return_preds" in query_clauses:
+            return_preds = query_clauses['return_preds']
 
-        if 'return_preds' in query_clauses:
-            unwind_clause = '''
-                UNWIND combined_nodes AS nodes
-                UNWIND combined_nodes AS node_e
-                UNWIND labels(nodes) AS label
-            '''
-            with_clause = '''
-                WITH
-                    label,
-                    node_e,
-                    COUNT(DISTINCT nodes) AS node_count, 
-                    combined_nodes,
-                    combined_edges
-                ORDER BY label
-                WITH
-                    label,
-                    node_count,
-                    node_e,
-                    combined_edges
-                UNWIND combined_edges AS edges
-                WITH 
-                    label,
-                    node_count,
-                    TYPE(edges) AS edge_type,
-                    COUNT(edges) AS edge_count,
-                    node_e,
-                    combined_edges
-                WITH 
-                    COLLECT(DISTINCT {label: label, count: node_count}) AS nodes_count_by_label,
-                    COLLECT(DISTINCT {label: edge_type, count: edge_count}) AS edges_count_by_type,
-                    COUNT(DISTINCT(node_e)) AS total_nodes,
-                    SIZE(combined_edges) AS total_edges
-            '''
-            return_clause = '''
-                RETURN    
-                    nodes_count_by_label,
-                    edges_count_by_type,
-                    total_nodes,
-                    total_edges
-            '''
+        label_clause = (
+            'WITH DISTINCT ' +
+            ' + '.join([f"labels({n})" for n in query_clauses['list_of_node_ids']]) +
+            ' AS all_labels'
+        )
+
+        if not return_preds:
+            label_clause += ', ' + ', '.join(query_clauses['list_of_node_ids'])
         else:
-            unwind_clause = '''
-                UNWIND combined_nodes AS nodes
-                UNWIND labels(nodes) AS label
-            '''
-            with_clause = '''
-                WITH
-                    label,
-                    COUNT(DISTINCT nodes) AS node_count, 
-                    combined_nodes
-                ORDER BY label
-                WITH 
-                    COLLECT(DISTINCT {label: label, count: node_count}) AS nodes_count_by_label,
-                    node_count AS total_nodes
-            '''
-            return_clause = '''
-                RETURN    
-                    nodes_count_by_label,
-                    total_nodes
-            '''
+            label_clause += ', ' + ', '.join(return_preds)
 
-        query = f'''
+        unwind_label_clause = 'UNWIND all_labels AS label'
+
+        count_clause = []
+        if return_preds:
+            for index, predicate in enumerate(query_clauses['predicates']):
+                count_clause.append(f'WHEN label IN labels(startNode(r{index})) THEN startNode(r{index})')
+            count_clause.append(f'WHEN label IN labels(endNode(r{index})) THEN endNode(r{index})')
+        else:
+            for node_id in query_clauses['list_of_node_ids']:
+                count_clause.append(f'WHEN label IN labels({node_id}) THEN {node_id}')
+
+        count_clause = ' '.join(count_clause)
+        count_clause = f'WITH label, count(DISTINCT CASE {count_clause} ELSE null END) AS node_count'
+
+        node_count_by_label = 'WITH COLLECT({label: label, count: node_count}) AS nodes_count_by_label'
+
+        if return_preds:
+            count_relationships = (
+            'WITH nodes_count_by_label, ' +
+            ' + '.join([f'COLLECT([type(r{i}), r{i}])' for i in range(len(query_clauses['predicates']))]) +
+            ' AS relationships'
+            )
+            unwind_relationships = 'UNWIND relationships AS rel'
+            count_edge_by_label = (
+            'WITH nodes_count_by_label, rel[0] AS edge_type, COUNT(rel[1]) AS edge_count '
+            'WITH nodes_count_by_label, COLLECT({label: edge_type, count: edge_count}) AS edges_count_by_type'
+            )
+            return_clause = (
+            'RETURN nodes_count_by_label, edges_count_by_type, '
+            'REDUCE(total = 0, n IN nodes_count_by_label | total + n.count) AS total_nodes, '
+            'REDUCE(total_edges = 0, e IN edges_count_by_type | total_edges + e.count) AS total_edges'
+            )
+            query = f'''
             {match_no_clause}
             {where_no_clause}
             {match_clause}
             {where_clause}
+            {label_clause}
+            {unwind_label_clause}
             {count_clause}
-            {unwind_clause}
-            {with_clause}
+            {node_count_by_label}
+            {match_no_clause}
+            {where_no_clause}
+            {match_clause}
+            {where_clause}
+            {count_relationships}
+            {unwind_relationships}
+            {count_edge_by_label}
             {return_clause}
-        '''
+            '''
+        else:
+            count_edge_by_label = 'WITH nodes_count_by_label'
+            return_clause = (
+            'RETURN nodes_count_by_label, '
+            'REDUCE(total = 0, n IN nodes_count_by_label | total + n.count) AS total_nodes'
+            )
+            query = f'''
+            {match_no_clause}
+            {where_no_clause}
+            {match_clause}
+            {where_clause}
+            {label_clause}
+            {unwind_label_clause}
+            {count_clause}
+            {node_count_by_label}
+            {match_no_clause}
+            {where_no_clause}
+            {match_clause}
+            {where_clause}
+            {count_edge_by_label}
+            {return_clause}
+            '''
+
         return query
 
 
@@ -406,6 +416,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             count_result = None
         node_count = 0
         edge_count = 0
+        node_count_by_label = []
+        edge_count_by_label = []
         nodes = []
         edges = []
         node_dict = {}
