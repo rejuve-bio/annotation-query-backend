@@ -277,7 +277,7 @@ def process_by_id(current_user_id, id):
 
     try:       
         # Run the query and parse the results
-        result = db_instance.run_query(query, limit)
+        result = db_instance.run_query(query)
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
         
         response_data["annotation_id"] = str(annotation_id)
