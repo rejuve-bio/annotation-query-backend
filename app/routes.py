@@ -140,19 +140,29 @@ def process_query(current_user_id):
         print(response_data)
         if existing_query is None:
             title = llm.generate_title(query_code)
-            summary = llm.generate_summary(response_data) if llm.generate_summary(response_data) != None else 'Graph to big could not summarize'
+
+            if not response_data.get('nodes') and not response_data.get('edges'):
+                summary = 'No data found for the query'
+            else:
+                summary = llm.generate_summary(response_data) or 'Graph too big, could not summarize'
+
             answer = llm.generate_summary(response_data, question, True, summary) if question else None
             node_count = response_data['node_count']
             edge_count = response_data['edge_count'] if "edge_count" in response_data else 0
+            node_count_by_label = response_data['node_count_by_label']
+            edge_count_by_label = response_data['edge_count_by_label'] if "edge_count_by_label" in response_data else []
             if annotation_id is not None:
-                annotation = {"query": query_code, "summary": summary, "node_count": response_data["node_count"], 
-                              "edge_count": response_data["edge_count"], "node_types": node_types, 
-                              "updated_at": datetime.datetime.now()}
+                annotation = {"query": query_code, "summary": summary, "node_count": node_count, 
+                              "edge_count": edge_count, "node_types": node_types, "node_count_by_label": node_count_by_label,
+                              "edge_count_by_label": edge_count_by_label, "updated_at": datetime.datetime.now()}
                 storage_service.update(annotation_id, annotation)
             else:
-                annotation_id = storage_service.save(str(current_user_id), query_code, title, 
-                                                     summary, question, answer, node_count, edge_count, 
-                                                     node_types)
+                annotation = {"current_user_id": str(current_user_id), "query": query_code,
+                              "question": question, "answer": answer,
+                              "title": title, "summary": summary, "node_count": node_count,
+                              "edge_count": edge_count, "node_types": node_types, 
+                              "node_count_by_label": node_count_by_label, "edge_count_by_label": edge_count_by_label}
+                annotation_id = storage_service.save(annotation)
         else:
             title, summary, annotation_id = '', '', ''
 
@@ -272,7 +282,7 @@ def process_by_id(current_user_id, id):
 
     try:       
         # Run the query and parse the results
-        result = db_instance.run_query(query, limit)
+        result = db_instance.run_query(query)
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
         
         response_data["annotation_id"] = str(annotation_id)
@@ -340,7 +350,7 @@ def process_full_data(current_user_id, annotation_id):
             return link
     
         # Run the query and parse the results
-        result = db_instance.run_query(query, None, apply_limit=False)
+        result = db_instance.run_query(query)
         parsed_result = db_instance.convert_to_dict(result, schema_manager.schema)
 
         file_path = convert_to_csv(parsed_result, user_id= current_user_id, file_name=title)
