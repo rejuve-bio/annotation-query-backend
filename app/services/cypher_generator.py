@@ -269,7 +269,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         if return_preds:
             for index, predicate in enumerate(query_clauses['predicates']):
                 count_clause.append(f'WHEN label IN labels(startNode(r{index})) THEN startNode(r{index})')
-            count_clause.append(f'WHEN label IN labels(endNode(r{index})) THEN endNode(r{index})')
+                count_clause.append(f'WHEN label IN labels(endNode(r{index})) THEN endNode(r{index})')
         else:
             for node_id in query_clauses['list_of_node_ids']:
                 count_clause.append(f'WHEN label IN labels({node_id}) THEN {node_id}')
