@@ -345,7 +345,7 @@ def process_full_data(current_user_id, annotation_id):
             return link
     
         # Run the query and parse the results
-        result = db_instance.run_query(query, None, apply_limit=False)
+        result = db_instance.run_query(query)
         parsed_result = db_instance.convert_to_dict(result, schema_manager.schema)
 
         file_path = convert_to_csv(parsed_result, user_id= current_user_id, file_name=title)
