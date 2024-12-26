@@ -282,13 +282,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         if return_preds:
             count_relationships = (
             'WITH nodes_count_by_label, ' +
-            ' + '.join([f'COLLECT([type(r{i}), r{i}])' for i in range(len(query_clauses['predicates']))]) +
+            ' + '.join([f'COLLECT(DISTINCT r{i})' for i in range(len(query_clauses['predicates']))]) +
             ' AS relationships'
             )
             unwind_relationships = 'UNWIND relationships AS rel'
             count_edge_by_label = (
-            'WITH nodes_count_by_label, rel[0] AS edge_type, COUNT(rel[1]) AS edge_count '
-            'WITH nodes_count_by_label, COLLECT({label: edge_type, count: edge_count}) AS edges_count_by_type'
+            'WITH nodes_count_by_label, TYPE(rel) AS relationship_type, COUNT(rel) AS edge_count '
+            'WITH nodes_count_by_label, COLLECT(DISTINCT {relationship_type: relationship_type, count: edge_count}) AS edges_count_by_type'
             )
             return_clause = (
             'RETURN nodes_count_by_label, edges_count_by_type, '
