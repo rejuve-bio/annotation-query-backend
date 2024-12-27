@@ -76,6 +76,7 @@ def process_query(current_user_id):
     
     limit = request.args.get('limit')
     properties = request.args.get('properties')
+    source = request.args.get('source') # can be either hypotehesis or ai_assistant
     
     if properties:
         properties = bool(strtobool(properties))
@@ -113,7 +114,7 @@ def process_query(current_user_id):
         query_code = db_instance.query_Generator(requests, node_map, limit)
         
         # Run the query and parse the results
-        result = db_instance.run_query(query_code)
+        result = db_instance.run_query(query_code, source)
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
 
         # Extract node types
@@ -128,10 +129,18 @@ def process_query(current_user_id):
         if isinstance(query_code, list):
             query_code = query_code[0]
 
+        if source == 'hypotehesis':
+            response = {"nodes": response_data['nodes'], "edges": response_data['edges']}
+            formatted_response = json.dumps(response, indent=4)
+            logging.info(f"\n\n============== Query ==============\n\n{query_code}")
+            return Response(formatted_response, mimetype='application/json')
+
         if annotation_id:
             existing_query = storage_service.get_user_query(annotation_id, str(current_user_id), query_code)
         else:
             existing_query = None
+
+        print("------ EXISTING QUYERY ------", existing_query)
 
         if existing_query is None:
             title = llm.generate_title(query_code)
@@ -181,6 +190,11 @@ def process_query(current_user_id):
 
         if answer:
             response_data["answer"] = answer
+
+        if source=='ai-assistant':
+            response = {"annotation_id": str(annotation_id), "question": question, "answer": answer}
+            formatted_response = json.dumps(response, indent=4)
+            return Response(formatted_response, mimetype='application/json')
 
         # if limit:
         #     response_data = limit_graph(response_data, limit)
