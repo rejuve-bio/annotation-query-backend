@@ -132,15 +132,12 @@ def process_query(current_user_id):
         if source == 'hypotehesis':
             response = {"nodes": response_data['nodes'], "edges": response_data['edges']}
             formatted_response = json.dumps(response, indent=4)
-            logging.info(f"\n\n============== Query ==============\n\n{query_code}")
             return Response(formatted_response, mimetype='application/json')
 
         if annotation_id:
             existing_query = storage_service.get_user_query(annotation_id, str(current_user_id), query_code)
         else:
             existing_query = None
-
-        print("------ EXISTING QUYERY ------", existing_query)
 
         if existing_query is None:
             title = llm.generate_title(query_code)
