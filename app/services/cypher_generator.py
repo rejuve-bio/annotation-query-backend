@@ -77,8 +77,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 print("EXCPETION")
                 results.append([])
                 return results
-        print("COUNT : ", results[1])
-
         return results
 
     def query_Generator(self, requests, node_map, limit=None):
@@ -86,21 +84,24 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         predicates = requests.get("predicates", [])
         logic = requests.get("logic", None)
 
-        cypher_queries = []
-
-        match_preds = []
-        return_preds = []
-        where_preds = []
-        match_no_preds = []
-        return_no_preds = []
-        where_no_preds = []
-        node_ids = set()
-        # Track nodes that are included in relationships
-        used_nodes = set()
-        no_label_ids = None
-        where_logic = {}
-        exclude_where = set()
-        return_or = []
+        commands = {
+            "preds": 
+                {
+                    "match": [],
+                    "where": [],
+                    "return": [],
+                    "no_node_labels": set(),
+                    "no_predicate_lables": set()
+                }
+            ,
+            "no_preds": 
+                {
+                    "match": [],
+                    "where": [],
+                    "return": [],
+                    "no_node_labels": set(),
+                }
+        }
 
         # define a set of nodes with predicates
         node_predicates = {p['source'] for p in predicates}.union({p['target'] for p in predicates})
@@ -113,133 +114,109 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     predicate_map[predicate['predicate_id']] = predicate
                 else:
                     raise Exception('Repeated predicate_id')
-            where_logic, no_label_ids, exclude_where, return_or = self.apply_boolean_operation(logic['children'], node_map, node_predicates, predicate_map)
+                
+        if logic:
+            children = logic['children']
+            for child in children:
+                if child["operator"] == "NOT":
+                    commands = self.construct_not_operation(child, node_map, predicate_map, node_predicates, commands)
+                elif child["operator"] == "OR":
+                    command_list = self.construct_or_operation(child, node_map, predicate_map, commands)
+            
+        commands, list_of_node_ids= self.generate_sub_commands(nodes, predicates, node_map, logic, commands)
+        cypher_qureies = self.build_queries(commands, list_of_node_ids, predicates, limit)
+
+        return cypher_qureies
+    
+    def build_queries(self, commands, list_of_node_ids, predicates, limit):
+        query_clauses = {}
+        cypher_queries = []
         if not predicates:
-            list_of_node_ids = []
-            # Case when there are no predicates
-            for node in nodes:
-                if node['properties']:
-                    where_no_preds.extend(self.where_construct(node))
-                if where_logic:
-                    where_no_preds.extend(where_logic['where_no_preds'])
-                match_no_preds.append(self.match_node(node, no_label_ids['no_node_labels'] if no_label_ids else None))
-                return_no_preds.append(node['node_id'])
-                list_of_node_ids.append(node['node_id'])
-                query_clauses = {
-                    "match_clause": match_no_preds,
-                    "return_clause": return_no_preds,
-                    "where_clause": where_no_preds,
-                }
-            cypher_query = self.construct_clause(query_clauses, limit)
+           query_clauses = {
+                   "match_clause": commands['no_preds']['match'],
+                   "return_clause": commands['no_preds']['return'],
+                   "where_clause": commands['no_preds']['where'],
+               }
+           cypher_query = self.construct_clause(query_clauses, limit)
+           cypher_queries.append(cypher_query)
+           query_clauses = {
+                   "match_no_preds": commands['no_preds']['match'],
+                   "return_no_preds": commands['no_preds']['return'],
+                   "where_no_preds": commands['no_preds']['where'],
+                   "list_of_node_ids": list_of_node_ids,
+                   "predicates": predicates
+               }
+           count = self.construct_count_clause(query_clauses)
+           cypher_queries.append(count)
+        else:
+            full_return_preds = list(set(commands['preds']['return'] + list_of_node_ids))
+
+            query_clauses = {
+                "match_preds": commands['preds']['match'], 
+                "full_return_preds": full_return_preds,
+                "where_preds": commands['preds']['where'],
+                "match_no_preds": commands['no_preds']['match'],
+                "return_no_preds": commands['no_preds']['return'],
+                "where_no_preds": commands['no_preds']['where'],
+                "list_of_node_ids": list_of_node_ids,
+                "return_preds": commands['preds']['return'],
+                "predicates": predicates
+            }
+            cypher_query = self.construct_union_clause(query_clauses, limit)
             cypher_queries.append(cypher_query)
             query_clauses = {
-                    "match_no_preds": match_no_preds,
-                    "return_no_preds": return_no_preds,
-                    "where_no_preds": where_no_preds,
-                    "list_of_node_ids": list_of_node_ids,
-                    "predicates": predicates
-                }
+                "match_preds": commands['preds']['match'], 
+                "full_return_preds": full_return_preds,
+                "where_preds": commands['preds']['where'],
+                "match_no_preds": commands['no_preds']['match'],
+                "return_no_preds": commands['no_preds']['return'],
+                "where_no_preds": commands['no_preds']['where'],
+                "list_of_node_ids": list_of_node_ids,
+                "return_preds": commands['preds']['return'],
+                "predicates": predicates
+            }
             count = self.construct_count_clause(query_clauses)
             cypher_queries.append(count)
+        return cypher_queries
+
+    
+    def generate_sub_commands(self, nodes, predicates, node_map, logic, commands):
+        list_of_node_ids = set()
+        if not predicates:
+            for node in nodes:
+                if node['properties']:
+                    commands['no_preds']['where'].extend(self.where_construct(node))
+                list_of_node_ids.add(node['node_id'])
+
+                no_node_labels = commands['no_preds']['no_node_labels']
+                commands['no_preds']['match'].append(self.match_node(node, no_node_labels if  no_node_labels else None))
+                commands['no_preds']['return'].append(node['node_id'])
         else:
-            for i, predicate in enumerate(predicates):
+              for predicate in predicates:
                 predicate_type = predicate['type'].replace(" ", "_").lower()
                 source_node = node_map[predicate['source']]
                 target_node = node_map[predicate['target']]
                 source_var = source_node['node_id']
                 target_var = target_node['node_id']
+                list_of_node_ids.add(source_var)
+                list_of_node_ids.add(target_var)
 
                 # Common match and return part
-                if logic and predicate['predicate_id'] in no_label_ids['no_predicate_labels']:
+                if logic and predicate['predicate_id'] in commands['preds']['no_predicate_lables']:
                     source_match = source_var
                     target_match = target_var
-                    match_preds.append(f"({source_var})-[{predicate['predicate_id']}]->({target_var})")
-                    return_preds.append(predicate['predicate_id'])
+                    commands['preds']['match'].append(f"({source_var})-[{predicate['predicate_id']}]->({target_var})")
                 else:
                     source_match = self.match_node(source_node)
-                    if source_var not in exclude_where:
-                        where_preds.extend(self.where_construct(source_node))
-                    match_preds.append(source_match)
+                    commands['preds']['where'].extend(self.where_construct(source_node))
+                    commands['preds']['match'].append(source_match)
 
                     target_match = self.match_node(target_node)
                     
-                    if target_var not in exclude_where:
-                        where_preds.extend(self.where_construct(target_node))
-
-                    match_preds.append(f"({source_var})-[r{i}:{predicate_type}]->{target_match}")
-                    return_preds.append(f"r{i}")
-
-
-                used_nodes.add(predicate['source'])
-                used_nodes.add(predicate['target'])
-                node_ids.add(source_var)
-                node_ids.add(target_var)
-
-            for node_id, node in node_map.items():
-                if node_id not in used_nodes:
-                    match_no_preds.append(self.match_node(node))
-                    where_no_preds.extend(self.where_construct(node))
-                    return_no_preds.append(node_id)
-
-
-            list_of_node_ids = list(node_ids - exclude_where)
-            list_of_node_id = list(node_ids)
-            list_of_node_ids.sort()
-            full_return_preds = return_preds + list_of_node_ids
-            full_return_preds.extend(return_or)
-                
-            if (len(match_no_preds) == 0):
-                if where_logic:
-                    where_preds.extend(where_logic['where_preds'])
-                query_clauses = {
-                    'match_clause': match_preds,
-                    'return_clause': full_return_preds,
-                    'where_clause': where_preds 
-                }
-                cypher_query = self.construct_clause(query_clauses, limit)
-                cypher_queries.append(cypher_query)
-                query_clauses = {
-                    "match_preds": match_preds, 
-                    "full_return_preds": full_return_preds,
-                    "where_preds": where_preds,
-                    "list_of_node_ids": list_of_node_id,
-                    "return_preds": return_preds,
-                    "predicates": predicates
-                }
-                count = self.construct_count_clause(query_clauses)
-                cypher_queries.append(count)
-            else:
-                if where_logic:
-                    where_no_preds.extend(where_logic['where_no_preds'])
-                    where_preds.extend(where_logic['where_preds'])
-                query_clauses = {
-                    "match_preds": match_preds, 
-                    "full_return_preds": full_return_preds,
-                    "where_preds": where_preds,
-                    "match_no_preds": match_no_preds,
-                    "return_no_preds": return_no_preds,
-                    "where_no_preds": where_no_preds,
-                    "list_of_node_ids": list_of_node_ids,
-                    "return_preds": return_preds,
-                    "predicates": predicates
-                }
-                cypher_query = self.construct_union_clause(query_clauses, limit)
-                cypher_queries.append(cypher_query)
-                query_clauses = {
-                    "match_preds": match_preds, 
-                    "full_return_preds": full_return_preds,
-                    "where_preds": where_preds,
-                    "match_no_preds": match_no_preds,
-                    "return_no_preds": return_no_preds,
-                    "where_no_preds": where_no_preds,
-                    "list_of_node_ids": list_of_node_id,
-                    "return_preds": return_preds,
-                    "predicates": predicates
-                }
-
-                count = self.construct_count_clause(query_clauses)
-                cypher_queries.append(count)
-        return cypher_queries
+                    commands['preds']['where'].extend(self.where_construct(target_node))
+                    commands['preds']['match'].append(f"({source_var})-[{predicate['predicate_id']}:{predicate_type}]->{target_match}")
+                commands['preds']['return'].append(predicate['predicate_id'])
+        return commands, list(list_of_node_ids)
     
     def construct_clause(self, query_clauses, limit):
         match_clause = f"MATCH {', '.join(query_clauses['match_clause'])}"
@@ -325,9 +302,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         count_clause = []
         if return_preds:
-            for index, predicate in enumerate(query_clauses['predicates']):
-                count_clause.append(f'WHEN label IN labels(startNode(r{index})) THEN startNode(r{index})')
-            count_clause.append(f'WHEN label IN labels(endNode(r{index})) THEN endNode(r{index})')
+            for predicate in query_clauses['predicates']:
+                count_clause.append(f'WHEN label IN labels(startNode({predicate["predicate_id"]})) THEN startNode({predicate["predicate_id"]})')
+            count_clause.append(f'WHEN label IN labels(endNode({predicate["predicate_id"]})) THEN endNode({predicate["predicate_id"]})')
         else:
             for node_id in query_clauses['list_of_node_ids']:
                 count_clause.append(f'WHEN label IN labels({node_id}) THEN {node_id}')
@@ -340,7 +317,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         if return_preds:
             count_relationships = (
             'WITH nodes_count_by_label, ' +
-            ' + '.join([f'COLLECT([type(r{i}), r{i}])' for i in range(len(query_clauses['predicates']))]) +
+            ' + '.join([f'COLLECT([type({predicate["predicate_id"]}), {predicate["predicate_id"]}])' for predicate in (query_clauses['predicates'])]) +
             ' AS relationships'
             )
             unwind_relationships = 'UNWIND relationships AS rel'
@@ -398,66 +375,39 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         return query
     
-    def apply_boolean_operation(self, logics, node_map, node_predicates, predicate_map):
-        where_clauses = {'where_no_preds': [], 'where_preds': []}
-        no_label_ids = {'no_node_labels': set(), 'no_predicate_labels': set()}
-        exclude_where = set()
 
-        for logic in logics:
-            if logic['operator'] == "NOT":
-                where_query, no_label_id = self.construct_not_operation(logic, node_map, predicate_map)
-
-                # Default action for handling where_clauses and no_label_ids
-                if 'nodes' in logic:
-                    node_id = logic['nodes']['node_id']
-                    if node_id not in node_predicates:
-                        where_clauses['where_no_preds'].append(where_query)
-                    else:
-                        where_clauses['where_preds'].append(where_query)
-                    no_label_ids['no_node_labels'].update(no_label_id['no_node_labels'])
-
-                elif 'predicates' in logic:
-                    where_clauses['where_preds'].append(where_query)
-                    no_label_ids['no_predicate_labels'].update(no_label_id['no_predicate_labels'])
-            elif logic['operator'] == "OR":
-                where_query, exclude_where, return_or = self.construct_or_operation(logic, node_map, predicate_map)
-                if 'nodes' in logic:
-                    node_id = logic['nodes']['node_id']
-                    if node_id not in node_predicates:
-                        where_clauses['where_no_preds'].append(where_query)
-                    else:
-                        where_clauses['where_preds'].append(where_query)
-                elif 'predicates' in logic:
-                    where_clauses['where_preds'].append(where_query)
-               # what's here = self.construct_or_operation(logic, node_map, predicate_map)
-
-
-        return where_clauses, no_label_ids ,exclude_where, return_or
-
-    def construct_not_operation(self, logic, node_map, predicate_map):
-        where_clause = ''
-        no_label_id = {'no_node_labels': set(), 'no_predicate_labels': set()}
-
+    def construct_not_operation(self, logic, node_map, predicate_map, node_with_preidcates, command):
         if 'nodes' in logic:
             node_id = logic['nodes']['node_id']
+            nodes = logic['nodes']
             if 'properties' in logic['nodes']:
-                properties = logic['nodes']['properties']
-                where_clause = ' AND '.join([f"{node_id}.{property} <> '{value}'" for property, value in properties.items()])
+                where_clause = self.where_construct(nodes, "NOT")
+                if node_id in node_with_preidcates:
+                    command['preds']['where'].extend(where_clause)
+                else:
+                    command['no_preds']['where'].extend(where_clause)
             else:
                 node_type = node_map[node_id]['type']
-                no_label_id['no_node_labels'].add(node_id)
                 where_clause = f'NOT ({node_id}: {node_type})'
+                if node_id in node_with_preidcates:
+                    command['preds']['no_node_labels'].add(node_id)
+                    command['preds']['where'].append(where_clause)
+                else:
+                    command['no_preds']['no_node_labels'].add(node_id)
+                    command['no_preds']['where'].append(where_clause)
 
         elif 'predicates' in logic:
             predicate_id = logic['predicates']['predicate_id']
             predicate = predicate_map[predicate_id]
             label = predicate['type'].replace(" ", "_").lower()
-            no_label_id['no_node_labels'].update([predicate['source'], predicate['target']])
-            no_label_id['no_predicate_labels'].add(predicate_id)
+            command['preds']['no_node_labels'].update([predicate['source'], predicate['target']])
+            command['preds']['no_predicate_lables'].add(predicate_id)
             where_clause = f"type({predicate_id}) <> '{label}'"
-        return where_clause, no_label_id
+            command['preds']['where'].append(where_clause)
+        print("NOT COMMANDS: ", command)
+        return command
     
-    def construct_or_operation(self, logic, node_map, predicate_map):
+    def construct_or_operation(self, logic, node_map, predicate_map, commands):
         where_clause = ''
         properties_or = []
         exclude_where = set()
@@ -549,12 +499,17 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         else:
             return f"({node['node_id']}:{node['type']})"
 
-    def where_construct(self, node):
+    def where_construct(self, node, operation=None):
         properties = []
-        if node['id']: 
+        if 'id' in node and node['id']: 
             return properties
-        for key, property in node['properties'].items():
-            properties.append(f"{node['node_id']}.{key} =~ '(?i){property}'")
+        
+        if operation == "NOT":
+            for key, property in node['properties'].items():
+                properties.append(f"{node['node_id']}.{key} <> '{property}'")
+        else:
+            for key, property in node['properties'].items():
+                properties.append(f"{node['node_id']}.{key} =~ '(?i){property}'")
         return properties
 
     def parse_neo4j_results(self, results, all_properties):
@@ -688,7 +643,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         if count_result:
             for count_record in count_result:
-                print("**COUNT**", count_result)
                 node_count_by_label = count_record['nodes_count_by_label']
                 edge_count_by_label = count_record.get('edges_count_by_type', [])
                 node_count = count_record['total_nodes']
