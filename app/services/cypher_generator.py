@@ -464,7 +464,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     edge_data = {
                         "data": {
                             # "id": item.id,
-                            "label_id": f"{source_label}-{item.type}-{target_label}",
+                            "id": f"{source_label}_{item.type}_{target_label}",
                             "label": item.type,
                             "source": source_id,
                             "target": target_id,
