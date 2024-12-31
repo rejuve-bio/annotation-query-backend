@@ -137,9 +137,8 @@ def process_query(current_user_id):
         else:
             existing_query = None
 
-        print(response_data)
         if existing_query is None:
-            title = llm.generate_title(query_code)
+            title = llm.generate_title(query_code) or 'No title generated'
 
             if not response_data.get('nodes') and not response_data.get('edges'):
                 summary = 'No data found for the query'

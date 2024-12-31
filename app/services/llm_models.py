@@ -28,14 +28,14 @@ class GeminiModel(LLMInterface):
         }
         response = requests.post(f"{self.api_url}?key={self.api_key}", headers=headers, json=data)
         response.raise_for_status()
-
-        content = response.json()['candidates'][0]['content']['parts'][0]['text']
-    
-        json_content = self._extract_json_from_codeblock(content)
         try:
+            content = response.json()['candidates'][0]['content']['parts'][0]['text']
+            json_content = self._extract_json_from_codeblock(content)
             return json.loads(json_content)
         except json.JSONDecodeError:
             return json_content
+        except Exception as e:
+            return None
 
     def _extract_json_from_codeblock(self, content: str) -> str:
         start = content.find("```json")
