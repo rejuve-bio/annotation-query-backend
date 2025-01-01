@@ -13,6 +13,7 @@ class SchemaManager:
         self.parent_nodes =self.parent_nodes()
         self.parent_edges =self.parent_edges()
         self.graph_info = self.get_graph_info()
+        self.filter_schema = self.filter_schema(self.schema)
     
     def process_schema(self, schema):
         process_schema = {}
@@ -31,10 +32,36 @@ class SchemaManager:
             for i_label in labels:
                 for s in sources:
                     for t in targets:
-                        key_label = f'{s}-{i_label}-{t}' if s and t else i_label
+                        key_label = f'{s}_{i_label}_{t}' if s and t else i_label
                         process_schema[key_label] = {**value, "key": key_label}
 
         return process_schema
+    
+    def filter_schema(self, schema):
+        filtered_schema = {}
+
+        for key, value in schema.items():
+            label_list = key.split('_')
+            label = ' '.join(label_list)
+            if label in self.parent_nodes or label in self.parent_edges:
+                continue
+            if value.get('represented_as') == 'node' or value.get('is_a') == 'annotation':
+                continue
+            source = value.get('source')
+            target = value.get('target')
+            labels = value.get('output_label') or value.get('input_label')
+
+            if isinstance(source, list) and label_list[0] in source:
+                source = label_list[0]
+
+            if isinstance(target, list) and label_list[-1] in target:
+                target = label_list[-1]
+            filtered_schema[key] = {'source': source, 
+                                    'target': target, 
+                                    'label': labels, 
+                                    'id': key
+                                    }
+        return filtered_schema
 
     
     def parent_nodes(self):
