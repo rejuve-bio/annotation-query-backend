@@ -121,7 +121,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 if child["operator"] == "NOT":
                     commands = self.construct_not_operation(child, node_map, predicate_map, node_predicates, commands)
                 elif child["operator"] == "OR":
-                    command_list = self.construct_or_operation(child, node_map, predicate_map, commands)
+                    commands = self.construct_or_operation(child, node_map, predicate_map, node_predicates, commands)
             
         commands, list_of_node_ids= self.generate_sub_commands(nodes, predicates, node_map, logic, commands)
         cypher_qureies = self.build_queries(commands, list_of_node_ids, predicates, limit)
@@ -302,9 +302,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         count_clause = []
         if return_preds:
-            for index, predicate in enumerate(query_clauses['predicates']):
-                count_clause.append(f'WHEN label IN labels(startNode(r{index})) THEN startNode(r{index})')
-                count_clause.append(f'WHEN label IN labels(endNode(r{index})) THEN endNode(r{index})')
+            for predicate in query_clauses['predicates']:
+                print(predicate)
+                count_clause.append(f'WHEN label IN labels(startNode({predicate["predicate_id"]})) THEN startNode({predicate["predicate_id"]})')
+                count_clause.append(f'WHEN label IN labels(endNode({predicate["predicate_id"]})) THEN endNode({predicate["predicate_id"]})')
         else:
             for node_id in query_clauses['list_of_node_ids']:
                 count_clause.append(f'WHEN label IN labels({node_id}) THEN {node_id}')
@@ -317,7 +318,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         if return_preds:
             count_relationships = (
             'WITH nodes_count_by_label, ' +
-            ' + '.join([f'COLLECT(DISTINCT r{i})' for i in range(len(query_clauses['predicates']))]) +
+            ' + '.join([f'COLLECT(DISTINCT {predicate["predicate_id"]})' for predicate in query_clauses['predicates']]) +
             ' AS relationships'
             )
             unwind_relationships = 'UNWIND relationships AS rel'
@@ -407,11 +408,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         print("NOT COMMANDS: ", command)
         return command
     
-    def construct_or_operation(self, logic, node_map, predicate_map, commands):
+    def construct_or_operation(self, logic, node_map, predicate_map, node_with_preidcates, commands):
         where_clause = ''
         properties_or = []
-        exclude_where = set()
-        return_or = ''
         
         if 'nodes' in logic:
             node_id = logic['nodes']['node_id']
@@ -420,7 +419,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 for single_value in value:
                     properties_or.append(f"{node_id}.{property} = '{single_value}'")
             where_clause = ' OR '.join(properties_or)
-        
+
+            if node_id in node_with_preidcates:
+                commands['preds']['where'].append(where_clause)
+            else:
+                commands['no_preds']['where'].append(where_clause)
+        '''
         if 'predicates' in logic:
             predicate_ids = logic['predicates']
             temp_properties_or = []
@@ -446,9 +450,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 returns.append(return_statment)
                 temp_properties_or = []
             
-            where_clause = f"({' OR '.join(operands)})"  
+            where_clause = f"({' OR '.join(operands)})" 
+        '''
 
-        return where_clause, exclude_where, returns
+        return commands
 
     def limit_query(self, limit):
         if limit:
