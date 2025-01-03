@@ -111,11 +111,8 @@ def process_query(current_user_id):
         #convert id to appropriate format
         requests = db_instance.parse_id(requests)
 
-        print("FINISHED VALIDATING REQUEST")
-
         # Generate the query code
         query_code = db_instance.query_Generator(requests, node_map, limit)
-        print("FINISHED GENERATING QUERY")
         
         # Run the query and parse the results
         result = db_instance.run_query(query_code, source)
