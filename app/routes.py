@@ -102,7 +102,7 @@ def process_query(current_user_id):
         
         if 'question' in requests:
             question = requests['question']
-        
+
         # Validate the request data before processing
         node_map = validate_request(requests, schema_manager.schema)
         if node_map is None:
