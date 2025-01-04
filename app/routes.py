@@ -342,8 +342,20 @@ def process_full_data(current_user_id, annotation_id):
 
     if cursor is None:
         return None
-    
     query, title = cursor.query, cursor.title
+    print("query 0 and 1 indexed________________________________________________________________________________________________")
+    print(query)
+    print("_______________________________________________________________________________________________________________")
+    
+    import re
+    if "LIMIT" in query:
+        query = re.sub(r'\s+LIMIT\s+\d+', '', query)
+     
+
+    print("query 0 and 1 indexed________________________________________________________________________________________________")
+    print(query)
+    print("_______________________________________________________________________________________________________________")
+
     
     try:
         file_path = generate_file_path(file_name=title, user_id=current_user_id, extension='xls')
@@ -354,9 +366,10 @@ def process_full_data(current_user_id, annotation_id):
             link = f'{request.host_url}{file_path}'
 
             return link
-    
+        
         # Run the query and parse the results
-        result = db_instance.run_query(query)
+        result = db_instance.run_query(query,source=None)
+        print("step2 ")
         parsed_result = db_instance.convert_to_dict(result, schema_manager.schema)
 
         file_path = convert_to_csv(parsed_result, user_id= current_user_id, file_name=title)
