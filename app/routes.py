@@ -256,7 +256,23 @@ def process_user_history(current_user_id):
 @app.route('/annotation/<id>', methods=['GET'])
 @token_required
 def process_by_id(current_user_id, id):
+    response_data = {}
     cursor = storage_service.get_by_id(id)
+
+    limit = request.args.get('limit')
+    properties = request.args.get('properties')
+    source = request.args.get('source') # can be either hypotehesis or ai_assistant
+    
+    if properties:
+        properties = bool(strtobool(properties))
+    else:
+        properties = False
+
+    if limit:
+        try:
+            limit = int(limit)
+        except ValueError:
+            return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
 
     if cursor is None:
         return jsonify('No value Found'), 200
@@ -286,22 +302,32 @@ def process_by_id(current_user_id, id):
         limit = None
 
 
-    try:       
+    try:   
+        if question:
+            response_data["question"] = question
+
+        if answer:
+            response_data["answer"] = answer 
+
+        if source=='ai-assistant':
+            response = {"annotation_id": str(annotation_id), "question": question, "answer": answer}
+            formatted_response = json.dumps(response, indent=4)
+            return Response(formatted_response, mimetype='application/json')
+        
         # Run the query and parse the results
-        result = db_instance.run_query(query)
+        result = db_instance.run_query(query, source)
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+
+        if source == 'hypotehesis':
+            response = {"nodes": response_data['nodes'], "edges": response_data['edges']}
+            formatted_response = json.dumps(response, indent=4)
+            return Response(formatted_response, mimetype='application/json')
         
         response_data["annotation_id"] = str(annotation_id)
         response_data["title"] = title
         response_data["summary"] = summary
         response_data["node_count"] = node_count
         response_data["edge_count"] = edge_count
-
-        if question:
-            response_data["question"] = question
-
-        if answer:
-            response_data["answer"] = answer
 
         # if limit:
             # response_data = limit_graph(response_data, limit)
