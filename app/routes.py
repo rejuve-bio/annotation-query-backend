@@ -280,7 +280,7 @@ def process_by_id(current_user_id, id):
         properties = bool(strtobool(properties))
     else:
         properties = False
-
+ 
     if limit:
         try:
             limit = int(limit)
@@ -290,9 +290,13 @@ def process_by_id(current_user_id, id):
         limit = None
 
 
-    try:       
+    try: 
+       
+        query=query.replace("{PLACEHOLDER}",str(limit)) 
+       
         # Run the query and parse the results
         result = db_instance.run_query(query)
+      
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
         
         response_data["annotation_id"] = str(annotation_id)
