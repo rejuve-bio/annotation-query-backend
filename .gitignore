@@ -6,3 +6,4 @@ metta_data/
 venv
 .env
 public
+/venv
