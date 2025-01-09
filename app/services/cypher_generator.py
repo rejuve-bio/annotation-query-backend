@@ -21,6 +21,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             os.getenv('NEO4J_URI'),
             auth=(os.getenv('NEO4J_USERNAME'), os.getenv('NEO4J_PASSWORD'))
         )
+        self.node_map = {}
+        self.predicate_map = {}
+        self.node_predicates = {}
         # self.dataset_path = dataset_path
         # self.load_dataset(self.dataset_path)
 
@@ -79,7 +82,20 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 return results
         return results
 
+    def reset_state(method):
+        def wrapper(self, *args, **kwargs):
+            try:
+                return method(self, *args, **kwargs)
+            finally:
+                self.node_map = {}
+                self.predicate_map = {}
+                self.node_predicates = {}
+        return wrapper
+    
+
+    @reset_state
     def query_Generator(self, requests, node_map, limit=None):
+        self.node_map = node_map
         nodes = requests['nodes']
         predicates = requests.get("predicates", [])
         logic = requests.get("logic", None)
@@ -108,14 +124,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         }
 
         # define a set of nodes with predicates
-        node_predicates = {p['source'] for p in predicates}.union({p['target'] for p in predicates})
-
-        predicate_map = {}
+        self.node_predicates = {p['source'] for p in predicates}.union({p['target'] for p in predicates})
 
         if logic:
             for predicate in predicates:
-                if predicate['predicate_id'] not in predicate_map:
-                    predicate_map[predicate['predicate_id']] = predicate
+                print(self.predicate_map)
+                if predicate['predicate_id'] not in self.predicate_map:
+                    self.predicate_map[predicate['predicate_id']] = predicate
                 else:
                     raise Exception('Repeated predicate_id')
                 
@@ -123,10 +138,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             children = logic['children']
             for child in children:
                 if child["operator"] == "NOT":
-                    commands = self.construct_not_operation(child, node_map, predicate_map, node_predicates, commands)
+                    commands = self.construct_not_operation(child, commands)
                 elif child["operator"] == "OR":
-                    commands, node_map = self.construct_or_operation(child, node_map, predicate_map, node_predicates, commands)
-        commands, list_of_node_ids= self.generate_sub_commands(nodes, predicates, node_map, logic, commands)
+                    commands = self.construct_or_operation(child, commands)
+        commands, list_of_node_ids= self.generate_sub_commands(nodes, predicates, logic, commands)
         cypher_qureies = self.build_queries(commands, list_of_node_ids, predicates, limit)
 
         return cypher_qureies
@@ -191,7 +206,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return cypher_queries
 
     
-    def generate_sub_commands(self, nodes, predicates, node_map, logic, commands):
+    def generate_sub_commands(self, nodes, predicates, logic, commands):
         list_of_node_ids = set()
         if not predicates:
             for node in nodes:
@@ -205,8 +220,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         else:
               for predicate in predicates:
                 predicate_type = predicate['type'].replace(" ", "_").lower()
-                source_node = node_map.get(predicate['source'])
-                target_node = node_map.get(predicate['target'])
+                source_node = self.node_map.get(predicate['source'])
+                target_node = self.node_map.get(predicate['target'])
                 
                 if not source_node or not target_node:
                     continue
@@ -450,20 +465,20 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return query
     
 
-    def construct_not_operation(self, logic, node_map, predicate_map, node_with_preidcates, command):
+    def construct_not_operation(self, logic, command):
         if 'nodes' in logic:
             node_id = logic['nodes']['node_id']
             nodes = logic['nodes']
             if 'properties' in logic['nodes']:
                 where_clause = self.where_construct(nodes, "NOT")
-                if node_id in node_with_preidcates:
+                if node_id in self.node_predicates:
                     command['preds']['where'].extend(where_clause)
                 else:
                     command['no_preds']['where'].extend(where_clause)
             else:
-                node_type = node_map[node_id]['type']
+                node_type = self.node_map[node_id]['type']
                 where_clause = f'NOT ({node_id}: {node_type})'
-                if node_id in node_with_preidcates:
+                if node_id in self.node_predicates:
                     command['preds']['no_node_labels'].add(node_id)
                     command['preds']['where'].append(where_clause)
                 else:
@@ -472,7 +487,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         elif 'predicates' in logic:
             predicate_id = logic['predicates']['predicate_id']
-            predicate = predicate_map[predicate_id]
+            predicate = self.predicate_map[predicate_id]
             label = predicate['type'].replace(" ", "_").lower()
             command['preds']['no_node_labels'].update([predicate['source'], predicate['target']])
             command['preds']['no_predicate_lables'].add(predicate_id)
@@ -481,7 +496,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         print("NOT COMMANDS: ", command)
         return command
     
-    def construct_or_operation(self, logic, node_map, predicate_map, node_with_preidcates, commands):
+    def construct_or_operation(self, logic, commands):
         where_clause = ''
         properties_or = []
         source = []
@@ -495,7 +510,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     properties_or.append(f"{node_id}.{property} = '{single_value}'")
             where_clause = ' OR '.join(properties_or)
 
-            if node_id in node_with_preidcates:
+            if node_id in self.node_predicates:
                 commands['preds']['where'].append(where_clause)
             else:
                 commands['no_preds']['where'].append(where_clause)
@@ -504,9 +519,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
             for predicate_id in predicate_ids:
                 optional_where = []
-                predicate = predicate_map[predicate_id]
-                source_node = node_map[predicate['source']]
-                target_node = node_map[predicate['target']]
+                predicate = self.predicate_map[predicate_id]
+                source_node = self.node_map[predicate['source']]
+                target_node = self.node_map[predicate['target']]
                 predicate_type = predicate['type'].replace(" ", "_").lower()
 
                 source.append(source_node['node_id'])
@@ -530,12 +545,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
                 commands['preds']['with'].append('true As always_true')
             for source_id in source:
-                if source_id in node_map:
-                    node_map.pop(source_id)
+                if source_id in self.node_map:
+                    self.node_map.pop(source_id)
             for target_id in target:
-                if target_id in node_map:
-                    node_map.pop(target_id)
-        return commands, node_map
+                if target_id in self.node_map:
+                    self.node_map.pop(target_id)
+        return commands
 
     def limit_query(self, limit):
         if limit:
