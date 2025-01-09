@@ -255,7 +255,7 @@ def process_user_history(current_user_id):
 
 @app.route('/annotation/<id>', methods=['GET'])
 @token_required
-def process_by_id(current_user_id, id):
+def get_by_id(current_user_id, id):
     response_data = {}
     cursor = storage_service.get_by_id(id)
 
@@ -333,6 +333,75 @@ def process_by_id(current_user_id, id):
             # response_data = limit_graph(response_data, limit)
 
         formatted_response = json.dumps(response_data, indent=4)
+        return Response(formatted_response, mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/annotation/<id>', methods=['POST'])
+@token_required
+def process_by_id(current_user_id, id):
+    data = request.get_json()
+    if not data or 'requests' not in data:
+        return jsonify({"error": "Missing requests data"}), 400
+    
+    if 'question' not in data["requests"]:
+        return jsonify({"error": "Missing question data"}), 400
+
+    question = data['requests']['question']
+    response_data = {}
+    cursor = storage_service.get_by_id(id)
+
+    limit = request.args.get('limit')
+    properties = request.args.get('properties')
+    source = request.args.get('source') # can be either hypotehesis or ai_assistant
+    
+    if properties:
+        properties = bool(strtobool(properties))
+    else:
+        properties = False
+
+    if limit:
+        try:
+            limit = int(limit)
+        except ValueError:
+            return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
+
+    if cursor is None:
+        return jsonify('No value Found'), 200
+    query = cursor.query
+    summary = cursor.summary
+    limit = request.args.get('limit')
+    properties = request.args.get('properties')
+    
+    if properties:
+        properties = bool(strtobool(properties))
+    else:
+        properties = False
+
+    if limit:
+        try:
+            limit = int(limit)
+        except ValueError:
+            return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
+    else:
+        limit = None
+
+    try:   
+        if question:
+            response_data["question"] = question
+        
+        # Run the query and parse the results
+        result = db_instance.run_query(query, source)
+        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+
+        answer = llm.generate_summary(response_data, question, True, summary) if question else None
+
+        storage_service.update(id, {"answer": answer, "updated_at": datetime.datetime.now()})
+
+        response = {"annotation_id": str(id), "question": question, "answer": answer}
+
+        formatted_response = json.dumps(response, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing query: {e}")
