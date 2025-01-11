@@ -75,7 +75,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 with self.driver.session() as session:
                     results.append(list(session.run(node_edge_count)))
             except:
-                print("Error in count by label")
                 results.append([])
                 return results
         
@@ -84,7 +83,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 with self.driver.session() as session:
                     results.append(list(session.run(count_by_label)))
             except:
-                print("Error in count by label")
                 results.append([])
                 return results
 
@@ -621,9 +619,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         node_count = 0
         edge_count = 0
 
-        count_by_label = results[2]
-        node_and_edge_count = results[1]
         records = results[0]
+
+        if len(results) > 2:
+            node_and_edge_count = results[1]
+        if len(results) > 1:
+            count_by_label = results[2]
 
         for record in records:
             for item in record.values():
