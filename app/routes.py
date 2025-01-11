@@ -88,22 +88,19 @@ def on_leave(data):
     room = data['room']
     leave_room(room)
     send(f"{username} has left the room.", to=room)
-
-
 @app.route('/query', methods=['POST'])
 @token_required
 def process_query(current_user_id):
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
-
-    # Extract query parameters
+    
     limit = request.args.get('limit')
     properties = request.args.get('properties')
-    source = request.args.get('source', 'hypotehesis')  # Default to 'hypotehesis'
-
+    source = request.args.get('source') # can be either hypotehesis or ai_assistant
+    
     if properties:
-        properties = bool(properties.lower() in ['true', '1', 'yes'])
+        properties = bool(strtobool(properties))
     else:
         properties = False
 
@@ -114,37 +111,50 @@ def process_query(current_user_id):
             return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
     else:
         limit = None
-
     try:
         requests = data['requests']
-        annotation_id = requests.get('annotation_id')
-        question = requests.get('question')
+        annotation_id = None
+        question = None
+        answer = None
+        
+        if 'annotation_id' in requests:
+            annotation_id = requests['annotation_id'] 
+        
+        if 'question' in requests:
+            question = requests['question']
 
         # Validate the request data before processing
         node_map = validate_request(requests, schema_manager.schema)
         if node_map is None:
             return jsonify({"error": "Invalid node_map returned by validate_request"}), 400
 
-        # Convert ID to the appropriate format
+        #convert id to appropriate format
         requests = db_instance.parse_id(requests)
 
         # Generate the query code
         query_code = db_instance.query_Generator(requests, node_map, limit)
-
+        
         # Run the query and parse the results
         result = db_instance.run_query(query_code, source)
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
 
         # Extract node types
         nodes = requests['nodes']
-        node_types = list({node["type"] for node in nodes})
+        node_types = set()
 
-        # Process query_code for consistent LIMIT placeholder
+        for node in nodes:
+            node_types.add(node["type"])
+
+        node_types = list(node_types)
+
         if isinstance(query_code, list):
             query_code = query_code[0]
-            query_code = re.sub(r'LIMIT\s+\d+', 'LIMIT {PLACEHOLDER}', query_code)
 
-        # Summarization logic
+        if source == 'hypotehesis':
+            response = {"nodes": response_data['nodes'], "edges": response_data['edges']}
+            formatted_response = json.dumps(response, indent=4)
+            return Response(formatted_response, mimetype='application/json')
+
         if annotation_id:
             existing_query = storage_service.get_user_query(annotation_id, str(current_user_id), query_code)
         else:
@@ -156,7 +166,6 @@ def process_query(current_user_id):
             if not response_data.get('nodes') and not response_data.get('edges'):
                 summary = 'No data found for the query'
             else:
-                # Run summarization in a separate thread
                 def summarizer_thread():
                     room = requests.get('room')
                     message = data.get('message')
@@ -165,7 +174,7 @@ def process_query(current_user_id):
                     socketio.emit('message', f"{data.get('username')}: {message}", to=room)
 
                         # Example summarization logic (assuming response_data contains the text for summarization)
-                    response_data = message  # Use the message or data to generate the summary
+                 
                     summary = llm.generate_summary(response_data) or 'Graph too big, could not summarize'
                         
                     print("******************************* Summary Generated **********************************************")
@@ -179,44 +188,40 @@ def process_query(current_user_id):
                                     
                 sender = threading.Thread(name="summarizer_thread", target=summarizer_thread)
                 sender.start()
-
             answer = llm.generate_summary(response_data, question, True, summary) if question else None
-
             node_count = response_data['node_count']
             edge_count = response_data['edge_count'] if "edge_count" in response_data else 0
             node_count_by_label = response_data['node_count_by_label']
             edge_count_by_label = response_data['edge_count_by_label'] if "edge_count_by_label" in response_data else []
-            print("step 1 &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
             if annotation_id is not None:
-                annotation = {"query": query_code, "summary": summary, "node_count": node_count,
+                annotation = {"query": query_code, "summary": summary, "node_count": node_count, 
                               "edge_count": edge_count, "node_types": node_types, "node_count_by_label": node_count_by_label,
                               "edge_count_by_label": edge_count_by_label, "updated_at": datetime.datetime.now()}
                 storage_service.update(annotation_id, annotation)
             else:
-                print("step 2 &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
                 annotation = {"current_user_id": str(current_user_id), "query": query_code,
                               "question": question, "answer": answer,
                               "title": title, "summary": "", "node_count": node_count,
-                              "edge_count": edge_count, "node_types": node_types,
+                              "edge_count": edge_count, "node_types": node_types, 
                               "node_count_by_label": node_count_by_label, "edge_count_by_label": edge_count_by_label}
                 annotation_id = storage_service.save(annotation)
-                print("22___________________________")
         else:
             title, summary, annotation_id = '', '', ''
-        print("step 3 &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+
         if existing_query:
             title = existing_query.title
-            #summary = existing_query.summary
+            summary = existing_query.summary
             annotation_id = existing_query.id
             storage_service.update(annotation_id, {"updated_at": datetime.datetime.now()})
 
+        
         updated_data = storage_service.get_by_id(annotation_id)
-        print("step 5 &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+
         response_data["title"] = title
+        
         response_data["annotation_id"] = str(annotation_id)
         response_data["created_at"] = updated_data.created_at.isoformat()
         response_data["updated_at"] = updated_data.updated_at.isoformat()
-        response_data = {"nodes": response_data['nodes'], "edges": response_data['edges']}
 
         if question:
             response_data["question"] = question
@@ -224,15 +229,17 @@ def process_query(current_user_id):
         if answer:
             response_data["answer"] = answer
 
-        if source == 'ai-assistant':
+        if source=='ai-assistant':
             response = {"annotation_id": str(annotation_id), "question": question, "answer": answer}
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
-        print("step 6 &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+
+        # if limit:
+        #     response_data = limit_graph(response_data, limit)
+
         formatted_response = json.dumps(response_data, indent=4)
         logging.info(f"\n\n============== Query ==============\n\n{query_code}")
         return Response(formatted_response, mimetype='application/json')
-
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
