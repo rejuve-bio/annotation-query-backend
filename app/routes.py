@@ -16,6 +16,7 @@ import datetime
 from app.lib import convert_to_csv
 from app.lib import generate_file_path
 from app.lib import adjust_file_path
+from app.lib import Graph
 
 # Load environmental variables
 load_dotenv()
@@ -81,7 +82,7 @@ def process_query(current_user_id):
     if properties:
         properties = bool(strtobool(properties))
     else:
-        properties = False
+        properties = True
 
     if limit:
         try:
@@ -196,7 +197,10 @@ def process_query(current_user_id):
         # if limit:
         #     response_data = limit_graph(response_data, limit)
 
-        formatted_response = json.dumps(response_data, indent=4)
+        graph = Graph(response_data, requests)
+        grouped_graph = graph.group_graph()
+
+        formatted_response = json.dumps(grouped_graph, indent=4)
         logging.info(f"\n\n============== Query ==============\n\n{query_code}")
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
