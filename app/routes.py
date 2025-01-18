@@ -1,5 +1,6 @@
 from flask import copy_current_request_context, request, jsonify, Response, send_from_directory
- 
+from collections import defaultdict
+import uuid
 import re
 import logging
 import json
@@ -19,6 +20,7 @@ from app.lib import convert_to_csv
 from app.lib import generate_file_path
 from app.lib import adjust_file_path
 from flask_socketio import send,emit,join_room,leave_room
+import json
  
 # Load environmental variables
 load_dotenv()
@@ -232,18 +234,175 @@ def process_query(current_user_id):
         if source=='ai-assistant':
             response = {"annotation_id": str(annotation_id), "question": question, "answer": answer}
             formatted_response = json.dumps(response, indent=4)
+            print("hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh")
             return Response(formatted_response, mimetype='application/json')
 
         # if limit:
         #     response_data = limit_graph(response_data, limit)
-
+        requesut=request.get_json()
         formatted_response = json.dumps(response_data, indent=4)
+        final_graph=group_graph(formatted_response,requesut)
+        final_graph=json.dumps(final_graph)
+        print("final graph   _________________",type(final_graph))
+        
+        
         logging.info(f"\n\n============== Query ==============\n\n{query_code}")
-        return Response(formatted_response, mimetype='application/json')
+        return Response(final_graph, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
+def group_graph(result_graph,request):
+    # Minimum number of duplicate edges for grouping nodes together
+    MINIMUM_EDGES_TO_COLLAPSE = 2
+    result_graph = json.loads(result_graph)
+     
+    # Print the type of result_graph (should be <class 'dict'>)
+    # print(type(result_graph))  # Output: <class 'dict'>
 
+    # If you want to format it for display without changing its type:
+    formatted_result_graph = json.dumps(result_graph, indent=4)
+
+    # Print the formatted JSON (still str for display purposes)
+    # print(formatted_result_graph)
+
+    # Verify result_graph is still a dictionary
+    # print(type(result_graph))  # Output: <class 'dict'>
+    
+    edge_types = list(set(e['data']['edgeType'] for e in request['requests']['edges']))
+ 
+    # print("edge type ---------------------------------------",edge_types)
+    # For each edge type, determine the best grouping (source or target)
+    edge_groupings = []
+
+    
+ 
+    for edge_type in edge_types:
+        edges_of_type = [e for e in result_graph['edges'] if e['data']['label'] == edge_type]
+        source_groups = defaultdict(list)
+        target_groups = defaultdict(list)
+        
+        source_groups = defaultdict(list)
+        target_groups = defaultdict(list)
+        
+        for edge in edges_of_type:
+            source_groups[edge['data']['source']].append(edge)
+            target_groups[edge['data']['target']].append(edge)
+        
+        print("Source Groups:", source_groups)
+        print("Target Groups:", target_groups)
+
+        # Compare which grouping has fewer groups
+        grouped_by = "target" if len(target_groups) < len(source_groups) else "source"
+        groups = target_groups if grouped_by == "target" else source_groups
+
+        edge_groupings.append({
+            "count": len(edges_of_type),
+            "edgeType": edge_type,
+            "groupedBy": grouped_by,
+            "groups": groups
+        })
+          
+    edge_groupings.sort(
+        key=lambda g: g['count'] - len(g['groups']),
+        reverse=True
+    )
+    print("sorted edge grouping",edge_groupings)
+   
+    new_graph = {
+        "nodes": result_graph['nodes'][:],
+        "edges": result_graph['edges'][:]
+    }
+
+
+ 
+    for grouping in edge_groupings:
+        sorted_groups = sorted(grouping['groups'].items(), key=lambda g: len(g[1]), reverse=True)
+
+
+
+
+
+
+        node_count_by_label={}
+        for key, edges in sorted_groups:
+            print("key___________________________________))))))))))",key)
+            print("edge",edge)
+            if len(edges) < MINIMUM_EDGES_TO_COLLAPSE:
+                continue
+
+          
+            child_node_ids = [
+                edge['data']['source'] if grouping['groupedBy'] == "target" else edge['data']['target']
+                for edge in edges
+            ]
+            print("Child_node_id",child_node_ids)
+ 
+            child_nodes = [node for node in new_graph['nodes'] if node['data']['id'] in child_node_ids]
+            parents_of_child_nodes = list({node['data'].get('parent') for node in child_nodes})
+
+
+            counts = defaultdict(lambda: defaultdict(int))
+
+            for node in new_graph['nodes']:
+                # Safely get the type and parent from the node's data
+                node_type = node['data'].get('type', 'unknown')
+                parent = node['data'].get('parent', 'unknown')
+
+                # Increment the count for the specific type under the parent
+                counts[parent][node_type] += 1
+                
+
+            print("child nodes",child_nodes)
+            print("parent child nodes ",parents_of_child_nodes)
+        
+            if len(parents_of_child_nodes) > 1:
+                continue
+ 
+        
+            if parents_of_child_nodes[0]:
+                all_child_nodes_of_parent = [
+                    node for node in new_graph['nodes']
+                    if node['data'].get('parent') == parents_of_child_nodes[0]
+                ]
+                
+                if len(all_child_nodes_of_parent) == len(child_nodes):
+                    add_new_edge(new_graph, edges, grouping, parents_of_child_nodes[0])
+                    continue
+                print("all child of nodes",all_child_nodes_of_parent)
+             
+            parent_id = f"n{uuid.uuid4().hex}"
+            parent_node = {"data": {"id": parent_id, "type": "parent", "parent": parents_of_child_nodes[0]}}
+
+            new_graph['nodes'].append(parent_node)
+            for node in new_graph['nodes']:
+                if node['data']['id'] in child_node_ids:
+                    node['data']['parent'] = parent_id
+
+            add_new_edge(new_graph, edges, grouping, parent_id)
+         
+    print("new graph    ",new_graph)
+    return new_graph
+
+def add_new_edge(graph, edges, grouping, parent_id):
+    new_edge_id = f"e{uuid.uuid4().hex}"
+    new_edge = {
+        "data": {
+            **edges[0]['data'],
+            "id": new_edge_id,
+            grouping['groupedBy']: parent_id
+        }
+    }
+
+    graph['edges'] = [
+        edge for edge in graph['edges']
+        if not any(
+            edge['data']['label'] == e['data']['label'] and
+            edge['data']['source'] == e['data']['source'] and
+            edge['data']['target'] == e['data']['target']
+            for e in edges
+        )
+    ]
+    graph['edges'].append(new_edge)
 @app.route('/history', methods=['GET'])
 @token_required
 def process_user_history(current_user_id):

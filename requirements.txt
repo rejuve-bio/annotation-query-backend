@@ -21,3 +21,4 @@ gevent
 gevent-websocket
 flask-cors
 cors
+uuid
