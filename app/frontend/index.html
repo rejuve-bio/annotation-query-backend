@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Application</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .chat-container {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 400px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333333;
+        }
+
+        input, button {
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #dddddd;
+            font-size: 16px;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        #messages {
+            border: 1px solid #dddddd;
+            border-radius: 4px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+            background: #f9f9f9;
+        }
+
+        #messages div {
+            margin-bottom: 5px;
+            padding: 8px;
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .summary {
+            font-weight: bold;
+            color: #007bff;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <h1>Chat Application</h1>
+        <input type="text" id="username" placeholder="Enter your username">
+        <input type="text" id="room" placeholder="Enter room name">
+        <button id="join">Join Room</button>
+        <button id="leave">Leave Room</button>
+        <input type="text" id="message" placeholder="Type your message">
+        <button id="send">Send Message</button>
+        <div id="messages"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        const socket = io('http://127.0.0.1:5000');
+
+        // Join room
+        document.getElementById('join').onclick = function () {
+            const username = document.getElementById('username').value;
+            const room = document.getElementById('room').value;
+
+            if (username && room) {
+                socket.emit('join', { username, room });
+                alert(`You joined room: ${room}`);
+            } else {
+                alert('Please provide both username and room name.');
+            }
+        };
+
+        // Leave room
+        document.getElementById('leave').onclick = function () {
+            const username = document.getElementById('username').value;
+            const room = document.getElementById('room').value;
+
+            if (username && room) {
+                socket.emit('leave', { username, room });
+                alert(`You left room: ${room}`);
+            } else {
+                alert('Please provide both username and room name.');
+            }
+        };
+
+        // Send message
+        document.getElementById('send').onclick = function () {
+            const message = document.getElementById('message').value;
+            const room = document.getElementById('room').value;
+
+            if (message && room) {
+                socket.emit('message', { message, room });
+                document.getElementById('message').value = ''; // Clear input
+            } else {
+                alert('Please provide both a message and a room name.');
+            }
+        };
+
+        // Listen for incoming messages
+        socket.on('message', function (msg) {
+            const messagesDiv = document.getElementById('messages');
+            const messageElement = document.createElement('div');
+            messageElement.textContent = msg;
+            messagesDiv.appendChild(messageElement);
+        });
+
+        // Listen for the 'summary' event
+        socket.on('summary', function (data) {
+            const messagesDiv = document.getElementById('messages');
+            const summaryElement = document.createElement('div');
+            summaryElement.classList.add('summary');
+            summaryElement.textContent = `Summary for room: ${data.room} - ${data.summary}`;
+            messagesDiv.appendChild(summaryElement);
+        });
+    </script>
+</body>
+</html>

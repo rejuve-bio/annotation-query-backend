@@ -14,7 +14,7 @@ from db import mongo_init
 from flask_cors import CORS
 # Initialize Flask app
 app = Flask(__name__)
-
+#
 
 # Set secret key
 app.config['SECRET_KEY'] = 'secret'
