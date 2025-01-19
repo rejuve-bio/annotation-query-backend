@@ -25,9 +25,7 @@ import json
 # Load environmental variables
 load_dotenv()
 # Set the allowed origin for WebSocket connections
-@socketio.on('connect')
-def handle_message(auth):
-    emit('my responce',{'data':"Connected"})
+
  
 # set mongo loggin
 logging.getLogger('pymongo').setLevel(logging.CRITICAL)
@@ -93,6 +91,10 @@ def on_leave(data):
 @app.route('/query', methods=['POST'])
 @token_required
 def process_query(current_user_id):
+    @socketio.on('connect')
+    def handle_message(auth):
+        emit('my responce',{'data':"Connected"})
+    logging.info(f"\n\nWebSocket connected for query\n\n")
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
