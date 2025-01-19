@@ -295,6 +295,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             {return_clause}
         '''
 
+        # start building query for counting by label for both ndoe and edges
         label_clause = (
             'WITH DISTINCT ' +
             ' + '.join([f"labels({n})" for n in query_clauses['list_of_node_ids']]) +
