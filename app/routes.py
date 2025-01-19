@@ -81,7 +81,7 @@ def process_query(current_user_id):
     if properties:
         properties = bool(strtobool(properties))
     else:
-        properties = False
+        properties = True
 
     if limit:
         try:

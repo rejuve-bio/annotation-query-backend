@@ -60,19 +60,28 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         results = []
         if isinstance(query_code, list):
             find_query = query_code[0]
-            count_query = query_code[1]
+            total_count_query = query_code[1]
+            label_count_query = query_code[2]
         else:
             find_query = query_code
-            count_query = None
+            total_count_query = None
+            label_count_query = None
         
         with self.driver.session() as session:
             results.append(list(session.run(find_query)))
-        if count_query and source != 'hypotehesis':
-            try:
-                with self.driver.session() as session:
-                    results.append(list(session.run(count_query)))
-            except:
-                results.append([])
+        if source != 'hypotehesis':
+            if total_count_query:
+                try:
+                    with self.driver.session() as session:
+                        results.append(list(session.run(total_count_query)))
+                except:
+                    results.append([])
+            if label_count_query:
+                try:
+                    with self.driver.session() as session:
+                        results.append(list(session.run(label_count_query)))
+                except:
+                    results.append([])
                 return results
 
         return results
@@ -117,7 +126,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "predicates": predicates
                 }
             count = self.construct_count_clause(query_clauses)
-            cypher_queries.append(count)
+            cypher_queries.extend(count)
         else:
             for i, predicate in enumerate(predicates):
                 predicate_type = predicate['type'].replace(" ", "_").lower()
@@ -164,7 +173,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "predicates": predicates
                 }
                 count = self.construct_count_clause(query_clauses)
-                cypher_queries.append(count)
+                cypher_queries.extend(count)
             else:
                 query_clauses = {
                     "match_preds": match_preds, 
@@ -181,7 +190,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 cypher_queries.append(cypher_query)
 
                 count = self.construct_count_clause(query_clauses)
-                cypher_queries.append(count)
+                cypher_queries.extend(count)
         return cypher_queries
     
     def construct_clause(self, match_clause, return_clause, where_no_preds, limit):
@@ -233,6 +242,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         match_clause = ''
         where_clause = ''
         return_preds = []
+        collect_node_and_edge = ''
 
         # Construct clause for match with no predicates
         if 'match_no_preds' in query_clauses and query_clauses['match_no_preds']:
@@ -251,6 +261,39 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         if "return_preds" in query_clauses:
             return_preds = query_clauses['return_preds']
+
+        for node_ids in query_clauses['list_of_node_ids']:
+            collect_node_and_edge += f"COLLECT(DISTINCT {node_ids}) AS {node_ids}_count, "
+        
+        if "return_preds" in query_clauses:
+            for i, predicate in enumerate(query_clauses['predicates']):
+                collect_node_and_edge += f"COLLECT(DISTINCT r{i}) AS r{i}_count, "
+        collect_node_and_edge = f"WITH {collect_node_and_edge.rstrip(', ')}"
+
+
+        # Construct the WITH and UNWIND clauses
+        combined_nodes = ' + '.join([f"{var}_count" for var in query_clauses['list_of_node_ids']])
+        combined_edges = None
+        if 'return_preds' in query_clauses:
+            combined_edges = ' + '.join([f"{var}_count" for var in query_clauses['return_preds']])
+        with_clause = f"WITH {combined_nodes} AS combined_nodes {f',{combined_edges} AS combined_edges' if combined_edges else ''}"
+        unwind_clause = f"UNWIND combined_nodes AS nodes"
+
+        # Construct the RETURN clause
+        return_clause = f"RETURN COUNT(DISTINCT nodes) AS total_nodes {', SIZE(combined_edges) AS total_edges ' if combined_edges else ''}"
+
+
+        # build the query for total node and edge count
+        total_count = f'''
+            {match_no_clause}
+            {where_no_clause}
+            {match_clause}
+            {where_clause}
+            {collect_node_and_edge}
+            {with_clause}
+            {unwind_clause}
+            {return_clause}
+        '''
 
         label_clause = (
             'WITH DISTINCT ' +
@@ -291,11 +334,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             'WITH nodes_count_by_label, COLLECT(DISTINCT {relationship_type: relationship_type, count: edge_count}) AS edges_count_by_type'
             )
             return_clause = (
-            'RETURN nodes_count_by_label, edges_count_by_type, '
-            'REDUCE(total = 0, n IN nodes_count_by_label | total + n.count) AS total_nodes, '
-            'REDUCE(total_edges = 0, e IN edges_count_by_type | total_edges + e.count) AS total_edges'
+            'RETURN nodes_count_by_label, edges_count_by_type'
             )
-            query = f'''
+            label_count_query = f'''
             {match_no_clause}
             {where_no_clause}
             {match_clause}
@@ -316,10 +357,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         else:
             count_edge_by_label = 'WITH nodes_count_by_label'
             return_clause = (
-            'RETURN nodes_count_by_label, '
-            'REDUCE(total = 0, n IN nodes_count_by_label | total + n.count) AS total_nodes'
+            'RETURN nodes_count_by_label'
             )
-            query = f'''
+            label_count_query = f'''
             {match_no_clause}
             {where_no_clause}
             {match_clause}
@@ -336,7 +376,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             {return_clause}
             '''
 
-        return query
+        return [total_count, label_count_query]
 
 
     def limit_query(self, limit):
@@ -410,10 +450,16 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def process_result(self, results, all_properties):
         match_result = results[0]
+        node_count_by_label = []
+        edge_count_by_label = []
+        node_count = 0
+        edge_count = 0
+
+        if len(results) > 2:
+            node_and_edge_count = results[1]
         if len(results) > 1:
-            count_result = results[1]
-        else:
-            count_result = None
+            count_by_label = results[2]
+
         node_count = 0
         edge_count = 0
         node_count_by_label = []
@@ -486,12 +532,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         edge_to_dict[edge_data['data']['label']] = []
                     edge_to_dict[edge_data['data']['label']].append(edge_data)
 
-        if count_result:
-            for count_record in count_result:
-                node_count_by_label = count_record['nodes_count_by_label']
-                edge_count_by_label = count_record.get('edges_count_by_type', [])
-                node_count = count_record['total_nodes']
-                edge_count = count_record.get('total_edges', 0)
+        if node_and_edge_count:
+            for count_record in node_and_edge_count:
+                node_count += count_record.get('total_nodes', 0)
+                edge_count += count_record.get('total_edges', 0)
+
+        if count_by_label:
+            for count_record in count_by_label:
+                node_count_by_label.extend(count_record.get('nodes_count_by_label', []))
+                edge_count_by_label.extend(count_record.get('edges_count_by_type', []))
 
         meta_data = {
             "node_count": node_count,
