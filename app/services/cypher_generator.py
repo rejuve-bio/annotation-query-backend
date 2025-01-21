@@ -455,16 +455,14 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         edge_count_by_label = []
         node_count = 0
         edge_count = 0
+        node_and_edge_count = []
+        count_by_label = []
 
         if len(results) > 2:
             node_and_edge_count = results[1]
         if len(results) > 1:
             count_by_label = results[2]
 
-        node_count = 0
-        edge_count = 0
-        node_count_by_label = []
-        edge_count_by_label = []
         nodes = []
         edges = []
         node_dict = {}

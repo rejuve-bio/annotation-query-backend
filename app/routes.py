@@ -147,7 +147,7 @@ def process_query(current_user_id):
             else:
                 summary = llm.generate_summary(response_data) or 'Graph too big, could not summarize'
 
-            answer = llm.generate_summary(response_data, question, True, summary) if question else None
+            answer = llm.generate_summary(response_data, question, False, summary) if question else None
             node_count = response_data['node_count']
             edge_count = response_data['edge_count'] if "edge_count" in response_data else 0
             node_count_by_label = response_data['node_count_by_label']
@@ -395,7 +395,7 @@ def process_by_id(current_user_id, id):
         result = db_instance.run_query(query, source)
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
 
-        answer = llm.generate_summary(response_data, question, True, summary) if question else None
+        answer = llm.generate_summary(response_data, question, False, summary) if question else None
 
         storage_service.update(id, {"answer": answer, "updated_at": datetime.datetime.now()})
 
