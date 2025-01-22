@@ -115,8 +115,12 @@ class Graph:
                 # create the parent node
                 parent_id = "n" + generate(size=10).replace("-", "")
 
-                parent = {'data': {'id': parent_id, 'type': "parent", 
-                                 'parent': unique_parents[0] if unique_parents else None}}
+
+                if unique_parents:
+                    parent = {'data': {'id': parent_id, 'type': "parent", 'parent': unique_parents[0]}}
+                else:
+                    parent = {'data': {'id': parent_id, 'type': "parent"}}
+
                 # add the parent node to the graph and add "parent" propery to the child nodes
                 self.graph["nodes"] = [
                     parent,
