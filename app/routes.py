@@ -76,7 +76,7 @@ def process_query(current_user_id):
     
     limit = request.args.get('limit')
     properties = request.args.get('properties')
-    source = request.args.get('source') # can be either hypotehesis or ai_assistant
+    source = request.args.get('source') # can be either hypothesis or ai_assistant
     
     if properties:
         properties = bool(strtobool(properties))
@@ -129,7 +129,7 @@ def process_query(current_user_id):
         if isinstance(query_code, list):
             query_code = query_code[0]
 
-        if source == 'hypotehesis':
+        if source == 'hypothesis':
             response = {"nodes": response_data['nodes'], "edges": response_data['edges']}
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
@@ -262,7 +262,7 @@ def get_by_id(current_user_id, id):
 
     limit = request.args.get('limit')
     properties = request.args.get('properties')
-    source = request.args.get('source') # can be either hypotehesis or ai_assistant
+    source = request.args.get('source') # can be either hypothesis or ai_assistant
     
     if properties:
         properties = bool(strtobool(properties))
@@ -320,7 +320,7 @@ def get_by_id(current_user_id, id):
         result = db_instance.run_query(query, source)
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
 
-        if source == 'hypotehesis':
+        if source == 'hypothesis':
             response = {"nodes": response_data['nodes'], "edges": response_data['edges']}
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
@@ -357,7 +357,7 @@ def process_by_id(current_user_id, id):
 
     limit = request.args.get('limit')
     properties = request.args.get('properties')
-    source = request.args.get('source') # can be either hypotehesis or ai_assistant
+    source = request.args.get('source') # can be either hypothesis or ai_assistant
     
     if properties:
         properties = bool(strtobool(properties))
