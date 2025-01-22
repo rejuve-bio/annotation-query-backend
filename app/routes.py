@@ -153,12 +153,12 @@ def process_query(current_user_id):
             node_count_by_label = response_data['node_count_by_label']
             edge_count_by_label = response_data['edge_count_by_label'] if "edge_count_by_label" in response_data else []
             if annotation_id is not None:
-                annotation = {"query": query_code, "summary": summary, "node_count": node_count, 
+                annotation = {"request": requests, "query": query_code, "summary": summary, "node_count": node_count, 
                               "edge_count": edge_count, "node_types": node_types, "node_count_by_label": node_count_by_label,
                               "edge_count_by_label": edge_count_by_label, "updated_at": datetime.datetime.now()}
                 storage_service.update(annotation_id, annotation)
             else:
-                annotation = {"current_user_id": str(current_user_id), "query": query_code,
+                annotation = {"current_user_id": str(current_user_id), "request": requests, "query": query_code,
                               "question": question, "answer": answer,
                               "title": title, "summary": summary, "node_count": node_count,
                               "edge_count": edge_count, "node_types": node_types, 
@@ -244,6 +244,7 @@ def process_user_history(current_user_id):
     for document in cursor:
         return_value.append({
             'annotation_id': str(document['_id']),
+            "request": document['request'],
             'title': document['title'],
             'node_count': document['node_count'],
             'edge_count': document['edge_count'],
@@ -276,6 +277,7 @@ def get_by_id(current_user_id, id):
 
     if cursor is None:
         return jsonify('No value Found'), 200
+    json_request = cursor.request
     query = cursor.query
     title = cursor.title
     summary = cursor.summary
@@ -324,6 +326,7 @@ def get_by_id(current_user_id, id):
             return Response(formatted_response, mimetype='application/json')
         
         response_data["annotation_id"] = str(annotation_id)
+        response_data["request"] = json_request
         response_data["title"] = title
         response_data["summary"] = summary
         response_data["node_count"] = node_count
