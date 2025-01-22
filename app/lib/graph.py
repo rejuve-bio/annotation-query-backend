@@ -162,7 +162,6 @@ class Graph:
 
     def count_nodes(self):
         # count the number of nodes inside each paretn based on its label
-        self.count = {}
         for node in self.graph['nodes']:
             if ('parent' in node['data'] and 
                 node['data']['parent'] is not None and 
@@ -171,9 +170,15 @@ class Graph:
                 parent_id = node['data']['parent']
                 node_type = node['data']['type']
 
-                if parent_id not in self.count:
-                    self.count[parent_id] = {}
-                if node_type not in self.count[parent_id]:
-                    self.count[parent_id][node_type] = {}
-                    self.count[parent_id][node_type]['count'] = 0
-                self.count[parent_id][node_type]['count'] += 1
+
+                for to_count in self.graph['nodes']:
+                    if to_count['data']['id'] == parent_id:
+                        # count the nodes
+                        if 'name' in to_count['data']:
+                            count = int(to_count['data']['name'].split(" ")[0])
+                            label = to_count['data']['name'].split(" ")[1]
+                            count += 1
+                            to_count['data']['name'] = f"{count} {label}"
+                        else:
+                            count = 1
+                            to_count['data']['name'] = f"{count} {node_type}"
