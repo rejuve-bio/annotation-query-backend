@@ -632,7 +632,7 @@ go rna:
   represented_as: edge
   input_label: go_rna
   output_label: belongs_to
-  source: non coding rna
+  source: non_coding_rna
   target: go
 
 # ---
