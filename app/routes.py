@@ -110,7 +110,7 @@ def process_query(current_user_id):
         #convert id to appropriate format
         requests = db_instance.parse_id(requests)
         
-        node_only, run_count = (True, False) if source == 'hypothsis' else (False, True)
+        node_only, run_count = (True, False) if source == 'hypothesis' else (False, True)
 
         # Generate the query code
         query_code = db_instance.query_Generator(requests, node_map, limit, node_only)
