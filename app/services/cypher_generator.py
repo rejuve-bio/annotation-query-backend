@@ -86,7 +86,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         return results
 
-    def query_Generator(self, requests, node_map, limit=None):
+    def query_Generator(self, requests, node_map, limit=None, node_only=False):
         nodes = requests['nodes']
 
         if "predicates" in requests:
@@ -116,7 +116,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     where_no_preds.extend(self.where_construct(node, var_name))
                 return_no_preds.append(var_name)
                 list_of_node_ids.append(var_name)
-            cypher_query = self.construct_clause(match_no_preds, return_no_preds, where_no_preds, limit)
+            if node_only:
+                cypher_query = self.construct_optional_clause(match_no_preds, return_no_preds, where_no_preds, limit)
+            else:
+                cypher_query = self.construct_clause(match_no_preds, return_no_preds, where_no_preds, limit)
             cypher_queries.append(cypher_query)
             query_clauses = {
                     "match_no_preds": match_no_preds,
@@ -200,6 +203,18 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             where_clause = f"WHERE {' AND '.join(where_no_preds)}"
             return f"{match_clause} {where_clause} {return_clause} {self.limit_query(limit)}"
         return f"{match_clause} {return_clause} {self.limit_query(limit)}"
+    
+    def construct_optional_clause(self, match_clause, return_clause, where_no_preds, limit):
+        optional_clause = ""
+
+        for match in match_clause:
+            optional_clause += f"OPTIONAL MATCH {match} "
+
+        return_clause = f"RETURN {', '.join(return_clause)}"
+        if len(where_no_preds) > 0:
+            where_clause = f"WHERE {' AND '.join(where_no_preds)}"
+            return f"{optional_clause} {where_clause} {return_clause} {self.limit_query(limit)}"
+        return f"{optional_clause} {return_clause} {self.limit_query(limit)}"
 
     def construct_union_clause(self, query_clauses, limit):
         match_no_clause = ''
