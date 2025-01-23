@@ -134,7 +134,7 @@ class Graph:
                 self.add_new_edge(parent_id, edges, grouping['grouped_by'])
         
         self.count_nodes()
-        return {**self.graph, "entity_count_mapping": self.count}
+        return {**self.graph}
 
     def add_new_edge(self, parent_id, edges, grouped_by):
         # add a new edge of the same type that points to the group
