@@ -109,14 +109,14 @@ def process_query(current_user_id):
 
         #convert id to appropriate format
         requests = db_instance.parse_id(requests)
-
-        node_only = source == 'hypothesis'
+        
+        node_only, run_count = (True, False) if source == 'hypothesis' else (False, True)
 
         # Generate the query code
         query_code = db_instance.query_Generator(requests, node_map, limit, node_only)
         
         # Run the query and parse the results
-        result = db_instance.run_query(query_code, source)
+        result = db_instance.run_query(query_code, run_count)
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
 
         # Extract node types
@@ -288,6 +288,8 @@ def get_by_id(current_user_id, id):
     answer = cursor.answer
     node_count = cursor.node_count
     edge_count = cursor.edge_count
+    node_count_by_label = cursor.node_count_by_label
+    edge_count_by_label = cursor.edge_count_by_label
 
     limit = request.args.get('limit')
     properties = request.args.get('properties')
@@ -319,7 +321,7 @@ def get_by_id(current_user_id, id):
             return Response(formatted_response, mimetype='application/json')
         
         # Run the query and parse the results
-        result = db_instance.run_query(query, source)
+        result = db_instance.run_query(query, False)
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
 
         if source == 'hypothesis':
@@ -333,6 +335,8 @@ def get_by_id(current_user_id, id):
         response_data["summary"] = summary
         response_data["node_count"] = node_count
         response_data["edge_count"] = edge_count
+        response_data["node_count_by_label"] = node_count_by_label
+        response_data["edge_count_by_label"] = edge_count_by_label
 
         # if limit:
             # response_data = limit_graph(response_data, limit)

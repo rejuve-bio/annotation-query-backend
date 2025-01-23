@@ -56,7 +56,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         logger.info(f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code, source=None):
+    def run_query(self, query_code, run_count=True):
         results = []
         if isinstance(query_code, list):
             find_query = query_code[0]
@@ -69,7 +69,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         
         with self.driver.session() as session:
             results.append(list(session.run(find_query)))
-        if source != 'hypotehesis':
+        if run_count:
             if total_count_query:
                 try:
                     with self.driver.session() as session:
