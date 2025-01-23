@@ -5,7 +5,6 @@ class Graph:
     def __init__(self, graph, request):
         self.graph = graph
         self.request = request
-        self.count = {}
         # minimum number of duplicate edges for which we group nodes together
         self.MINIMUM_EDGES_TO_COLLAPSE = 2
     
@@ -134,7 +133,10 @@ class Graph:
                 self.add_new_edge(parent_id, edges, grouping['grouped_by'])
         
         self.count_nodes()
-        return {**self.graph}
+        result = {**self.graph}
+        self.graph = {}
+        self.request = {}
+        return result
 
     def add_new_edge(self, parent_id, edges, grouped_by):
         # add a new edge of the same type that points to the group
