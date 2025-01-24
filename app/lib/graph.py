@@ -2,17 +2,18 @@ from itertools import groupby
 from nanoid import generate
 
 class Graph:
-    def __init__(self, graph, request):
+    def __init__(self, graph, request, node_map):
         self.graph = graph
         self.request = request
+        self.node_map = node_map
         # minimum number of duplicate edges for which we group nodes together
         self.MINIMUM_EDGES_TO_COLLAPSE = 2
     
     def group_graph(self):
         
         # get all the unique edge types specified in the query
-        edge_types = set(edge['type'] for edge in self.request['predicates'])
-
+        edge_types = set(f'{self.node_map[edge["source"]]["type"]}_{edge["type"].replace(" ", "_")}_{self.node_map[edge["target"]]["type"]}' for edge in self.request['predicates'])
+        print("Edge Types: ", edge_types)
         edge_grouping = []
 
         '''
@@ -21,7 +22,7 @@ class Graph:
         '''
         for edge_type in edge_types:
             # find all edges of that type
-            edge_of_types = [edge for edge in self.graph['edges'] if edge['data']['label'] == edge_type.replace(" ", "_")]
+            edge_of_types = [edge for edge in self.graph['edges'] if edge['data']['edge_id'] == edge_type]
 
             # we need to sort it based on source for the grouping with source to work
             edge_of_types.sort(key=lambda e: e['data']['source'])
@@ -136,6 +137,7 @@ class Graph:
         result = {**self.graph}
         self.graph = {}
         self.request = {}
+        self.node_map = {}
         return result
 
     def add_new_edge(self, parent_id, edges, grouped_by):

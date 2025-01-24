@@ -197,7 +197,7 @@ def process_query(current_user_id):
         # if limit:
         #     response_data = limit_graph(response_data, limit)
 
-        graph = Graph(response_data, requests)
+        graph = Graph(response_data, requests, node_map)
         grouped_graph = graph.group_graph()
 
         formatted_response = json.dumps(grouped_graph, indent=4)
