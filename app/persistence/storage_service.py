@@ -7,6 +7,7 @@ class StorageService():
     def save(self, annotation):
         data = Storage(
             user_id=annotation["current_user_id"],
+            request=annotation["request"],
             query=annotation["query"],
             title=annotation["title"],
             summary=annotation["summary"],

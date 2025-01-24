@@ -13,7 +13,6 @@ class Graph:
         
         # get all the unique edge types specified in the query
         edge_types = set(f'{self.node_map[edge["source"]]["type"]}_{edge["type"].replace(" ", "_")}_{self.node_map[edge["target"]]["type"]}' for edge in self.request['predicates'])
-        print("Edge Types: ", edge_types)
         edge_grouping = []
 
         '''
@@ -182,7 +181,7 @@ class Graph:
                             count = int(to_count['data']['name'].split(" ")[0])
                             label = to_count['data']['name'].split(" ")[1]
                             count += 1
-                            to_count['data']['name'] = f"{count} {label}"
+                            to_count['data']['name'] = f"{count} {label} nodes"
                         else:
                             count = 1
-                            to_count['data']['name'] = f"{count} {node_type}"
+                            to_count['data']['name'] = f"{count} {node_type} nodes"

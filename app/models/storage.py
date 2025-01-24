@@ -21,6 +21,7 @@ class Storage(Schema):
                 "type": Types.String,
                 "required": True,
             },
+            "request": any,
             "query": {
                 "type": Types.String,
                 "required": True,
