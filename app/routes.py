@@ -109,10 +109,10 @@ def process_query():
 
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
 
-        total_nodes = response_data["meta_data"]["node_count"]
+        row_count = response_data["meta_data"]["row_count"]
         response_data["meta_data"]["page"] = int(page)
         response_data["meta_data"]["items_per_page"] = int(take)
-        response_data["meta_data"]["max_page"] = math.ceil(total_nodes / int(take))
+        response_data["meta_data"]["max_page"] = math.ceil(row_count / int(take))
         
         #if limit:
             #response_data = limit_graph(response_data, limit)
