@@ -288,7 +288,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             unwind_relationships = 'UNWIND relationships AS rel'
             count_edge_by_label = (
             'WITH nodes_count_by_label, TYPE(rel) AS relationship_type, COUNT(rel) AS edge_count '
-            'WITH nodes_count_by_label, COLLECT(DISTINCT {relationship_type: relationship_type, count: edge_count}) AS edges_count_by_type'
+            'WITH nodes_count_by_label, COLLECT(DISTINCT {label: relationship_type, count: edge_count}) AS edges_count_by_type'
             )
             return_clause = (
             'RETURN nodes_count_by_label, edges_count_by_type, '
