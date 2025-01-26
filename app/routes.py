@@ -119,10 +119,11 @@ def process_query(current_user_id):
 
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
 
+
         if len(response_data['nodes']) == 0:
             response = jsonify({"error": "No data found for the query"})
             response = Response(response.response, status=404)
-            response.status = "No matching results for the query"
+            response.status = "404 No matching results for the query"
             return response
 
         # Extract node types
