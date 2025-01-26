@@ -116,7 +116,11 @@ def process_query(current_user_id):
         
         # Run the query and parse the results
         result = db_instance.run_query(query_code, source)
+
         response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+
+        if len(response_data['nodes']) == 0:
+            return jsonify({"error": "No data found for the query"}), 404
 
         # Extract node types
         nodes = requests['nodes']
