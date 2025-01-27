@@ -45,10 +45,18 @@ class SchemaManager:
             label = ' '.join(label_list)
             if label in self.parent_nodes or label in self.parent_edges:
                 continue
-            if value.get('represented_as') == 'node' or value.get('is_a') == 'annotation':
+            if value.get('represented_as') == 'node':
                 continue
+
+            if 'source' not in value or 'target' not in value:
+                continue
+
             source = value.get('source')
             target = value.get('target')
+
+            if source == "ontology term" or target == "ontology term":
+                continue
+
             labels = value.get('output_label') or value.get('input_label')
 
             if isinstance(source, list) and label_list[0] in source:

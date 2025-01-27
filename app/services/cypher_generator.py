@@ -56,32 +56,44 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         logger.info(f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code, source=None):
+    def run_query(self, query_code, run_count=True):
         results = []
         if isinstance(query_code, list):
             find_query = query_code[0]
-            count_query = query_code[1]
+            total_count_query = query_code[1]
+            label_count_query = query_code[2]
         else:
             find_query = query_code
-            count_query = None
+            total_count_query = None
+            label_count_query = None
         
         with self.driver.session() as session:
             results.append(list(session.run(find_query)))
-        if count_query and source != 'hypotehesis':
-            try:
-                with self.driver.session() as session:
-                    results.append(list(session.run(count_query)))
-            except:
-                results.append([])
+        if run_count:
+            if total_count_query:
+                try:
+                    with self.driver.session() as session:
+                        results.append(list(session.run(total_count_query)))
+                except:
+                    results.append([])
+            if label_count_query:
+                try:
+                    with self.driver.session() as session:
+                        results.append(list(session.run(label_count_query)))
+                except:
+                    results.append([])
                 return results
 
         return results
 
-    def query_Generator(self, requests, node_map, limit=None):
+    def query_Generator(self, requests, node_map, limit=None, node_only=False):
         nodes = requests['nodes']
+        predicate_map = {}
 
         if "predicates" in requests:
             predicates = requests["predicates"]
+            for predicate in predicates:
+                predicate_map[predicate['predicate_id']] = predicate
         else:
             predicates = None
 
@@ -101,13 +113,16 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             list_of_node_ids = []
             # Case when there are no predicates
             for node in nodes:
-                var_name = f"n_{node['node_id']}"
+                var_name = f"{node['node_id']}"
                 match_no_preds.append(self.match_node(node, var_name))
                 if node['properties']:
                     where_no_preds.extend(self.where_construct(node, var_name))
                 return_no_preds.append(var_name)
                 list_of_node_ids.append(var_name)
-            cypher_query = self.construct_clause(match_no_preds, return_no_preds, where_no_preds, limit)
+            if node_only:
+                cypher_query = self.construct_optional_clause(match_no_preds, return_no_preds, where_no_preds, limit)
+            else:
+                cypher_query = self.construct_clause(match_no_preds, return_no_preds, where_no_preds, limit)
             cypher_queries.append(cypher_query)
             query_clauses = {
                     "match_no_preds": match_no_preds,
@@ -116,10 +131,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "list_of_node_ids": list_of_node_ids,
                     "predicates": predicates
                 }
-            count = self.construct_count_clause(query_clauses)
-            cypher_queries.append(count)
+            count = self.construct_count_clause(query_clauses, node_map, predicate_map)
+            cypher_queries.extend(count)
         else:
-            for i, predicate in enumerate(predicates):
+            for predicate in predicates:
+                predicate_id = predicate['predicate_id']
                 predicate_type = predicate['type'].replace(" ", "_").lower()
                 source_node = node_map[predicate['source']]
                 target_node = node_map[predicate['target']]
@@ -132,8 +148,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 target_match = self.match_node(target_node, target_var)
                 where_preds.extend(self.where_construct(target_node, target_var))
 
-                match_preds.append(f"({source_var})-[r{i}:{predicate_type}]->{target_match}")
-                return_preds.append(f"r{i}")
+                match_preds.append(f"({source_var})-[{predicate_id}:{predicate_type}]->{target_match}")
+                return_preds.append(predicate_id)
 
                 used_nodes.add(predicate['source'])
                 used_nodes.add(predicate['target'])
@@ -142,7 +158,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
             for node_id, node in node_map.items():
                 if node_id not in used_nodes:
-                    var_name = f"n_{node_id}"
+                    var_name = f"{node_id}"
                     match_no_preds.append(self.match_node(node, var_name))
                     where_no_preds.extend(self.where_construct(node, var_name))
                     return_no_preds.append(var_name)
@@ -163,8 +179,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     "return_preds": return_preds,
                     "predicates": predicates
                 }
-                count = self.construct_count_clause(query_clauses)
-                cypher_queries.append(count)
+                count = self.construct_count_clause(query_clauses, node_map, predicate_map)
+                cypher_queries.extend(count)
             else:
                 query_clauses = {
                     "match_preds": match_preds, 
@@ -180,8 +196,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 cypher_query = self.construct_union_clause(query_clauses, limit)
                 cypher_queries.append(cypher_query)
 
-                count = self.construct_count_clause(query_clauses)
-                cypher_queries.append(count)
+                count = self.construct_count_clause(query_clauses, node_map, predicate_map)
+                cypher_queries.extend(count)
         return cypher_queries
     
     def construct_clause(self, match_clause, return_clause, where_no_preds, limit):
@@ -191,6 +207,18 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             where_clause = f"WHERE {' AND '.join(where_no_preds)}"
             return f"{match_clause} {where_clause} {return_clause} {self.limit_query(limit)}"
         return f"{match_clause} {return_clause} {self.limit_query(limit)}"
+    
+    def construct_optional_clause(self, match_clause, return_clause, where_no_preds, limit):
+        optional_clause = ""
+
+        for match in match_clause:
+            optional_clause += f"OPTIONAL MATCH {match} "
+
+        return_clause = f"RETURN {', '.join(return_clause)}"
+        if len(where_no_preds) > 0:
+            where_clause = f"WHERE {' AND '.join(where_no_preds)}"
+            return f"{optional_clause} {where_clause} {return_clause} {self.limit_query(limit)}"
+        return f"{optional_clause} {return_clause} {self.limit_query(limit)}"
 
     def construct_union_clause(self, query_clauses, limit):
         match_no_clause = ''
@@ -227,12 +255,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         query = self.construct_call_clause(clauses, limit)
         return query
 
-    def construct_count_clause(self, query_clauses):
+    def construct_count_clause(self, query_clauses, node_map, predicate_map):
         match_no_clause = ''
         where_no_clause = ''
         match_clause = ''
         where_clause = ''
         return_preds = []
+        collect_node_and_edge = ''
 
         # Construct clause for match with no predicates
         if 'match_no_preds' in query_clauses and query_clauses['match_no_preds']:
@@ -252,91 +281,60 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         if "return_preds" in query_clauses:
             return_preds = query_clauses['return_preds']
 
-        label_clause = (
-            'WITH DISTINCT ' +
-            ' + '.join([f"labels({n})" for n in query_clauses['list_of_node_ids']]) +
-            ' AS all_labels'
-        )
+        for node_ids in query_clauses['list_of_node_ids']:
+            collect_node_and_edge += f"COLLECT(DISTINCT {node_ids}) AS {node_ids}_count, "
+        
+        if "return_preds" in query_clauses:
+            for predicate in query_clauses['predicates']:
+                predicate_id = predicate['predicate_id']
+                collect_node_and_edge += f"COLLECT(DISTINCT {predicate_id}) AS {predicate_id}_count, "
+        collect_node_and_edge = f"WITH {collect_node_and_edge.rstrip(', ')}"
 
-        if not return_preds:
-            label_clause += ', ' + ', '.join(query_clauses['list_of_node_ids'])
-        else:
-            label_clause += ', ' + ', '.join(return_preds)
 
-        unwind_label_clause = 'UNWIND all_labels AS label'
+        # Construct the WITH and UNWIND clauses
+        combined_nodes = ' + '.join([f"{var}_count" for var in query_clauses['list_of_node_ids']])
+        combined_edges = None
+        if 'return_preds' in query_clauses:
+            combined_edges = ' + '.join([f"{var}_count" for var in query_clauses['return_preds']])
+        with_clause = f"WITH {combined_nodes} AS combined_nodes {f',{combined_edges} AS combined_edges' if combined_edges else ''}"
+        unwind_clause = f"UNWIND combined_nodes AS nodes"
 
-        count_clause = []
-        if return_preds:
-            for index, predicate in enumerate(query_clauses['predicates']):
-                count_clause.append(f'WHEN label IN labels(startNode(r{index})) THEN startNode(r{index})')
-                count_clause.append(f'WHEN label IN labels(endNode(r{index})) THEN endNode(r{index})')
-        else:
-            for node_id in query_clauses['list_of_node_ids']:
-                count_clause.append(f'WHEN label IN labels({node_id}) THEN {node_id}')
+        # Construct the RETURN clause
+        return_clause = f"RETURN COUNT(DISTINCT nodes) AS total_nodes {', SIZE(combined_edges) AS total_edges ' if combined_edges else ''}"
 
-        count_clause = ' '.join(count_clause)
-        count_clause = f'WITH label, count(DISTINCT CASE {count_clause} ELSE null END) AS node_count'
 
-        node_count_by_label = 'WITH COLLECT({label: label, count: node_count}) AS nodes_count_by_label'
-
-        if return_preds:
-            count_relationships = (
-            'WITH nodes_count_by_label, ' +
-            ' + '.join([f'COLLECT(DISTINCT r{i})' for i in range(len(query_clauses['predicates']))]) +
-            ' AS relationships'
-            )
-            unwind_relationships = 'UNWIND relationships AS rel'
-            count_edge_by_label = (
-            'WITH nodes_count_by_label, TYPE(rel) AS relationship_type, COUNT(rel) AS edge_count '
-            'WITH nodes_count_by_label, COLLECT(DISTINCT {label: relationship_type, count: edge_count}) AS edges_count_by_type'
-            )
-            return_clause = (
-            'RETURN nodes_count_by_label, edges_count_by_type, '
-            'REDUCE(total = 0, n IN nodes_count_by_label | total + n.count) AS total_nodes, '
-            'REDUCE(total_edges = 0, e IN edges_count_by_type | total_edges + e.count) AS total_edges'
-            )
-            query = f'''
+        # build the query for total node and edge count
+        total_count = f'''
             {match_no_clause}
             {where_no_clause}
             {match_clause}
             {where_clause}
-            {label_clause}
-            {unwind_label_clause}
-            {count_clause}
-            {node_count_by_label}
-            {match_no_clause}
-            {where_no_clause}
-            {match_clause}
-            {where_clause}
-            {count_relationships}
-            {unwind_relationships}
-            {count_edge_by_label}
+            {collect_node_and_edge}
+            {with_clause}
+            {unwind_clause}
             {return_clause}
-            '''
-        else:
-            count_edge_by_label = 'WITH nodes_count_by_label'
-            return_clause = (
-            'RETURN nodes_count_by_label, '
-            'REDUCE(total = 0, n IN nodes_count_by_label | total + n.count) AS total_nodes'
-            )
-            query = f'''
-            {match_no_clause}
-            {where_no_clause}
-            {match_clause}
-            {where_clause}
-            {label_clause}
-            {unwind_label_clause}
-            {count_clause}
-            {node_count_by_label}
-            {match_no_clause}
-            {where_no_clause}
-            {match_clause}
-            {where_clause}
-            {count_edge_by_label}
-            {return_clause}
-            '''
+        '''
 
-        return query
+        # start building query for counting by label for both ndoe and edges
+
+        if return_preds:
+        # count query
+            count_clause = ''
+            for node in query_clauses['list_of_node_ids']:
+                count_clause += f"COUNT(DISTINCT {node}) AS {node}_{node_map[node]['type']}, "
+            for edge in query_clauses['predicates']:
+                edge_id = edge['predicate_id']
+                count_clause += f"COUNT(DISTINCT {edge_id}) AS {edge_id}_{predicate_map[edge_id]['type'].replace(' ', '_')}, "
+            return_clause = "RETURN " + count_clause.rstrip(', ')
+            label_count_query = f'''{match_no_clause} {where_no_clause} {match_clause} {where_clause} {return_clause}'''
+        else:
+            count_clause = ''
+            for node in query_clauses['list_of_node_ids']:
+                count_clause += f"COUNT(DISTINCT {node}) AS {node}_{node_map[node]['type']}, "
+            return_clause = "RETURN " + count_clause.rstrip(', ')
+            label_count_query = f'''{match_no_clause} {where_no_clause} {return_clause}'''
+
+        return [total_count, label_count_query]
 
 
     def limit_query(self, limit):
@@ -393,31 +391,36 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             properties.append(f"{var_name}.{key} =~ '(?i){property}'")
         return properties
 
-    def parse_neo4j_results(self, results, all_properties):
-        (nodes, edges, _, _, meta_data) = self.process_result(results, all_properties)
+    def parse_neo4j_results(self, results, graph_components):
+        (nodes, edges, _, _, meta_data) = self.process_result(results, graph_components)
         return {"nodes": nodes, "edges": edges, "node_count": meta_data['node_count'], 
                 "edge_count": meta_data['edge_count'], "node_count_by_label": meta_data['node_count_by_label'], 
                 "edge_count_by_label": meta_data['edge_count_by_label']
                 }
 
-    def parse_and_serialize(self, input, schema, all_properties):
-        parsed_result = self.parse_neo4j_results(input, all_properties)
+    def parse_and_serialize(self, input, schema, graph_components):
+        parsed_result = self.parse_neo4j_results(input, graph_components)
         return parsed_result
 
-    def convert_to_dict(self, results, schema):
-        (_, _, node_dict, edge_dict, _) = self.process_result(results, True)
+    def convert_to_dict(self, results, schema, graph_components):
+        graph_components['properties'] = True
+        (_, _, node_dict, edge_dict, _) = self.process_result(results, graph_components)
         return (node_dict, edge_dict)
 
-    def process_result(self, results, all_properties):
+    def process_result(self, results,graph_components):
         match_result = results[0]
-        if len(results) > 1:
-            count_result = results[1]
-        else:
-            count_result = None
-        node_count = 0
-        edge_count = 0
         node_count_by_label = []
         edge_count_by_label = []
+        node_count = 0
+        edge_count = 0
+        node_and_edge_count = []
+        count_by_label = []
+
+        if len(results) > 2:
+            node_and_edge_count = results[1]
+        if len(results) > 1:
+            count_by_label = results[2]
+
         nodes = []
         edges = []
         node_dict = {}
@@ -442,7 +445,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         }
 
                         for key, value in item.items():
-                            if all_properties:
+                            if graph_components['properties']:
                                 if key != "id" and key != "synonyms":
                                     node_data["data"][key] = value
                             else:
@@ -486,12 +489,44 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         edge_to_dict[edge_data['data']['label']] = []
                     edge_to_dict[edge_data['data']['label']].append(edge_data)
 
-        if count_result:
-            for count_record in count_result:
-                node_count_by_label = count_record['nodes_count_by_label']
-                edge_count_by_label = count_record.get('edges_count_by_type', [])
-                node_count = count_record['total_nodes']
-                edge_count = count_record.get('total_edges', 0)
+        if node_and_edge_count:
+            for count_record in node_and_edge_count:
+                node_count += count_record.get('total_nodes', 0)
+                edge_count += count_record.get('total_edges', 0)
+
+        if count_by_label:
+            # build edge type set
+            node_count_aggregate = {}
+            ege_count_aggregate = {}
+
+            # initialize node count aggreate dictionary where the key is the label.
+            for node in graph_components['nodes']:
+                node_type = node['type']
+                node_count_aggregate[node_type] = {'count': 0}
+
+            # initialize edge count aggreate dictionary where the key is the label.
+            for predicate in graph_components['predicates']:
+                edge_type = predicate['type'].replace(" ", "_").lower()
+                ege_count_aggregate[edge_type] = {'count': 0}
+
+            for count_record in count_by_label:
+                # update node count aggregate dictionary with the count of each label
+                for key, value in count_record.items():
+                    node_type_key = '_'.join(key.split('_')[1:])
+                    if node_type_key in node_count_aggregate:
+                        node_count_aggregate[node_type_key]['count'] += value
+
+                # update edge count aggregate dictionary with the count of each label
+                for key, value in count_record.items():
+                    edge_type_key = '_'.join(key.split('_')[1:])
+                    if edge_type_key in ege_count_aggregate:
+                        ege_count_aggregate[edge_type_key]['count'] += value
+
+                # update the way node count by label and edge count by label are represented
+                for key, value in node_count_aggregate.items():
+                    node_count_by_label.append({'label': key, 'count': value['count']})
+                for key, value in ege_count_aggregate.items(): 
+                    edge_count_by_label.append({'label': key, 'count': value['count']})
 
         meta_data = {
             "node_count": node_count,
