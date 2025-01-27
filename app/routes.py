@@ -335,7 +335,10 @@ def get_by_id(current_user_id, id):
         
         # Run the query and parse the results
         result = db_instance.run_query(query, False)
-        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+        graph_components = {"nodes": json_request['nodes'], "predicates": 
+                            json_request['predicates'], "properties": properties}
+        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, graph_components)
+        print("HERE")
 
         if source == 'hypothesis':
             response = {"nodes": response_data['nodes'], "edges": response_data['edges']}
