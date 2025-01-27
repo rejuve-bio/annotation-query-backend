@@ -350,9 +350,20 @@ def get_by_id(current_user_id, id):
 
         # if limit:
             # response_data = limit_graph(response_data, limit)
-
-        formatted_response = json.dumps(response_data, indent=4)
-        return Response(formatted_response, mimetype='application/json')
+        if source != 'ai-assistant' or source != 'hypothesis':
+            node_map = {}
+            for node in response_data['request']['nodes']:
+                if node['node_id'] not in node_map:
+                    node_map[node['node_id']] = node
+                else:
+                    raise Exception('Repeated Node_id')
+            graph = Graph(response_data, response_data['request'], node_map)
+            grouped_graph = graph.group_graph()
+            formatted_response = json.dumps(grouped_graph, indent=4)
+            return Response(formatted_response, mimetype='application/json')
+        else:
+            formatted_response = json.dumps(response_data, indent=4)
+            return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
