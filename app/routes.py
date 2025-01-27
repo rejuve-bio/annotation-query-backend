@@ -117,7 +117,9 @@ def process_query(current_user_id):
         
         # Run the query and parse the results
         result = db_instance.run_query(query_code, run_count)
-        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+        graph_components = {"nodes": requests['nodes'], "predicates": 
+                            requests['predicates'], "properties": properties}
+        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, graph_components)
 
         # Extract node types
         nodes = requests['nodes']
