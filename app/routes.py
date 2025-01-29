@@ -165,7 +165,7 @@ def process_query(current_user_id):
             node_count_by_label = response_data['node_count_by_label']
             edge_count_by_label = response_data['edge_count_by_label'] if "edge_count_by_label" in response_data else []
             if annotation_id is not None:
-                annotation = {"request": requests, "query": query_code, "summary": summary, "node_count": node_count, 
+                annotation = {"request": requests, "query": query_code, "title": title ,"summary": summary, "node_count": node_count, 
                               "edge_count": edge_count, "node_types": node_types, "node_count_by_label": node_count_by_label,
                               "edge_count_by_label": edge_count_by_label, "updated_at": datetime.datetime.now()}
                 storage_service.update(annotation_id, annotation)
