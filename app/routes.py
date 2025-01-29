@@ -157,9 +157,9 @@ def process_query(current_user_id):
             if not response_data.get('nodes') and not response_data.get('edges'):
                 summary = 'No data found for the query'
             else:
-                summary = llm.generate_summary(response_data) or 'Graph too big, could not summarize'
+                summary = llm.generate_summary(response_data, request) or 'Graph too big, could not summarize'
 
-            answer = llm.generate_summary(response_data, question, False, summary) if question else None
+            answer = llm.generate_summary(response_data, request, question, False, summary) if question else None
             node_count = response_data['node_count']
             edge_count = response_data['edge_count'] if "edge_count" in response_data else 0
             node_count_by_label = response_data['node_count_by_label']
