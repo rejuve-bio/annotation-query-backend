@@ -8,6 +8,12 @@ class Graph:
         self.node_map = node_map
         # minimum number of duplicate edges for which we group nodes together
         self.MINIMUM_EDGES_TO_COLLAPSE = 2
+
+    def reset(self):
+        """ Reset instance variables to None or empty values. this is due to flask route context"""
+        self.graph = None
+        self.request = None
+        self.node_map = None
     
     def group_graph(self):
         
@@ -133,11 +139,7 @@ class Graph:
                 self.add_new_edge(parent_id, edges, grouping['grouped_by'])
         
         self.count_nodes()
-        result = {**self.graph}
-        self.graph = {}
-        self.request = {}
-        self.node_map = {}
-        return result
+        return self.graph
 
     def add_new_edge(self, parent_id, edges, grouped_by):
         # add a new edge of the same type that points to the group
