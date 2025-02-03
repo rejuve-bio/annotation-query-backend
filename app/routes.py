@@ -272,14 +272,14 @@ def group_graph(result_graph, request):
     # Get all unique edge types
     edge_types = list(set(edge["type"] for edge in request['requests']["predicates"]))
 
-    print("step2 _________________________________________")
+ 
     # Group edges by source or target for each edge type
     edge_groupings = []
     for edge_type in edge_types:
         # Filter edges of this type
         
         edges_of_type = [edge for edge  in Edge if edge["data"]["label"] == edge_type]
-        print("step3 _________________________________________")
+        
         # Group by source and target
         source_groups = defaultdict(list)
         target_groups = defaultdict(list)
@@ -290,7 +290,7 @@ def group_graph(result_graph, request):
         # Choose grouping with fewer groups
         grouped_by = "source" if len(source_groups) <= len(target_groups) else "target"
         groups = source_groups if grouped_by == "source" else target_groups
-        print("step4 _________________________________________")
+         
         # Save grouping info
         edge_groupings.append({
             "count": len(edges_of_type),
@@ -301,7 +301,7 @@ def group_graph(result_graph, request):
 
     # Sort edge groupings to process the most impactful ones first
     edge_groupings.sort(key=lambda g: g["count"] - len(g["groups"]), reverse=True)
-    print("step 5_________________________________________")
+     
     # Process each edge grouping to modify the graph
     new_graph = result_graph.copy()
     for grouping in edge_groupings:
@@ -309,7 +309,7 @@ def group_graph(result_graph, request):
         for key, edges in sorted_groups:
             if len(edges) < MINIMUM_EDGES_TO_COLLAPSE:
                 continue
-            print("step6 _________________________________________")
+             
             # Get IDs of nodes to be grouped
             child_node_ids = [
                 edge["data"]["source"] if grouping["groupedBy"] == "target" else edge["data"]["target"]
@@ -333,7 +333,7 @@ def group_graph(result_graph, request):
                 if len(all_child_nodes) == len(child_nodes):
                     add_new_edge(new_graph, edges[0], parent_id, grouping["groupedBy"])
                     continue
-            print("step7 _________________________________________")
+             
             # Create a new parent node
             parent_id = f"n{uuid.uuid4().hex[:8]}"
             parent_node = {"data": {"id": parent_id, "type": "parent"}}
@@ -346,8 +346,7 @@ def group_graph(result_graph, request):
 
             # Add a new edge pointing to the parent node
             add_new_edge(new_graph, edges[0], parent_id, grouping["groupedBy"])
-            print("step8 _________________________________________")
-    print("new_graph",new_graph)
+             
     # Step 6: Count types for each parent
     parent_counts = defaultdict(lambda: defaultdict(int))
 
