@@ -348,6 +348,29 @@ def group_graph(result_graph, request):
             add_new_edge(new_graph, edges[0], parent_id, grouping["groupedBy"])
             print("step8 _________________________________________")
     print("new_graph",new_graph)
+    # Step 6: Count types for each parent
+    parent_counts = defaultdict(lambda: defaultdict(int))
+
+    # Iterate through all nodes to check for parent nodes and count based on types
+    for node in new_graph["nodes"]:
+        # Check if the node is a parent node
+        if node["data"].get("type") == "parent":
+            parent_id = node["data"].get("id")  # Get parent ID
+            if parent_id:
+                # Now iterate through all nodes to check the parent and count based on type
+                for child_node in new_graph["nodes"]:
+                    if child_node["data"].get("parent") == parent_id:
+                        node_type = child_node["data"].get("type")
+                        # Increment count based on the node type
+                        if node_type:  # Check if the type exists
+                            parent_counts[parent_id][node_type] += 1
+
+    # Step 7: Update the parent nodes with the counts for each type (promoter, gene, etc.)
+    for parent_id, counts in parent_counts.items():
+        for node in new_graph["nodes"]:
+            if node["data"].get("id") == parent_id:
+                node["data"].update(counts)  # Update the parent node with the counts
+                break
     return new_graph
 
 
@@ -574,3 +597,6 @@ def update_title(current_user_id, id):
     except Exception as e:
         logging.error(f"Error updating title: {e}")
         return jsonify({"error": str(e)}), 500
+    
+ 
+ 
