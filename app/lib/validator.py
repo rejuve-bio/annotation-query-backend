@@ -1,3 +1,5 @@
+import networkx as nx
+
 def validate_request(request, schema):
     if 'nodes' not in request:
         raise Exception("node is missing")
@@ -72,4 +74,32 @@ def validate_request(request, schema):
             predicate_type = f'{source_type}_{predicate_type}_{target_type}'
             if predicate_type not in schema:
                 raise Exception(f"Invalid source and target for the predicate {predicate['type']}")
+
+    if check_disconnected_graph(request):
+        raise Exception("Disconnected subgraph found")
+        
     return node_map
+
+def check_disconnected_graph(request):
+    # create a networkx graph
+    nodes = request['nodes']
+    edges = request['predicates']
+
+    G = nx.Graph()
+    
+    # create the nodes
+    for node in nodes:
+        G.add_node(node["node_id"])
+    
+    # create the edges
+    for edge in edges:
+        G.add_edge(edge["source"], edge["target"])
+    
+    # identify subgraphs
+    connected_components = list(nx.connected_components(G))
+
+    if len(connected_components) > 1:
+        return True
+
+    return False
+
