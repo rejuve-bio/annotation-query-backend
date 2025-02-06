@@ -57,7 +57,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         logger.info(f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
     def run_query(self, query_code, run_count=True):
-        results = []
+        results = [[]]
         if isinstance(query_code, list):
             find_query = query_code[0]
             total_count_query = query_code[1]
@@ -67,8 +67,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             total_count_query = None
             label_count_query = None
         
+            # use lazy loading for improved performance
         with self.driver.session() as session:
-            results.append(list(session.run(find_query)))
+            result = session.run(find_query)
+            for record in result:
+                results[0].append(record)
         if run_count:
             if total_count_query:
                 try:
@@ -143,12 +146,14 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 target_var = target_node['node_id']
 
                 source_match = self.match_node(source_node, source_var)
-                where_preds.extend(self.where_construct(source_node, source_var))
-                match_preds.append(source_match)
                 target_match = self.match_node(target_node, target_var)
-                where_preds.extend(self.where_construct(target_node, target_var))
+                
+                if source_var not in node_ids:
+                    where_preds.extend(self.where_construct(source_node, source_var))
+                if target_var not in node_ids:
+                    where_preds.extend(self.where_construct(target_node, target_var))
 
-                match_preds.append(f"({source_var})-[{predicate_id}:{predicate_type}]->{target_match}")
+                match_preds.append(f"{source_match}-[{predicate_id}:{predicate_type}]->{target_match}")
                 return_preds.append(predicate_id)
 
                 used_nodes.add(predicate['source'])

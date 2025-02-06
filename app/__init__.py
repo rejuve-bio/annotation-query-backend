@@ -1,6 +1,7 @@
 from flask import Flask
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_socketio import SocketIO
 from app.services.schema_data import SchemaManager
 from app.services.cypher_generator import CypherQueryGenerator
 from app.services.metta_generator import MeTTa_Query_Generator
@@ -12,6 +13,7 @@ import logging
 import yaml
 
 app = Flask(__name__)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 def load_config():
     config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.yaml')
