@@ -26,7 +26,7 @@ import json
 load_dotenv()
 # Set the allowed origin for WebSocket connections
 
- 
+
 # set mongo loggin
 logging.getLogger('pymongo').setLevel(logging.CRITICAL)
 
@@ -46,7 +46,7 @@ storage_service = app.config['storage_service']
 init_mail(app)
 
 CORS(app)
-
+data=None
 # Setup basic logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -95,6 +95,7 @@ def process_query(current_user_id):
     def handle_message(auth):
         emit('my responce',{'data':"Connected"})
     logging.info(f"\n\nWebSocket connected for query\n\n")
+    global data
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
