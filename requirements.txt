@@ -22,3 +22,4 @@ gevent-websocket
 flask-cors
 cors
 uuid
+nanoid
