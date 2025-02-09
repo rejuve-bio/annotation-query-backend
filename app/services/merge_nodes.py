@@ -2,7 +2,7 @@ import hashlib
 import json
 from collections import defaultdict
 from nanoid import generate
-
+ 
 def get_connections_for_node(n, graph):
     connections = []
     
@@ -28,17 +28,22 @@ def hash_string(input_str):
 def do_grouping(annotation):
     groups = {}
     ids = {}
-    
+     
+    annotation=json.loads(annotation)
+     
     for n in annotation.get('nodes', []):
+         
         connections = get_connections_for_node(n, annotation)
+         
         key = hash_string(json.dumps(connections))
-        
+         
         if key in groups:
             groups[key]['nodes'].append(n)
         else:
             groups[key] = {'connections': connections, 'nodes': [n]}
         
         ids[n['data']['id']] = key
+         
     
     print("groups", json.dumps(groups, indent=2))
     

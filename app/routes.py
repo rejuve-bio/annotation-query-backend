@@ -20,6 +20,7 @@ from app.lib import convert_to_csv
 from app.lib import generate_file_path
 from app.lib import adjust_file_path
 from flask_socketio import send,emit,join_room,leave_room
+from app.services.merge_nodes import do_grouping
 import json
  
 # Load environmental variables
@@ -49,7 +50,7 @@ CORS(app)
 data=None
 # Setup basic logging
 logging.basicConfig(level=logging.DEBUG)
-
+formatted_response = None
 @app.route('/kg-info', methods=['GET'])
 @token_required
 def get_graph_info(current_user_id):
@@ -243,9 +244,11 @@ def process_query(current_user_id):
         requesut=request.get_json()
         formatted_response = json.dumps(response_data, indent=4)
         final_graph=group_graph(formatted_response,requesut)
+        merge_nodes=do_grouping(formatted_response)
         final_graph=json.dumps(final_graph)
         response = {
-        "final_graph": json.loads(final_graph),  # Optionally, parse back to ensure correct structure
+        # "final_graph": json.loads(final_graph),  # Optionally, parse back to ensure correct structure
+        "final_graph":merge_nodes,
         
         "title":title,
         
