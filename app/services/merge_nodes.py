@@ -72,3 +72,4 @@ def do_grouping(annotation):
         new_graph['edges'].extend(edges)
     
     return new_graph
+#
