@@ -23,3 +23,5 @@ flask-cors
 cors
 uuid
 nanoid
+matplotlib
+python3-tk
