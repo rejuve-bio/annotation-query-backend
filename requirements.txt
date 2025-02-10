@@ -16,4 +16,4 @@ Flask-Limiter == 3.8.0
 tiktoken==0.8.0
 httpx==0.27.2
 networkx==3.4.2
-Flask-SocketIO==5.5.1
+Flask-SocketIO==5.5.1 

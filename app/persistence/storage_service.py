@@ -20,7 +20,6 @@ class StorageService():
             node_count_by_label=annotation.get("node_count_by_label", []),
             edge_count_by_label=annotation.get("edge_count_by_label", [])
         )
-        print(data)
 
         id = data.save()
         return id

@@ -1,13 +1,18 @@
+from textwrap import indent
 from flask import copy_current_request_context, request, jsonify, \
     Response, send_from_directory
 import logging
 import json
 import os
 import threading
-from app import app, schema_manager, db_instance
+import sys
+import gevent
+from gevent import monkey
+from app import app, schema_manager, db_instance, socketio
 from app.lib import validate_request
 from flask_cors import CORS
-# from flask_socketio import join_room, leave_room
+from flask_socketio import join_room, leave_room
+from flask_socketio import emit, send
 # from app.lib import limit_graph
 from app.lib.auth import token_required
 from app.lib.email import init_mail, send_email
@@ -17,7 +22,7 @@ import datetime
 from app.lib import convert_to_csv
 from app.lib import generate_file_path
 from app.lib import adjust_file_path
-
+# monkey.patch_all()
 # Load environmental variables
 load_dotenv()
 
@@ -76,9 +81,137 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
     return Response(relations, mimetype='application/json')
 
 
-@app.route('/query', methods=['POST'])
+@socketio.on('connect')
+def on_connect():
+    print("user connected")
+
+
+@socketio.on('join')
+def on_join(data):
+    room = data['room']
+    join_room(room)
+    print(f"user join a room with {room}")
+    send(f'connected to {room}', to=room)
+
+
+def generate_summary(annotation_id, response, summary=None):
+    if summary is not None:
+        socketio.emit('task_update', {
+                      'task': 'summary'}, to=str(annotation_id))
+        return
+
+    summary = llm.generate_summary(response)
+    storage_service.update(annotation_id, {"summary": summary})
+    socketio.emit('task_update', {'task': 'summary',
+                  'summary': summary}, to=str(annotation_id))
+
+
+def generate_result(query_code, annotation_id, requests):
+    try:
+        response_data = db_instance.run_query(query_code, None)
+        graph_components = {"nodes": requests['nodes'], "predicates":
+                            requests['predicates'], "properties": True}
+        response = db_instance.parse_and_serialize(
+            response_data, schema_manager.schema, graph_components)
+
+        socketio.emit('task_update', {'task': 'result',
+                                      'graph_result': response},
+                      to=str(annotation_id))
+
+        return response
+    except Exception as e:
+        print(e, flush=True)
+
+
+def handle_client_request(query, request, current_user_id, node_types):
+    annotation_id = request.get('annotatoin_id', None)
+    # check if annotation exist
+    if annotation_id:
+        existing_query = storage_service.get_user_query(
+            annotation_id, str(current_user_id), query)
+    else:
+        existing_query = None
+
+    if existing_query:
+        title = existing_query.title
+        summary = existing_query.summary
+        annotation_id = existing_query.id
+        storage_service.update(
+            annotation_id, {"updated_at": datetime.datetime.now()})
+
+        @copy_current_request_context
+        def send_annotation():
+            try:
+                response = generate_result(query, annotation_id, request)
+                generate_summary(annotation_id, response, summary)
+            except Exception as e:
+                print(e)
+
+        result_generator = threading.Thread(
+            name='annotation_generator', target=send_annotation)
+        result_generator.start()
+        return Response(
+            json.dumps({"annotation_id": str(annotation_id)}),
+            mimetype='application/json')
+    elif annotation_id is None:
+        title = llm.generate_title(query)
+        annotation = {"current_user_id": str(current_user_id),
+                      "query": query, "request": request,
+                      "title": title, "node_types": node_types}
+
+        annotation_id = storage_service.save(annotation)
+
+        @copy_current_request_context
+        def send_annotation():
+            try:
+                response = generate_result(query, annotation_id, request)
+                generate_summary(annotation_id, response)
+            except Exception as e:
+                print(e)
+
+        result_generator = threading.Thread(
+            name='annotation_generator', target=send_annotation)
+        result_generator.start()
+        # TODO: run count query in a sperate thread
+        print("HEHEH")
+        return Response(
+            json.dumps({"annotation_id": str(annotation_id)}),
+            mimetype='application/json')
+    else:
+        title = llm.generate_title(query)
+        # save the query and return the annotation
+        annotation = {"query": query, "request": request,
+                      "title": title, "node_types": node_types}
+
+        storage_service.update('annotatoin_id', annotation)
+
+        @copy_current_request_context
+        def send_annotation():
+            try:
+                response = generate_result(query, annotation_id, request)
+                generate_summary(annotation_id, response)
+            except Exception as e:
+                print(e)
+        result_generator = threading.Thread(
+            name='annotation_generaotr', target=send_annotation)
+        result_generator.start()
+        return Response(
+            json.dumps({'annotation_id': str(annotation_id)}),
+            mimetype='application/json'
+        )
+        # TODO: run the query in a seprate thread or asyncrinously
+        # and update the annotation using the annotaiton_id(new)
+        # TODO:generate the title summary and
+        # count in an asyncrinous manner
+
+    # TODO: generate the node count, edge count, node_count_by_lable
+    # and edge_count_by lable in a seprate thread
+
+
+@app.route('/query', methods=['POST'])  # type: ignore
 @token_required
 def process_query(current_user_id):
+    print('whats happening')
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
@@ -104,18 +237,11 @@ def process_query(current_user_id):
         limit = None
     try:
         requests = data['requests']
-        annotation_id = None
-        question = None
+        question = requests.get('question', None)
         answer = None
 
-        if 'annotation_id' in requests:
-            annotation_id = requests['annotation_id']
-
-        if 'question' in requests:
-            question = requests['question']
-
         # Validate the request data before processing
-        node_map = validate_request(requests, schema_manager.schema)
+        node_map = validate_request(requests, schema_manager.schema, source)
         if node_map is None:
             return jsonify(
                 {"error": "Invalid node_map returned by validate_request"}
@@ -128,11 +254,10 @@ def process_query(current_user_id):
             True, False) if source == 'hypothesis' else (False, True)
 
         # Generate the query code
-        query_code = db_instance.query_Generator(
+        query = db_instance.query_Generator(
             requests, node_map, limit, node_only)
 
-        if isinstance(query_code, list):
-            query_code = query_code[0]
+        query_code = query[0]
 
         # Extract node types
         nodes = requests['nodes']
@@ -143,150 +268,45 @@ def process_query(current_user_id):
 
         node_types = list(node_types)
 
-        # check if annotation exist
-        if annotation_id:
-            existing_query = storage_service.get_user_query(
-                annotation_id, str(current_user_id), query_code)
-        else:
-            existing_query = None
+        if source != 'hypothesis' and source != 'ai-assistant':
+            handle_client_request(query, request, current_user_id, node_types)
 
-        if existing_query:
-            title = existing_query.title
-            summary = existing_query.summary
-            annotation_id = existing_query.id
-            storage_service.update(
-                annotation_id, {"updated_at": datetime.datetime.now()})
-
-            return Response(
-                json.dumps({"annotation_id": str(annotation_id)}),
-                mimetype='application/json')
-
-            # TODO: run the only the query in a seprate thread
-        elif annotation_id is None \
-                and source != 'hypothesis' or source != 'ai-assistant':
-            title = llm.generate_title(query_code)
-            annotation = {"current_user_id": str(current_user_id),
-                          "query": query_code, "request": requests,
-                          "title": title, "node_types": node_types}
-
-            annotation_id = storage_service.save(annotation)
-
-            # TODO: run the annotation in a seprate thread and
-            # update the annotiaon using the id(using the requested id)
-            return Response(
-                json.dumps({"annotation_id": str(annotation_id)}),
-                mimetype='application/json')
-        elif existing_query is None\
-                and (source != 'hypothesis' or source != 'ai-assistant'):
-            title = llm.generate_title(query_code)
-            # save the query and return the annotation
-            annotation = {"query": query_code, "request": requests,
-                          "title": title, "node_types": node_types}
-
-            storage_service.update(annotation)
-
-            return Response(
-                json.dumps({'annotation_id': str(annotation_id)}),
-                mimetype='application/json'
-            )
-            # TODO: run the query in a seprate thread or asyncrinously
-            # and update the annotation using the annotaiton_id(new)
-            # TODO:generate the title summary and
-            # count in an asyncrinous manner
-
-        # Run the query and parse the results
         result = db_instance.run_query(query_code, run_count)
-        graph_components = {"nodes": requests['nodes'], "predicates":
-                            requests['predicates'], "properties": properties}
-        response_data = db_instance.parse_and_serialize(
+
+        graph_components = {
+            "nodes": requests['nodes'], "predicates": requests['predicates'],
+            'properties': properties}
+
+        response = db_instance.parse_and_serialize(
             result, schema_manager.schema, graph_components)
 
         if source == 'hypothesis':
-            response = {
-                "nodes": response_data['nodes'],
-                "edges": response_data['edges']
-            }
+            response = {"nodes": response['nodes']}
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
 
         title = llm.generate_title(query_code)
+        summary = llm.generate_summary(
+            response) or 'Graph too big, could not summarize'
 
-        if not response_data.get('nodes') and not response_data.get('edges'):
-            summary = 'No data found for the query'
-        else:
-            summary = llm.generate_summary(
-                response_data) or 'Graph too big, could not summarize'
+        answer = llm.generate_summary(response, question, False, summary)
 
-        answer = llm.generate_summary(
-            response_data, question, False, summary) if question else None
-
-        annotation = {'current_user_id': str(current_user_id),
+        annotation = {"current_user_id": str(current_user_id),
+                      "request": requests,
                       "query": query_code,
-                      'title': title,
-                      'request': requests,
-                      'summary': summary,
-                      'answer': answer,
-                      'question': question
-                      }
-        # TODO: generate the node count, edge count, node_count_by_lable
-        # and edge_count_by lable in a seprate thread
+                      "title": title,
+                      "summary": summary,
+                      "node_count": response['node_count'],
+                      "edge_count": response['edge_count'],
+                      "node_types": node_types,
+                      "node_count_by_label": response['node_count_by_label'],
+                      "edge_count_by_label": response['edge_count_by_label'],
+                      "answer": answer, "question": question}
 
-        '''
-        if existing_query is None:
-            title = llm.generate_title(query_code)
-
-            if not response_data.get('nodes') and not response_data.get('edges'):
-                summary = 'No data found for the query'
-            else:
-                summary = llm.generate_summary(response_data) or 'Graph too big, could not summarize'
-
-            answer = llm.generate_summary(response_data, question, False, summary) if question else None
-            node_count = response_data['node_count']
-            edge_count = response_data['edge_count'] if "edge_count" in response_data else 0
-            node_count_by_label = response_data['node_count_by_label']
-            edge_count_by_label = response_data['edge_count_by_label'] if "edge_count_by_label" in response_data else []
-            if annotation_id is not None:
-                annotation = {"request": requests, "query": query_code, "summary": summary, "node_count": node_count, 
-                              "edge_count": edge_count, "node_types": node_types, "node_count_by_label": node_count_by_label,
-                              "edge_count_by_label": edge_count_by_label, "updated_at": datetime.datetime.now()}
-                storage_service.update(annotation_id, annotation)
-            else:
-                annotation = {"current_user_id": str(current_user_id), "request": requests, "query": query_code,
-                              "question": question, "answer": answer,
-                              "title": title, "summary": summary, "node_count": node_count,
-                              "edge_count": edge_count, "node_types": node_types, 
-                              "node_count_by_label": node_count_by_label, "edge_count_by_label": edge_count_by_label}
-                annotation_id = storage_service.save(annotation)
-        else:
-            title, summary, annotation_id = '', '', ''
-        
-        updated_data = storage_service.get_by_id(annotation_id)
-
-        response_data["title"] = title
-        response_data["summary"] = summary
-        response_data["annotation_id"] = str(annotation_id)
-        response_data["created_at"] = updated_data.created_at.isoformat()
-        response_data["updated_at"] = updated_data.updated_at.isoformat()
-        '''
-
-        if question:
-            response_data["question"] = question
-
-        if answer:
-            response_data["answer"] = answer
-
-        if source == 'ai-assistant':
-            response = {"annotation_id": str(
-                annotation_id), "question": question, "answer": answer}
-            formatted_response = json.dumps(response, indent=4)
-            return Response(formatted_response, mimetype='application/json')
-
-        # if limit:
-        #     response_data = limit_graph(response_data, limit)
-
-        formatted_response = json.dumps(response_data, indent=4)
-        logging.info(
-            f"\n\n============== Query ==============\n\n{query_code}")
+        annotation_id = storage_service.save(annotation)
+        response = {"annotation_id": str(
+            annotation_id), "question": question, "answer": answer}
+        formatted_response = json.dumps(response, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing query: {e}")
@@ -300,7 +320,7 @@ def process_email_query(current_user_id, id):
     if 'email' not in data:
         return jsonify({"error": "Email missing"}), 400
 
-    @copy_current_request_context
+    @ copy_current_request_context
     def send_full_data():
         try:
             email = data['email']
@@ -321,8 +341,8 @@ def process_email_query(current_user_id, id):
     return jsonify({'message': 'Email sent successfully'}), 200
 
 
-@app.route('/history', methods=['GET'])
-@token_required
+@ app.route('/history', methods=['GET'])
+@ token_required
 def process_user_history(current_user_id):
     page_number = request.args.get('page_number')
     if page_number is not None:
@@ -350,8 +370,8 @@ def process_user_history(current_user_id):
                     mimetype='application/json')
 
 
-@app.route('/annotation/<id>', methods=['GET'])
-@token_required
+@ app.route('/annotation/<id>', methods=['GET'])
+@ token_required
 def get_by_id(current_user_id, id):
     response_data = {}
     cursor = storage_service.get_by_id(id)
@@ -451,8 +471,8 @@ def get_by_id(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/annotation/<id>', methods=['POST'])
-@token_required
+@ app.route('/annotation/<id>', methods=['POST'])
+@ token_required
 def process_by_id(current_user_id, id):
     data = request.get_json()
     if not data or 'requests' not in data:
@@ -530,8 +550,8 @@ def process_by_id(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/annotation/<id>/full', methods=['GET'])
-@token_required
+@ app.route('/annotation/<id>/full', methods=['GET'])
+@ token_required
 def process_full_annotation(current_user_id, id):
     try:
         link = process_full_data(
@@ -550,7 +570,7 @@ def process_full_annotation(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/public/<file_name>')
+@ app.route('/public/<file_name>')
 def serve_file(file_name):
     public_folder = os.path.join(os.getcwd(), 'public')
     return send_from_directory(public_folder, file_name)
@@ -591,8 +611,8 @@ def process_full_data(current_user_id, annotation_id):
         raise e
 
 
-@app.route('/annotation/<id>', methods=['DELETE'])
-@token_required
+@ app.route('/annotation/<id>', methods=['DELETE'])
+@ token_required
 def delete_by_id(current_user_id, id):
     try:
         existing_record = storage_service.get_by_id(id)
@@ -616,8 +636,8 @@ def delete_by_id(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/annotation/<id>/title', methods=['PUT'])
-@token_required
+@ app.route('/annotation/<id>/title', methods=['PUT'])
+@ token_required
 def update_title(current_user_id, id):
     data = request.get_json()
 

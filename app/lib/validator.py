@@ -1,11 +1,12 @@
 import networkx as nx
 
-def validate_request(request, schema):
+
+def validate_request(request, schema, source):
     if 'nodes' not in request:
         raise Exception("node is missing")
 
     nodes = request['nodes']
-        
+
     # validate nodes
     if not isinstance(nodes, list):
         raise Exception("nodes should be a list")
@@ -19,9 +20,9 @@ def validate_request(request, schema):
             raise Exception("type is required")
         if 'node_id' not in node or node['node_id'] == "":
             raise Exception("node_id is required")
-        
+
         node.setdefault('properties', {})
-       
+
         if 'chr' in node["properties"]:
             chr_property = node["properties"]["chr"]
             chr_property = str(chr_property)
@@ -48,7 +49,7 @@ def validate_request(request, schema):
     # validate predicates
     if 'predicates' in request:
         predicates = request['predicates']
-            
+
         if not isinstance(predicates, list):
             raise Exception("Predicate should be a list")
         for predicate in predicates:
@@ -60,25 +61,32 @@ def validate_request(request, schema):
                 raise Exception("target is required")
 
             if predicate['source'] not in node_map:
-                raise Exception(f"Source node {predicate['source']} does not exist in the nodes object")
+                raise Exception(
+                    f"Source node {predicate['source']}\
+                    does not exist in the nodes object")
             if predicate['target'] not in node_map:
-                raise Exception(f"Target node {predicate['target']} does not exist in the nodes object")
-            
+                raise Exception(
+                    f"Target node {predicate['target']}\
+                    does not exist in the nodes object")
+
             # format the predicate type using _
             predicate_type = predicate['type'].split(' ')
             predicate_type = '_'.join(predicate_type)
-            
+
             source_type = node_map[predicate['source']]['type']
             target_type = node_map[predicate['target']]['type']
 
             predicate_type = f'{source_type}_{predicate_type}_{target_type}'
             if predicate_type not in schema:
-                raise Exception(f"Invalid source and target for the predicate {predicate['type']}")
+                raise Exception(
+                    f"Invalid source and target for\
+                    the predicate {predicate['type']}")
+    if source != 'hypothesis':
+        if check_disconnected_graph(request):
+            raise Exception("Disconnected subgraph found")
 
-    if check_disconnected_graph(request):
-        raise Exception("Disconnected subgraph found")
-        
     return node_map
+
 
 def check_disconnected_graph(request):
     # create a networkx graph
@@ -86,15 +94,15 @@ def check_disconnected_graph(request):
     edges = request['predicates']
 
     G = nx.Graph()
-    
+
     # create the nodes
     for node in nodes:
         G.add_node(node["node_id"])
-    
+
     # create the edges
     for edge in edges:
         G.add_edge(edge["source"], edge["target"])
-    
+
     # identify subgraphs
     connected_components = list(nx.connected_components(G))
 
@@ -102,4 +110,3 @@ def check_disconnected_graph(request):
         return True
 
     return False
-
