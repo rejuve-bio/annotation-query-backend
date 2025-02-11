@@ -1,6 +1,3 @@
-from textwrap import indent
-
-from networkx import exception
 from flask import copy_current_request_context, request, jsonify, \
     Response, send_from_directory
 import logging
@@ -8,14 +5,13 @@ import json
 import os
 import threading
 import time
-from gevent import monkey
 from app import app, schema_manager, db_instance, socketio
 from app.lib import validate_request
 from flask_cors import CORS
-from flask_socketio import join_room, leave_room
-from flask_socketio import emit, send
+from flask_socketio import disconnect, join_room
+from flask_socketio import send
 # from app.lib import limit_graph
-from app.lib.auth import token_required
+from app.lib.auth import token_required, socket_token_required
 from app.lib.email import init_mail, send_email
 from dotenv import load_dotenv
 from distutils.util import strtobool
@@ -82,28 +78,32 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
     return Response(relations, mimetype='application/json')
 
 
+@socket_token_required
 @socketio.on('connect')
-def on_connect():
-    print("user connected")
+def on_connect(current_user_id):
+    logging.info("User connected")
+    send('User is conncted')
 
 
 @socketio.on('disconnect')
 def on_disconnect():
-    print("user disconnected")
+    logging.info("user disconnected")
+    send("User Disconnected")
+    disconnect()
 
 
 @socketio.on('join')
 def on_join(data):
     room = data['room']
     join_room(room)
-    print(f"user join a room with {room}")
+    logging.info(f"user join a room with {room}")
     send(f'connected to {room}', to=room)
 
 
 def generate_summary(annotation_id, response, summary=None):
     if summary is not None:
         socketio.emit('task_update', {
-                      'task': 'summary'}, to=str(annotation_id))
+                      'task': summary}, to=str(annotation_id))
         return
 
     summary = llm.generate_summary(response)
@@ -126,17 +126,24 @@ def generate_result(query_code, annotation_id, requests):
 
         return response
     except Exception as e:
-        print(e, flush=True)
+        logging.error(e)
 
 
-def generate_count(query_code, annotation_id, requests):
+def generate_count(query_code, annotation_id, requests, count=None):
     try:
+        if count:
+            socketio.emit('task_update', {
+                          'task': 'count', 'count_result': count},
+                          to=str(annotation_id))
+            return
+
         total_count = db_instance.run_query(query_code[0])
         count_by_label = db_instance.run_query(query_code[1])
 
         count_result = [total_count[0], count_by_label[0]]
         graph_components = {"nodes": requests['nodes'],
-                            "predicates": requests['predicates'], "properties": False}
+                            "predicates": requests['predicates'],
+                            "properties": False}
         response = db_instance.parse_and_serialize(
             count_result, schema_manager.schema, graph_components, 'count')
 
@@ -150,15 +157,16 @@ def generate_count(query_code, annotation_id, requests):
                       'task': 'count', 'count_result': response},
                       to=str(annotation_id))
     except Exception as e:
-        print(e, flush=True)
+        logging.error(e)
 
 
 def handle_client_request(query, request, current_user_id, node_types):
-    annotation_id = request.get('annotatoin_id', None)
+    annotation_id = request.get('annotation_id', None)
     # check if annotation exist
+
     if annotation_id:
         existing_query = storage_service.get_user_query(
-            annotation_id, str(current_user_id), query)
+            annotation_id, str(current_user_id), query[0])
     else:
         existing_query = None
 
@@ -166,6 +174,12 @@ def handle_client_request(query, request, current_user_id, node_types):
         title = existing_query.title
         summary = existing_query.summary
         annotation_id = existing_query.id
+        meta_data = {
+            "node_count": existing_query.node_count,
+            "edge_count": existing_query.edge_count,
+            "node_count_by_label": existing_query.node_count_by_label,
+            "edge_count_by_label": existing_query.edge_count_by_label
+        }
         storage_service.update(
             annotation_id, {"updated_at": datetime.datetime.now()})
 
@@ -173,15 +187,25 @@ def handle_client_request(query, request, current_user_id, node_types):
         def send_annotation():
             time.sleep(0.1)
             try:
-                response = generate_result(query, annotation_id, request)
+                response = generate_result(query[0], annotation_id, request)
                 generate_summary(annotation_id, response, summary)
             except Exception as e:
-                print(e)
+                logging.error("Error processing request", e)
+
+        def send_count():
+            time.sleep(0.1)
+            try:
+                count_query = [None, None]
+                generate_count(count_query, annotation_id, request, meta_data)
+            except Exception as e:
+                logging.error("Error processing request", e)
 
         result_generator = threading.Thread(
             name='annotation_generator', target=send_annotation)
         result_generator.start()
-
+        count_generator = threading.Thread(
+            name='count_generator', target=send_count)
+        count_generator.start()
         return Response(
             json.dumps({"annotation_id": str(annotation_id)}),
             mimetype='application/json')
@@ -200,7 +224,7 @@ def handle_client_request(query, request, current_user_id, node_types):
                 response = generate_result(query[0], annotation_id, request)
                 generate_summary(annotation_id, response)
             except Exception as e:
-                print(e)
+                logging.error("Error processing request", e)
 
         def send_count():
             time.sleep(0.1)
@@ -208,19 +232,20 @@ def handle_client_request(query, request, current_user_id, node_types):
                 count_query = [query[1], query[2]]
                 generate_count(count_query, annotation_id, request)
             except Exception as e:
-                print(e, flush=True)
+                logging.error("Error processing request", e)
+
         result_generator = threading.Thread(
             name='annotation_generator', target=send_annotation)
         result_generator.start()
         count_generator = threading.Thread(
             name='count_generator', target=send_count)
         count_generator.start()
-        # TODO: run count query in a sperate thread
         return Response(
             json.dumps({"annotation_id": str(annotation_id)}),
             mimetype='application/json')
     else:
         title = llm.generate_title(query)
+        del request['annotation_id']
         # save the query and return the annotation
         annotation = {"query": query, "request": request,
                       "title": title, "node_types": node_types}
@@ -233,21 +258,28 @@ def handle_client_request(query, request, current_user_id, node_types):
                 response = generate_result(query, annotation_id, request)
                 generate_summary(annotation_id, response)
             except Exception as e:
-                print(e)
+                logging.error("Error processing request", e)
+
+        def send_count():
+            time.sleep(0.1)
+            try:
+                count_query = [query[1], query[2]]
+                generate_count(count_query, annotation_id, request)
+            except Exception as e:
+                logging.error("Error processing request", e)
+
         result_generator = threading.Thread(
             name='annotation_generaotr', target=send_annotation)
         result_generator.start()
+
+        count_generator = threading.Thread(
+            name='count_generator', target=send_count)
+
+        count_generator.start()
         return Response(
             json.dumps({'annotation_id': str(annotation_id)}),
             mimetype='application/json'
         )
-        # TODO: run the query in a seprate thread or asyncrinously
-        # and update the annotation using the annotaiton_id(new)
-        # TODO:generate the title summary and
-        # count in an asyncrinous manner
-
-    # TODO: generate the node count, edge count, node_count_by_lable
-    # and edge_count_by lable in a seprate thread
 
 
 @app.route('/query', methods=['POST'])  # type: ignore

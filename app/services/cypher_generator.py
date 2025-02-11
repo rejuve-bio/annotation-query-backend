@@ -499,11 +499,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         for node in graph_components['nodes']:
             node_type = node['type']
             node_count_aggregate[node_type] = {'count': 0}
+
         # initialize edge count aggreate dictionary where the key is the label.
         for predicate in graph_components['predicates']:
             edge_type = predicate['type'].replace(" ", "_").lower()
             ege_count_aggregate[edge_type] = {'count': 0}
-        print(count_by_label, flush=True)
+
         # update node count aggregate dictionary with the count of each label
         for key, value in count_by_label.items():
             node_type_key = '_'.join(key.split('_')[1:])
@@ -552,7 +553,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         if result_type == 'graph':
             nodes, edges, node_to_dict, edge_to_dict = self.process_result_graph(
                 match_result, graph_components)
-            print(nodes, flush=True)
+
         if result_type == 'count':
             meta_data = self.process_result_count(
                 node_and_edge_count, count_by_label, graph_components)
