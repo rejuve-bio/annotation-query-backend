@@ -140,6 +140,12 @@ def generate_count(query_code, annotation_id, requests):
         response = db_instance.parse_and_serialize(
             count_result, schema_manager.schema, graph_components, 'count')
 
+        storage_service.update(annotation_id,
+                               {'node_count': response['node_count'],
+                                'edge_count': response['edge_count'],
+                                'node_count_by_label': response['node_count_by_label'],
+                                'edge_count_by_label': response['edge_count_by_label']})
+
         socketio.emit('task_update', {
                       'task': 'count', 'count_result': response},
                       to=str(annotation_id))
@@ -244,8 +250,8 @@ def handle_client_request(query, request, current_user_id, node_types):
     # and edge_count_by lable in a seprate thread
 
 
-@ app.route('/query', methods=['POST'])  # type: ignore
-@ token_required
+@app.route('/query', methods=['POST'])  # type: ignore
+@token_required
 def process_query(current_user_id):
     data = request.get_json()
     if not data or 'requests' not in data:
@@ -284,14 +290,15 @@ def process_query(current_user_id):
         # convert id to appropriate format
         requests = db_instance.parse_id(requests)
 
-        node_only, run_count = (
-            True, False) if source == 'hypothesis' else (False, True)
+        node_only = True if source == 'hypothesis' else False
 
         # Generate the query code
         query = db_instance.query_Generator(
             requests, node_map, limit, node_only)
 
-        query_code = query[0]
+        result_query = query[0]
+        total_count_query = query[1]
+        count_by_label_query = query[2]
 
         # Extract node types
         nodes = requests['nodes']
@@ -305,29 +312,46 @@ def process_query(current_user_id):
         if source is None:
             return handle_client_request(query, requests,
                                          current_user_id, node_types)
-        result = db_instance.run_query(query_code)
+        result = db_instance.run_query(result_query)
 
         graph_components = {
             "nodes": requests['nodes'], "predicates": requests['predicates'],
             'properties': properties}
 
-        response = db_instance.parse_and_serialize(
-            result, schema_manager.schema, graph_components)
+        result_graph = db_instance.parse_and_serialize(
+            result, schema_manager.schema,
+            graph_components, result_type='graph')
 
         if source == 'hypothesis':
-            response = {"nodes": response['nodes']}
+            response = {"nodes": result_graph['nodes']}
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
 
-        title = llm.generate_title(query_code)
-        summary = llm.generate_summary(
-            response) or 'Graph too big, could not summarize'
+        total_count = db_instance.run_query(total_count_query)
+        count_by_label = db_instance.run_query(count_by_label_query)
 
-        answer = llm.generate_summary(response, question, False, summary)
+        count_result = [total_count[0], count_by_label[0]]
+
+        meta_data = db_instance.parse_and_serialize(
+            count_result, schema_manager.schema,
+            graph_components, result_type='count')
+
+        title = llm.generate_title(result_query)
+
+        summary = llm.generate_summary(
+            result_graph) or 'Graph too big, could not summarize'
+
+        answer = llm.generate_summary(result_graph, question, False, summary)
+
+        response = result_graph
+        response['node_count'] = meta_data['node_count']
+        response['edge_count'] = meta_data['edge_count']
+        response['node_count_by_label'] = meta_data['node_count_by_label']
+        response['edge_count_by_label'] = meta_data['edge_count_by_label']
 
         annotation = {"current_user_id": str(current_user_id),
                       "request": requests,
-                      "query": query_code,
+                      "query": result_query,
                       "title": title,
                       "summary": summary,
                       "node_count": response['node_count'],
@@ -347,14 +371,14 @@ def process_query(current_user_id):
         return jsonify({"error": str(e)}), 500
 
 
-@ app.route('/email-query/<id>', methods=['POST'])
-@ token_required
+@app.route('/email-query/<id>', methods=['POST'])
+@token_required
 def process_email_query(current_user_id, id):
     data = request.get_json()
     if 'email' not in data:
         return jsonify({"error": "Email missing"}), 400
 
-    @ copy_current_request_context
+    @copy_current_request_context
     def send_full_data():
         try:
             email = data['email']
@@ -375,8 +399,8 @@ def process_email_query(current_user_id, id):
     return jsonify({'message': 'Email sent successfully'}), 200
 
 
-@ app.route('/history', methods=['GET'])
-@ token_required
+@app.route('/history', methods=['GET'])
+@token_required
 def process_user_history(current_user_id):
     page_number = request.args.get('page_number')
     if page_number is not None:
@@ -404,8 +428,8 @@ def process_user_history(current_user_id):
                     mimetype='application/json')
 
 
-@ app.route('/annotation/<id>', methods=['GET'])
-@ token_required
+@app.route('/annotation/<id>', methods=['GET'])
+@token_required
 def get_by_id(current_user_id, id):
     response_data = {}
     cursor = storage_service.get_by_id(id)
@@ -474,9 +498,11 @@ def get_by_id(current_user_id, id):
             return Response(formatted_response, mimetype='application/json')
 
         # Run the query and parse the results
-        result = db_instance.run_query(query, False)
+        result = db_instance.run_query(query)
+        graph_components = {"properties": properties}
         response_data = db_instance.parse_and_serialize(
-            result, schema_manager.schema, properties)
+            result, schema_manager.schema,
+            graph_components, result_type='graph')
 
         if source == 'hypothesis':
             response = {
@@ -505,8 +531,8 @@ def get_by_id(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@ app.route('/annotation/<id>', methods=['POST'])
-@ token_required
+@app.route('/annotation/<id>', methods=['POST'])
+@token_required
 def process_by_id(current_user_id, id):
     data = request.get_json()
     if not data or 'requests' not in data:
@@ -584,8 +610,8 @@ def process_by_id(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@ app.route('/annotation/<id>/full', methods=['GET'])
-@ token_required
+@app.route('/annotation/<id>/full', methods=['GET'])
+@token_required
 def process_full_annotation(current_user_id, id):
     try:
         link = process_full_data(
@@ -604,7 +630,7 @@ def process_full_annotation(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@ app.route('/public/<file_name>')
+@app.route('/public/<file_name>')
 def serve_file(file_name):
     public_folder = os.path.join(os.getcwd(), 'public')
     return send_from_directory(public_folder, file_name)
@@ -645,8 +671,8 @@ def process_full_data(current_user_id, annotation_id):
         raise e
 
 
-@ app.route('/annotation/<id>', methods=['DELETE'])
-@ token_required
+@app.route('/annotation/<id>', methods=['DELETE'])
+@token_required
 def delete_by_id(current_user_id, id):
     try:
         existing_record = storage_service.get_by_id(id)
@@ -670,8 +696,8 @@ def delete_by_id(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@ app.route('/annotation/<id>/title', methods=['PUT'])
-@ token_required
+@app.route('/annotation/<id>/title', methods=['PUT'])
+@token_required
 def update_title(current_user_id, id):
     data = request.get_json()
 
