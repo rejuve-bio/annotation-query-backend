@@ -1,12 +1,13 @@
 from textwrap import indent
+
+from networkx import exception
 from flask import copy_current_request_context, request, jsonify, \
     Response, send_from_directory
 import logging
 import json
 import os
 import threading
-import sys
-import gevent
+import time
 from gevent import monkey
 from app import app, schema_manager, db_instance, socketio
 from app.lib import validate_request
@@ -86,6 +87,11 @@ def on_connect():
     print("user connected")
 
 
+@socketio.on('disconnect')
+def on_disconnect():
+    print("user disconnected")
+
+
 @socketio.on('join')
 def on_join(data):
     room = data['room']
@@ -108,17 +114,35 @@ def generate_summary(annotation_id, response, summary=None):
 
 def generate_result(query_code, annotation_id, requests):
     try:
-        response_data = db_instance.run_query(query_code, None)
+        response_data = db_instance.run_query(query_code)
         graph_components = {"nodes": requests['nodes'], "predicates":
                             requests['predicates'], "properties": True}
         response = db_instance.parse_and_serialize(
-            response_data, schema_manager.schema, graph_components)
+            response_data, schema_manager.schema, graph_components, 'graph')
 
         socketio.emit('task_update', {'task': 'result',
                                       'graph_result': response},
                       to=str(annotation_id))
 
         return response
+    except Exception as e:
+        print(e, flush=True)
+
+
+def generate_count(query_code, annotation_id, requests):
+    try:
+        total_count = db_instance.run_query(query_code[0])
+        count_by_label = db_instance.run_query(query_code[1])
+
+        count_result = [total_count[0], count_by_label[0]]
+        graph_components = {"nodes": requests['nodes'],
+                            "predicates": requests['predicates'], "properties": False}
+        response = db_instance.parse_and_serialize(
+            count_result, schema_manager.schema, graph_components, 'count')
+
+        socketio.emit('task_update', {
+                      'task': 'count', 'count_result': response},
+                      to=str(annotation_id))
     except Exception as e:
         print(e, flush=True)
 
@@ -141,6 +165,7 @@ def handle_client_request(query, request, current_user_id, node_types):
 
         @copy_current_request_context
         def send_annotation():
+            time.sleep(0.1)
             try:
                 response = generate_result(query, annotation_id, request)
                 generate_summary(annotation_id, response, summary)
@@ -150,30 +175,41 @@ def handle_client_request(query, request, current_user_id, node_types):
         result_generator = threading.Thread(
             name='annotation_generator', target=send_annotation)
         result_generator.start()
+
         return Response(
             json.dumps({"annotation_id": str(annotation_id)}),
             mimetype='application/json')
     elif annotation_id is None:
-        title = llm.generate_title(query)
+        title = llm.generate_title(query[0])
         annotation = {"current_user_id": str(current_user_id),
-                      "query": query, "request": request,
+                      "query": query[0], "request": request,
                       "title": title, "node_types": node_types}
 
         annotation_id = storage_service.save(annotation)
 
         @copy_current_request_context
         def send_annotation():
+            time.sleep(0.1)
             try:
-                response = generate_result(query, annotation_id, request)
+                response = generate_result(query[0], annotation_id, request)
                 generate_summary(annotation_id, response)
             except Exception as e:
                 print(e)
 
+        def send_count():
+            time.sleep(0.1)
+            try:
+                count_query = [query[1], query[2]]
+                generate_count(count_query, annotation_id, request)
+            except Exception as e:
+                print(e, flush=True)
         result_generator = threading.Thread(
             name='annotation_generator', target=send_annotation)
         result_generator.start()
+        count_generator = threading.Thread(
+            name='count_generator', target=send_count)
+        count_generator.start()
         # TODO: run count query in a sperate thread
-        print("HEHEH")
         return Response(
             json.dumps({"annotation_id": str(annotation_id)}),
             mimetype='application/json')
@@ -208,10 +244,9 @@ def handle_client_request(query, request, current_user_id, node_types):
     # and edge_count_by lable in a seprate thread
 
 
-@app.route('/query', methods=['POST'])  # type: ignore
-@token_required
+@ app.route('/query', methods=['POST'])  # type: ignore
+@ token_required
 def process_query(current_user_id):
-    print('whats happening')
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
@@ -239,7 +274,6 @@ def process_query(current_user_id):
         requests = data['requests']
         question = requests.get('question', None)
         answer = None
-
         # Validate the request data before processing
         node_map = validate_request(requests, schema_manager.schema, source)
         if node_map is None:
@@ -268,10 +302,10 @@ def process_query(current_user_id):
 
         node_types = list(node_types)
 
-        if source != 'hypothesis' and source != 'ai-assistant':
-            handle_client_request(query, request, current_user_id, node_types)
-
-        result = db_instance.run_query(query_code, run_count)
+        if source is None:
+            return handle_client_request(query, requests,
+                                         current_user_id, node_types)
+        result = db_instance.run_query(query_code)
 
         graph_components = {
             "nodes": requests['nodes'], "predicates": requests['predicates'],
@@ -313,8 +347,8 @@ def process_query(current_user_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/email-query/<id>', methods=['POST'])
-@token_required
+@ app.route('/email-query/<id>', methods=['POST'])
+@ token_required
 def process_email_query(current_user_id, id):
     data = request.get_json()
     if 'email' not in data:
