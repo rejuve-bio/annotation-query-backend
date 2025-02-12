@@ -256,7 +256,7 @@ def process_query(current_user_id):
         "created_at":updated_data.created_at.isoformat(),
         "updated_at":updated_data.updated_at.isoformat()
     }   
-     
+        # print(response['final_graph'])
         logging.info(f"\n\n============== Query ==============\n\n{query_code}")
         return jsonify(response), 200
         

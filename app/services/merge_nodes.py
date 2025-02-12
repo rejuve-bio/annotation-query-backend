@@ -70,6 +70,7 @@ def do_grouping(annotation):
         ]
         
         new_graph['edges'].extend(edges)
-    
+    # print("new_graph", json.dumps(new_graph, indent=2))
     return new_graph
+
 #
