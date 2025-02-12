@@ -26,11 +26,12 @@ def hash_string(input_str):
     return hashlib.blake2b(input_str.encode(), digest_size=16).hexdigest()
 
 def do_grouping(annotation):
+    print("annotation_________________________", type(annotation))
     groups = {}
     ids = {}
-     
-    annotation=json.loads(annotation)
-     
+    if isinstance(annotation, str):
+        annotation=json.loads(annotation)
+    print("_______________________")
     for n in annotation.get('nodes', []):
          
         connections = get_connections_for_node(n, annotation)

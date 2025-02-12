@@ -1,248 +1,527 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 
-# Load the provided data
+# Load the provided 
 data= {
         "edges": [
             {
                 "data": {
-                    "id": "l2CO4LnncpFZP10TZTgJJ",
-                    "label": "transcribed_to",
-                    "source": "1159957edbaa5108e2cd363a8a64317b",
-                    "target": "75c7d7d0364e0f0393c4597c79d232a7"
+                    "id": "XyBlwj4QaF5iqRxbtVJzD",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "hUwKfROFlrnLbvn8PR3QP",
-                    "label": "includes",
-                    "source": "75c7d7d0364e0f0393c4597c79d232a7",
-                    "target": "3b443f14abef5acdc09c98056ba8a660"
+                    "id": "RrhdUU4P5t5WzbujFDQ-X",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "6JkRZUFQWoT6Exu_Xx2V2",
-                    "label": "includes",
-                    "source": "75c7d7d0364e0f0393c4597c79d232a7",
-                    "target": "b1932157d8b24866173b342d9728b8da"
+                    "id": "8sdFT8K3kSPWykOKBUUcu",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "xiGjP3SOwfNztkM9rsIP0",
-                    "label": "includes",
-                    "source": "5ecc2bdebf745bd6a8625b0062c0d0b9",
-                    "target": "b1932157d8b24866173b342d9728b8da"
+                    "id": "WyXh5Q7AAmqgZC2ewHNMP",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "75GmVoKyNP-dqIvOofGAO",
-                    "label": "includes",
-                    "source": "35f45f560695b5b9bd34ade981590b7c",
-                    "target": "b1932157d8b24866173b342d9728b8da"
+                    "id": "z4yPletcGGcdkk8hAv4Oc",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "XNAiYDhPpkngsLpOR8m5D",
-                    "label": "transcribed_to",
-                    "source": "1159957edbaa5108e2cd363a8a64317b",
-                    "target": "5ecc2bdebf745bd6a8625b0062c0d0b9"
+                    "id": "gu0B4kGWi9Wk8f4uD_aLO",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "NY3zQ2NqEWnpN3_wYxA6m",
-                    "label": "includes",
-                    "source": "5ecc2bdebf745bd6a8625b0062c0d0b9",
-                    "target": "a3fcd0e5a04f35a8a1bf7a08482ae7d0"
+                    "id": "gL1zr9nQe7RLU7hTWz91A",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "lKsTm9jcNLKLyDxB6pozS",
-                    "label": "transcribed_to",
-                    "source": "1159957edbaa5108e2cd363a8a64317b",
-                    "target": "35f45f560695b5b9bd34ade981590b7c"
+                    "id": "eSFmdLeiBVFQ8uu4tbC_0",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "0_ujKmPeS7feaONi4JY-0",
-                    "label": "includes",
-                    "source": "35f45f560695b5b9bd34ade981590b7c",
-                    "target": "ec0f5738a31ab00eae07eaf276ab1aa8"
+                    "id": "2tQ6ad12GBSs2ANcn37gp",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "SQ1FlYJd8HxR_GIhPqaw3",
-                    "label": "transcribed_to",
-                    "source": "56091db3df4dca339fe129c79c31463a",
-                    "target": "c30aca45add2c1098b71d768533843a7"
+                    "id": "YPeGjMvz8SMprAz8T4yrx",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "s9ZDGqmCjgCKOXN7Ezzl0",
-                    "label": "includes",
-                    "source": "c30aca45add2c1098b71d768533843a7",
-                    "target": "84d44b3c1496390ea54dc7e801a69a88"
+                    "id": "IxyqDMZBnOgC9IyYSvYha",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "5oMo9Lv486ZDDqDL1uqV3",
-                    "label": "transcribed_to",
-                    "source": "0eee0cda371d9ea0a9ea1f849da3f0f4",
-                    "target": "33a40b8d46dfbda126974e22da5f37f9"
+                    "id": "e09xte53xS1UUUzDCFzW0",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "T68Evwk_Ao7YawCXh5CSU",
-                    "label": "includes",
-                    "source": "33a40b8d46dfbda126974e22da5f37f9",
-                    "target": "258b907826da3ab6589ae39f4cad9f9e"
+                    "id": "TvVfXgc4-QVHO0kGaFXyU",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "nDpzQ1C50Lz0nOtHjQaHY",
-                    "label": "transcribed_to",
-                    "source": "1591ed5b52598a609f11f83cdea57fe1",
-                    "target": "591823940f657639367b34c1cebfc1c3"
+                    "id": "UkDUvx0y_KlxfTGUYRkoc",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             },
             {
                 "data": {
-                    "id": "-ZnCnQTrsEmR1cu6PlJRA",
-                    "label": "includes",
-                    "source": "591823940f657639367b34c1cebfc1c3",
-                    "target": "a9131e0eceb1155ffe377022e781ba36"
+                    "id": "P7J9FFsWf1MY0CIQHEhVA",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "8n1DbkR5VmvyRqju8-ama",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "e8bCotxrZxHjQ8j74gZ9j",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "8jLaU9RV4HcSwXn5rgz8l",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "q9o2J0DKTFgfb9HJcJzHy",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "U0kFkbfqMwHROFI7uGz24",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "l1BJ6DHckA49NXjDZ_nvR",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "mjf0IivXfinLi-iPtZqM8",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "i_SeCYfMDIvqIfxB4tCAW",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "aVADGJ7WwecgQqKTYOt2j",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "sgNEO_7h_U-FvEXEMi1Z_",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "ZKVGLSKAcyAFLKAVGiIxf",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "hjF5AjWM7uqEOcUY7KKCB",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "fA39hLm6e8IXAU4hqaJpZ",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "gocUFbMD5ShH83-UY-NJw",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "uEpzTECk5evm5HaMfkSda",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "983nAB6d0Xu2H-mDKCn5j",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "nE9iRGMS9S5tr65iYFjLZ",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "1M4jO3vojYJDJdfzA31tA",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "ja8i3DJPA_QzsQ6WxSl09",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "uniolgZPN-AH55pUQePGn",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "kvi-GZ3K9aC7BWogUX8Ut",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "NZM9fblV9QED8uHSzdMv1",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "9hZLzHDiPSEC4kqHYSfIW",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "F-IppolkL_io205dbqlqu",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "rgGu5xh7w38dnRqgsSfAk",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "nosbEJ0xOZNJKKICqdUp7",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "4Df8m6t6CEVlzcwHAR3oH",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "vc-RHWrn6XHGqOQ_4v9rv",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "WZfT5tEyy0ByGSfxVWbQQ",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "c6PU4rwlr-QGlYdvT6l31",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "-kYAkL0uczW3xfvtTINH5",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "8bpccwx59TjNsVLUKOm6j",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "yzZJ9ork2_Iz13i2WQLlc",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "tSm2axMO5HaLovFiMooMl",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "MY57ZH96-FdUCf1e_EGLT",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "fDA9fBXPUNFS6SkmwBOZA",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "20y-pK1IkltexGdwNPVTZ",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "5jQ4V5NsDtWNtNfTSvoyZ",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "zRdZEdoTmVsxCwb_4oA9C",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "ZaRDaX0riy5Tcpi8y7q9k",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "fEObrwqN7lYFvU4On5YfO",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "Ao_p077YYbBfrxQHLoR0A",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "dQROku81FtFmXX32K5HCR",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "kaIwfm32TN2T2dkRMO9L4",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "h6hDFn0-wIRyaL_z-rMV1",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "pN8LPp7aQJfUGEdMYpbYz",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "VnvXykNGDprlHXJho3n9r",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
+                }
+            },
+            {
+                "data": {
+                    "id": "5sMnHAcyKB7CixX4Xp-bj",
+                    "label": "eqtl_association",
+                    "source": "29f528c62e1229edf835153892529e83",
+                    "target": "6feabb8ff9eeb5a002f67ee35b844d9f"
                 }
             }
         ],
         "nodes": [
             {
                 "data": {
-                    "id": "75c7d7d0364e0f0393c4597c79d232a7",
-                    "name": "7 transcript nodes",
-                    "type": "transcript"
+                    "id": "29f528c62e1229edf835153892529e83",
+                    "name": "63 snp nodes",
+                    "type": "snp"
                 }
             },
             {
                 "data": {
-                    "id": "1159957edbaa5108e2cd363a8a64317b",
-                    "name": "23 gene nodes",
+                    "id": "6feabb8ff9eeb5a002f67ee35b844d9f",
+                    "name": "gene ensg00000116717",
                     "type": "gene"
-                }
-            },
-            {
-                "data": {
-                    "id": "3b443f14abef5acdc09c98056ba8a660",
-                    "name": "exon ense00001901152",
-                    "type": "exon"
-                }
-            },
-            {
-                "data": {
-                    "id": "b1932157d8b24866173b342d9728b8da",
-                    "name": "18 exon nodes",
-                    "type": "exon"
-                }
-            },
-            {
-                "data": {
-                    "id": "5ecc2bdebf745bd6a8625b0062c0d0b9",
-                    "name": "8 transcript nodes",
-                    "type": "transcript"
-                }
-            },
-            {
-                "data": {
-                    "id": "a3fcd0e5a04f35a8a1bf7a08482ae7d0",
-                    "name": "2 exon nodes",
-                    "type": "exon"
-                }
-            },
-            {
-                "data": {
-                    "id": "35f45f560695b5b9bd34ade981590b7c",
-                    "name": "8 transcript nodes",
-                    "type": "transcript"
-                }
-            },
-            {
-                "data": {
-                    "id": "ec0f5738a31ab00eae07eaf276ab1aa8",
-                    "name": "2 exon nodes",
-                    "type": "exon"
-                }
-            },
-            {
-                "data": {
-                    "id": "c30aca45add2c1098b71d768533843a7",
-                    "name": "2 transcript nodes",
-                    "type": "transcript"
-                }
-            },
-            {
-                "data": {
-                    "id": "56091db3df4dca339fe129c79c31463a",
-                    "name": "2 gene nodes",
-                    "type": "gene"
-                }
-            },
-            {
-                "data": {
-                    "id": "84d44b3c1496390ea54dc7e801a69a88",
-                    "name": "2 exon nodes",
-                    "type": "exon"
-                }
-            },
-            {
-                "data": {
-                    "id": "33a40b8d46dfbda126974e22da5f37f9",
-                    "name": "2 transcript nodes",
-                    "type": "transcript"
-                }
-            },
-            {
-                "data": {
-                    "id": "0eee0cda371d9ea0a9ea1f849da3f0f4",
-                    "name": "2 gene nodes",
-                    "type": "gene"
-                }
-            },
-            {
-                "data": {
-                    "id": "258b907826da3ab6589ae39f4cad9f9e",
-                    "name": "2 exon nodes",
-                    "type": "exon"
-                }
-            },
-            {
-                "data": {
-                    "id": "591823940f657639367b34c1cebfc1c3",
-                    "name": "3 transcript nodes",
-                    "type": "transcript"
-                }
-            },
-            {
-                "data": {
-                    "id": "1591ed5b52598a609f11f83cdea57fe1",
-                    "name": "3 gene nodes",
-                    "type": "gene"
-                }
-            },
-            {
-                "data": {
-                    "id": "a9131e0eceb1155ffe377022e781ba36",
-                    "name": "3 exon nodes",
-                    "type": "exon"
                 }
             }
         ]
