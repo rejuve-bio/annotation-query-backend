@@ -3,7 +3,7 @@ import time
 
 def generate_node_and_edge_count_mock():
     print("GENERATING COUNT", flush=True)
-    time.sleep(1 * 60)
+    time.sleep(2 * 60)
     node_count = 1800
     edge_count = 2100
 
@@ -18,7 +18,7 @@ def generate_title_mock():
 
 
 def generate_result_graph_mock():
-    time.sleep(2 * 60)
+    time.sleep(3 * 60)
     annotation = {
         "nodes": [
             {
@@ -648,7 +648,7 @@ def generate_result_graph_mock():
 
 
 def generate_summary_mock():
-    time.sleep(2 * 60)
+    time.sleep(4 * 60)
     summary = '''mocked summary, mocked summary,
     mocked summary, mocked summayr, mocked summary'''
 
@@ -656,6 +656,7 @@ def generate_summary_mock():
 
 
 def generate_label_count_mock():
+    time.sleep(3 * 60)
     node_count_by_label = [{
         "count": 1,
         "label": "gene"

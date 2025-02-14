@@ -234,7 +234,6 @@ def handle_client_mock(requests, node_types):
     return Response(
         json.dumps({"annotation_id": str(annotation_id)}),
         mimetype='application/json')
-    # TODO: emit event
 
 
 def handle_client_history_mock():
