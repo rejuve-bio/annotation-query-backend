@@ -1,3 +1,7 @@
+from app.mocks.generate_mock_result import generate_node_and_edge_count_mock, \
+    generate_result_graph_mock, generate_title_mock, generate_summary_mock, \
+    generate_label_count_mock
+from app.mocks.mock_db import MockDatabase
 from flask import copy_current_request_context, request, jsonify, \
     Response, send_from_directory
 import logging
@@ -19,10 +23,12 @@ import datetime
 from app.lib import convert_to_csv
 from app.lib import generate_file_path
 from app.lib import adjust_file_path
+import uuid
 # monkey.patch_all()
 # Load environmental variables
 load_dotenv()
 
+mock_db = MockDatabase()
 # set mongo loggin
 logging.getLogger('pymongo').setLevel(logging.CRITICAL)
 
@@ -160,6 +166,118 @@ def generate_count(query_code, annotation_id, requests, count=None):
         logging.error(e)
 
 
+def handle_client_mock(requests, node_types):
+    annotation_id = uuid.uuid4()
+    title = generate_title_mock()
+    json_request = requests
+
+    annotation = {
+        "annotation_id": annotation_id,
+        "title": title,
+        "request": json_request,
+        "node_types": node_types,
+        "annotation_list_item_status": 'PENDING'
+    }
+    mock_db.store_result(annotation)
+
+    def mock_count_generator():
+        time.sleep(0.2)
+        count = generate_node_and_edge_count_mock()
+        mock_db.update_count(annotation_id, count, 'COMPLETE')
+        socketio.emit('update', {'status': 'PENDING',
+                                 'update': {
+                                     'node_count': count['node_count'],
+                                     'edge_count': count['edge_count'],
+                                 }
+                                 },
+                      to=str(annotation_id))
+    mock_count_generator_thread = threading.Thread(
+        name='mock_count_generator', target=mock_count_generator)
+
+    def mock_result_generator():
+        time.sleep(0.2)
+        result = generate_result_graph_mock()
+        mock_db.update_result(
+            annotation_id, result['nodes'], result['edges'], 'COMPLETE')
+        socketio.emit('update', {'status': 'PENDING',
+                                 'update': {
+                                     'graph': True,
+                                 }}, to=str(annotation_id))
+        summary = generate_summary_mock()
+        status = mock_db.update_summary(annotation_id, summary)
+
+        socketio.emit('update', {'status': status,
+                      'update': {
+                          'summary': summary
+                      }}, to=str(annotation_id))
+    result_mock_generator_thread = threading.Thread(
+        name='mock_result_generator', target=mock_result_generator)
+
+    def mock_count_lable_generator():
+        time.sleep(0.2)
+        count = generate_label_count_mock()
+        status = mock_db.update_label_count(annotation_id, count)
+
+        socketio.emit('update', {'status': status, 'update': {
+            'node_count_by_label': count['node_count_by_label'],
+            'edge_count_by_label': count['edge_count_by_label']
+        }})
+
+    label_count_generator_thread = threading.Thread(
+        name='mock_lable_count_generator', target=mock_count_lable_generator
+    )
+
+    mock_count_generator_thread.start()
+    result_mock_generator_thread.start()
+    label_count_generator_thread.start()
+
+    return Response(
+        json.dumps({"annotation_id": str(annotation_id)}),
+        mimetype='application/json')
+    # TODO: emit event
+
+
+def handle_client_history_mock():
+    annotation = mock_db.get_result()
+
+    response = []
+
+    for single_annotation in annotation:
+        formated_result = {
+            "annotation_id": single_annotation['annotation_id'],
+            "title": single_annotation['title'],
+            "node_count": single_annotation['node_count'],
+            "edge_count": single_annotation['edge_count'],
+            "node_types": single_annotation['node_types'],
+            "status": single_annotation['annotation_list_item_status']
+        }
+        response.append(formated_result)
+
+    return Response(json.dumps(response), mimetype='application/json')
+
+
+def handle_client_id_mock(id):
+    annotation = mock_db.get_result_by_id(id)
+
+    if annotation is None:
+        return jsonify('No value Found'), 401
+
+    response = {
+        "annotation_id": annotation['annotation_id'],
+        "title": annotation['title'],
+        "nodes": annotation['nodes'],
+        "edges": annotation['edges'],
+        "node_count": annotation['node_count'],
+        "edge_count": annotation['edge_count'],
+        "request": annotation['request'],
+        "summary": annotation['summary'],
+        "node_count_by_label": annotation['node_count_by_label'],
+        "edge_count_by_label": annotation['edge_count_by_label'],
+        "status": annotation['annotation_result_status']
+    }
+    return Response(json.dumps(response), mimetype='application/json')
+
+
 def handle_client_request(query, request, current_user_id, node_types):
     annotation_id = request.get('annotation_id', None)
     # check if annotation exist
@@ -183,7 +301,7 @@ def handle_client_request(query, request, current_user_id, node_types):
         storage_service.update(
             annotation_id, {"updated_at": datetime.datetime.now()})
 
-        @copy_current_request_context
+        @ copy_current_request_context
         def send_annotation():
             time.sleep(0.1)
             try:
@@ -217,7 +335,7 @@ def handle_client_request(query, request, current_user_id, node_types):
 
         annotation_id = storage_service.save(annotation)
 
-        @copy_current_request_context
+        @ copy_current_request_context
         def send_annotation():
             time.sleep(0.1)
             try:
@@ -252,7 +370,7 @@ def handle_client_request(query, request, current_user_id, node_types):
 
         storage_service.update('annotatoin_id', annotation)
 
-        @copy_current_request_context
+        @ copy_current_request_context
         def send_annotation():
             try:
                 response = generate_result(query, annotation_id, request)
@@ -282,8 +400,8 @@ def handle_client_request(query, request, current_user_id, node_types):
         )
 
 
-@app.route('/query', methods=['POST'])  # type: ignore
-@token_required
+@ app.route('/query', methods=['POST'])  # type: ignore
+@ token_required
 def process_query(current_user_id):
     data = request.get_json()
     if not data or 'requests' not in data:
@@ -342,8 +460,8 @@ def process_query(current_user_id):
         node_types = list(node_types)
 
         if source is None:
-            return handle_client_request(query, requests,
-                                         current_user_id, node_types)
+            # return handle_client_request(query, requests, current_user_id, node_types)
+            return handle_client_mock(requests, node_types)
         result = db_instance.run_query(result_query)
 
         graph_components = {
@@ -403,14 +521,14 @@ def process_query(current_user_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/email-query/<id>', methods=['POST'])
-@token_required
+@ app.route('/email-query/<id>', methods=['POST'])
+@ token_required
 def process_email_query(current_user_id, id):
     data = request.get_json()
     if 'email' not in data:
         return jsonify({"error": "Email missing"}), 400
 
-    @copy_current_request_context
+    @ copy_current_request_context
     def send_full_data():
         try:
             email = data['email']
@@ -431,9 +549,12 @@ def process_email_query(current_user_id, id):
     return jsonify({'message': 'Email sent successfully'}), 200
 
 
-@app.route('/history', methods=['GET'])
-@token_required
+@ app.route('/history', methods=['GET'])
+@ token_required
 def process_user_history(current_user_id):
+
+    if True:
+        return handle_client_history_mock()
     page_number = request.args.get('page_number')
     if page_number is not None:
         page_number = int(page_number)
@@ -460,9 +581,11 @@ def process_user_history(current_user_id):
                     mimetype='application/json')
 
 
-@app.route('/annotation/<id>', methods=['GET'])
-@token_required
+@ app.route('/annotation/<id>', methods=['GET'])
+@ token_required
 def get_by_id(current_user_id, id):
+    if True:
+        return handle_client_id_mock(id)
     response_data = {}
     cursor = storage_service.get_by_id(id)
 
@@ -563,8 +686,8 @@ def get_by_id(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/annotation/<id>', methods=['POST'])
-@token_required
+@ app.route('/annotation/<id>', methods=['POST'])
+@ token_required
 def process_by_id(current_user_id, id):
     data = request.get_json()
     if not data or 'requests' not in data:
@@ -642,8 +765,8 @@ def process_by_id(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/annotation/<id>/full', methods=['GET'])
-@token_required
+@ app.route('/annotation/<id>/full', methods=['GET'])
+@ token_required
 def process_full_annotation(current_user_id, id):
     try:
         link = process_full_data(
@@ -662,7 +785,7 @@ def process_full_annotation(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/public/<file_name>')
+@ app.route('/public/<file_name>')
 def serve_file(file_name):
     public_folder = os.path.join(os.getcwd(), 'public')
     return send_from_directory(public_folder, file_name)
@@ -703,8 +826,8 @@ def process_full_data(current_user_id, annotation_id):
         raise e
 
 
-@app.route('/annotation/<id>', methods=['DELETE'])
-@token_required
+@ app.route('/annotation/<id>', methods=['DELETE'])
+@ token_required
 def delete_by_id(current_user_id, id):
     try:
         existing_record = storage_service.get_by_id(id)
@@ -728,8 +851,8 @@ def delete_by_id(current_user_id, id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/annotation/<id>/title', methods=['PUT'])
-@token_required
+@ app.route('/annotation/<id>/title', methods=['PUT'])
+@ token_required
 def update_title(current_user_id, id):
     data = request.get_json()
 
