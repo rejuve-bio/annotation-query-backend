@@ -18,6 +18,8 @@ class MockDatabase:
             'annotation_list_item_status': annotation.get('annotation_list_item_status', 'PENDING'),
             'nodes': annotation.get('nodes', []),
             'edges': annotation.get('edges', []),
+            'node_count_by_label': annotation.get('node_count_by_label', []),
+            'edge_count_by_label': annotation.get('edge_count_by_label', []),
             'annotation_result_status': annotation.get('annotation_result_status', 'PENDING'),
             'summary': annotation.get('summary', ''),
             'created_at': datetime.now(timezone.utc).isoformat()
