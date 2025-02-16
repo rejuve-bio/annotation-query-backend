@@ -753,16 +753,14 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         final_graph1 = collapse_nodes(graph)
         final_graph = group_into_parents(graph)
 
-        print("collapse ______________________________________________")
-        print(final_graph1)
-        print("collapse ______________________________________________")
+        
 
         print("group nodes _______________________________________________")
         print(final_graph)
         print("group nodes _______________________________________________")
 
                 
-        return final_graph1
+        return final_graph
 
     def parse_and_serialize(self, input, schema, all_properties ):
         

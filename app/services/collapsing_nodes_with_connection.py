@@ -57,9 +57,19 @@ def collapse_nodes(annotation):
             map_string[connections_hash] = {"connections": connections_array, "nodes": [node_id]}
         
         ids[node_id] = connections_hash
-    
+
+    #now that we have the group of nodes, we can construct a new collpased graph
+
     new_graph = {"edges": [], "nodes": []}
     
+    """
+    for group key
+    and create a new node for it
+    the hash serves as its key
+    since the nodes are all of the same type, we can take the type of the first node
+    in the list
+    """
+
     for group_id, group in map_string.items():
         node = next((n for n in annotation["nodes"] if n["data"]["id"] in group["nodes"]), None)
         
@@ -71,6 +81,11 @@ def collapse_nodes(annotation):
         
         added = set()
         edges = []
+
+        """for each connection in the group, create edges that point to/from the new node we just
+        created. we only add edges for connections that specify a source, to avoid duplicate edges.
+        every edge has a source and target, so the edges that specify a target in this group, will
+        specify a source in another group and they will be added then."""
         
         for conn in group["connections"]:
             if conn.is_source:
@@ -89,7 +104,35 @@ def collapse_nodes(annotation):
     return new_graph
 
 def group_into_parents(annotation):
+    """
+    map maps a node with its connected nodes. it also holds the 
+  edge label for future reference. 
+    {
+      igf1: {
+        'ege_type': {
+          nodes: ['IGF1-206', 'IGF1-203', ...],
+          isSource: false
+        },
+      }
+    
+    }
+    """
     node_map = get_node_to_connections_map(annotation)
+    
+    """
+     parentMap is a mapping created by filtering out irrelevant entries from commonSourceMapping
+    (such as groups that can't be grouped because they just contain one node). It maps the IDs
+    of the target nodes with the an object that specifies their count, the source node, the edge
+    label and the Id of the parent node that will be created for this group.
+
+    'exon ense00001829249,exon ense00001917080' => {
+      count: 2,
+      node: 'transcript enst00000481539',
+      label: 'includes',
+      id: 'aMiuScFWOW',
+      isSource: true
+  }
+    """
     parent_map = {}
     
     for node_id, connections in node_map.items():
@@ -106,7 +149,11 @@ def group_into_parents(annotation):
                     "count": len(conn.nodes),
                     "is_source": conn.is_source
                 }
-    
+    """
+  We only want to group together nodes that have the same exact incoming edges. 
+  so two keys in the parent map should either be exactly the same, 
+  one should be a subset of the other or they shouldnt contain common node IDs.
+  """
     keys = list(parent_map.keys())
     invalid_groups = [k for k in keys if any(
         k != a and parent_map[a]["is_source"] == parent_map[k]["is_source"] and
@@ -114,10 +161,12 @@ def group_into_parents(annotation):
         any(b in a for b in k.split(","))
         for a in keys
     )]
-    
+
+    #Every key that doesnt form a valid grouping is removed from the parentMap.
+
     for k in invalid_groups:
         del parent_map[k]
-    
+    #the "parents" map contains the IDs of the new parent nodes to be added.
     parents = set()
     grouped_nodes = {}
     
@@ -125,14 +174,19 @@ def group_into_parents(annotation):
         node_count = 0
         for key, parent in parent_map.items():
             if node["data"]["id"] in key and parent["count"] > node_count:
-                node["data"]["parent"] = parent["id"]
+                node["data"]["parent"] = parent["id"] #Assign the parent field
                 node_count = parent["count"]
-        
+ 
         parent_id = node["data"].get("parent")
+ 
         if parent_id:
             parents.add(parent_id)
             grouped_nodes.setdefault(parent_id, []).append(node)
-    
+    """
+   since each node decides which group it wants to belong to, there might be a case where
+  a group only contains one node. we do not want to have a compount node with a single node
+  inside it, so we remove those groups. 
+    """
     for key, entry in list(grouped_nodes.items()):
         if len(entry) < 2:
             parents.discard(key)
@@ -141,14 +195,20 @@ def group_into_parents(annotation):
     
     for p in parents:
         annotation["nodes"].append({"data": {"id": p, "type": "parent", "name": p}})
-    
+
+
+    #remove all edges that point to nodes that have just been assigned parents.
+
+
     edges = [e for e in annotation["edges"] if not any(
         parent["id"] in parents and
         parent["node"] == (e["data"]["source"] if parent["is_source"] else e["data"]["target"]) and
         parent["label"] == e["data"]["label"]
         for parent in parent_map.values()
     )]
-    
+    #  add new edges that point to the newly created parents instead.
+
+
     for parent in parent_map.values():
         if parent["id"] in parents:
             edges.append({
@@ -161,3 +221,7 @@ def group_into_parents(annotation):
             })
     
     annotation["edges"] = edges
+    
+    return annotation
+
+     
