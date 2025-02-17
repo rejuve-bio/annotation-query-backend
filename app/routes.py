@@ -52,7 +52,7 @@ init_mail(app)
 CORS(app)
 
 # Setup basic logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(filename='../../logs/logs.log', level=logging.DEBUG)
 
 
 @app.route('/kg-info', methods=['GET'])
@@ -237,48 +237,58 @@ def handle_client_mock(requests, node_types):
 
 
 def handle_client_history_mock():
-    annotation = mock_db.get_result()
+    try:
+        annotation = mock_db.get_result()
 
-    response = []
+        response = []
 
-    for single_annotation in annotation:
-        formated_result = {
-            "annotation_id": single_annotation['annotation_id'],
-            "title": single_annotation['title'],
-            "node_count": single_annotation['node_count'],
-            "edge_count": single_annotation['edge_count'],
-            "node_types": single_annotation['node_types'],
-            "status": single_annotation['annotation_list_item_status'],
-            "created_at": single_annotation['created_at'],
-            "updated_at": single_annotation['updated_at']
-        }
-        response.append(formated_result)
+        for single_annotation in annotation:
+            formated_result = {
+                "annotation_id": single_annotation['annotation_id'],
+                "title": single_annotation['title'],
+                "node_count": single_annotation['node_count'],
+                "edge_count": single_annotation['edge_count'],
+                "node_types": single_annotation['node_types'],
+                "status": single_annotation['annotation_list_item_status'],
+                "created_at": single_annotation['created_at'],
+                "updated_at": single_annotation['updated_at']
+            }
+            response.append(formated_result)
 
-    return Response(json.dumps(response), mimetype='application/json')
+        return Response(json.dumps(response), mimetype='application/json')
+    except Exception as e:
+        logging.error(e)
+        return jsonify({"error": str(e)}), 500
 
 
 def handle_client_id_mock(id):
-    annotation = mock_db.get_result_by_id(id)
+    try:
+        annotation = mock_db.get_result_by_id(id)
 
-    if annotation is None:
-        return jsonify('No value Found'), 401
+        if annotation is None:
+            return jsonify('No value Found'), 401
 
-    response = {
-        "annotation_id": annotation['annotation_id'],
-        "title": annotation['title'],
-        "nodes": annotation['nodes'],
-        "edges": annotation['edges'],
-        "node_count": annotation['node_count'],
-        "edge_count": annotation['edge_count'],
-        "request": annotation['request'],
-        "summary": annotation['summary'],
-        "node_count_by_label": annotation['node_count_by_label'],
-        "edge_count_by_label": annotation['edge_count_by_label'],
-        "status": annotation['annotation_result_status'],
-        "created_at": annotation['created_at'],
-        "updated_at": annotation['updated_at']
-    }
-    return Response(json.dumps(response), mimetype='application/json')
+        response = {
+            "annotation_id": annotation['annotation_id'],
+            "title": annotation['title'],
+            "node_count": annotation['node_count'],
+            "edge_count": annotation['edge_count'],
+            "request": annotation['request'],
+            "summary": annotation['summary'],
+            "node_count_by_label": annotation['node_count_by_label'],
+            "edge_count_by_label": annotation['edge_count_by_label'],
+            "status": annotation['annotation_result_status'],
+            "created_at": annotation['created_at'],
+            "updated_at": annotation['updated_at']
+        }
+        
+        if annotation['status'] == 'COMPLETE':
+            response['nodes'] = annotation['nodes']
+            response['edges'] = annotation['edges']
+        return Response(json.dumps(response), mimetype='application/json')
+    except Exception as e:
+        logging.error(e)
+        return jsonify({"error": str(e)}), 500
 
 
 def handle_client_request(query, request, current_user_id, node_types):
