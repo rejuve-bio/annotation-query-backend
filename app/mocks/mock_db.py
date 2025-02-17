@@ -20,7 +20,7 @@ class MockDatabase:
             'edge_count_by_label': annotation.get('edge_count_by_label', []),
             'annotation_result_status': annotation.get('annotation_result_status', 'PENDING'),
             'summary': annotation.get('summary', ''),
-            'annoation_label_status': annotation.get('annoation_label_status', 'PENDING'),
+            'annotation_label_status': annotation.get('annotation_label_status', 'PENDING'),
             'annotation_summary_status': annotation.get('annotation_summary_status', 'PENDING'),
             'created_at': datetime.now(timezone.utc).isoformat(),
             'updated_at': datetime.now(timezone.utc).isoformat()
