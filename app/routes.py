@@ -271,12 +271,7 @@ def handle_client_id_mock(id):
         response = {
             "annotation_id": annotation['annotation_id'],
             "title": annotation['title'],
-            "node_count": annotation['node_count'],
-            "edge_count": annotation['edge_count'],
             "request": annotation['request'],
-            "summary": annotation['summary'],
-            "node_count_by_label": annotation['node_count_by_label'],
-            "edge_count_by_label": annotation['edge_count_by_label'],
             "status": annotation['annotation_result_status'],
             "created_at": annotation['created_at'],
             "updated_at": annotation['updated_at']
@@ -285,6 +280,14 @@ def handle_client_id_mock(id):
         if annotation['annotation_result_status'] == 'COMPLETE':
             response['nodes'] = annotation['nodes']
             response['edges'] = annotation['edges']
+        if annotation['annotation_list_item_status'] == 'COMPLETE':
+            response['node_count'] = annotation['node_count']
+            response['edge_count'] = annotation['edge_count']
+        if annotation['annotation_summary_status'] == 'COMPLETE':
+            response['summary'] = annotation['summary']
+        if annotation['annotation_label_status'] == 'COMPLETE':
+            response['node_count_by_label'] = annotation['node_count_by_label']
+            response['edge_count_by_label'] = annotation['edge_count_by_label']
         return Response(json.dumps(response), mimetype='application/json')
     except Exception as e:
         logging.error(e)

@@ -20,6 +20,8 @@ class MockDatabase:
             'edge_count_by_label': annotation.get('edge_count_by_label', []),
             'annotation_result_status': annotation.get('annotation_result_status', 'PENDING'),
             'summary': annotation.get('summary', ''),
+            'annoation_label_status': annotation.get('annoation_label_status', 'PENDING'),
+            'annotation_summary_status': annotation.get('annotation_summary_status', 'PENDING'),
             'created_at': datetime.now(timezone.utc).isoformat(),
             'updated_at': datetime.now(timezone.utc).isoformat()
         }
@@ -55,6 +57,7 @@ class MockDatabase:
         for data in self.db:
             if data['annotation_id'] == str(id):
                 data['summary'] = summary
+                data['annotation_summary_status'] = 'COMPLETE'
                 if len(data['node_count_by_label']) > 0:
                     return 'COMPLETE'
                 else:
@@ -65,6 +68,7 @@ class MockDatabase:
             if data['annotation_id'] == str(id):
                 data['node_count_by_label'] = count['node_count_by_label']
                 data['edge_count_by_label'] = count['edge_count_by_label']
+                data['annoation_label_status'] = 'COMPLETE'
                 if data['summary'] != '':
                     return 'COMPLETE'
                 else:
