@@ -248,7 +248,9 @@ def handle_client_history_mock():
             "node_count": single_annotation['node_count'],
             "edge_count": single_annotation['edge_count'],
             "node_types": single_annotation['node_types'],
-            "status": single_annotation['annotation_list_item_status']
+            "status": single_annotation['annotation_list_item_status'],
+            "created_at": single_annotation['created_at'],
+            "updated_at": single_annotation['updated_at']
         }
         response.append(formated_result)
 
@@ -272,7 +274,9 @@ def handle_client_id_mock(id):
         "summary": annotation['summary'],
         "node_count_by_label": annotation['node_count_by_label'],
         "edge_count_by_label": annotation['edge_count_by_label'],
-        "status": annotation['annotation_result_status']
+        "status": annotation['annotation_result_status'],
+        "created_at": annotation['created_at'],
+        "updated_at": annotation['updated_at']
     }
     return Response(json.dumps(response), mimetype='application/json')
 

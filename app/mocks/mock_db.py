@@ -1,7 +1,5 @@
 from datetime import datetime, timezone
 
-db = []
-
 
 class MockDatabase:
     def __init__(self):
@@ -22,7 +20,8 @@ class MockDatabase:
             'edge_count_by_label': annotation.get('edge_count_by_label', []),
             'annotation_result_status': annotation.get('annotation_result_status', 'PENDING'),
             'summary': annotation.get('summary', ''),
-            'created_at': datetime.now(timezone.utc).isoformat()
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'updated_at': datetime.now(timezone.utc).isoformat()
         }
 
         self.db.append(data)
