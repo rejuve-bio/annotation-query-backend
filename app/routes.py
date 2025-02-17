@@ -216,6 +216,11 @@ def handle_client_request(query, request, current_user_id, node_types):
                       "title": title, "node_types": node_types}
 
         annotation_id = storage_service.save(annotation)
+        response_data = {"annotation_id": str(annotation_id),
+                         "title": title,
+                         "request": request,
+                         "status": "PENDING"
+                         }
 
         @copy_current_request_context
         def send_annotation():
@@ -241,7 +246,7 @@ def handle_client_request(query, request, current_user_id, node_types):
             name='count_generator', target=send_count)
         count_generator.start()
         return Response(
-            json.dumps({"annotation_id": str(annotation_id)}),
+            json.dumps(response_data),
             mimetype='application/json')
     else:
         title = llm.generate_title(query)
