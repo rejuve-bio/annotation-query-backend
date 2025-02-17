@@ -282,7 +282,7 @@ def handle_client_id_mock(id):
             "updated_at": annotation['updated_at']
         }
         
-        if annotation['status'] == 'COMPLETE':
+        if annotation['annotation_result_status'] == 'COMPLETE':
             response['nodes'] = annotation['nodes']
             response['edges'] = annotation['edges']
         return Response(json.dumps(response), mimetype='application/json')
