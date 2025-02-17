@@ -68,7 +68,7 @@ class MockDatabase:
             if data['annotation_id'] == str(id):
                 data['node_count_by_label'] = count['node_count_by_label']
                 data['edge_count_by_label'] = count['edge_count_by_label']
-                data['annoation_label_status'] = 'COMPLETE'
+                data['annotation_label_status'] = 'COMPLETE'
                 if data['summary'] != '':
                     return 'COMPLETE'
                 else:
