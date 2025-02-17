@@ -243,13 +243,20 @@ def handle_client_history_mock():
         response = []
 
         for single_annotation in annotation:
+            status = 'PENDING'
+        
+            if single_annotation['annotation_list_item_status'] == 'COMPLETE' \
+                and single_annotation['annotation_result_status'] == 'COMPLETE' \
+                    and single_annotation['annotation_summary_status'] == 'COMPLETE' \
+                        and single_annotation['annotation_label_status'] == 'COMPLETE':
+                status = 'COMPLETE'
             formated_result = {
                 "annotation_id": single_annotation['annotation_id'],
                 "title": single_annotation['title'],
                 "node_count": single_annotation['node_count'],
                 "edge_count": single_annotation['edge_count'],
                 "node_types": single_annotation['node_types'],
-                "status": single_annotation['annotation_list_item_status'],
+                "status": status,
                 "created_at": single_annotation['created_at'],
                 "updated_at": single_annotation['updated_at']
             }
@@ -267,12 +274,19 @@ def handle_client_id_mock(id):
 
         if annotation is None:
             return jsonify('No value Found'), 401
-
+        
+        status = 'PENDING'
+        
+        if annotation['annotation_list_item_status'] == 'COMPLETE' \
+            and annotation['annotation_result_status'] == 'COMPLETE' \
+                and annotation['annotation_summary_status'] == 'COMPLETE' \
+                    and annotation['annotation_label_status'] == 'COMPLETE':
+            status = 'COMPLETE'
         response = {
             "annotation_id": annotation['annotation_id'],
             "title": annotation['title'],
             "request": annotation['request'],
-            "status": annotation['annotation_result_status'],
+            "status": status,
             "created_at": annotation['created_at'],
             "updated_at": annotation['updated_at']
         }
