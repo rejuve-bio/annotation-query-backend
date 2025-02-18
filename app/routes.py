@@ -5,7 +5,7 @@ import json
 import os
 import threading
 import time
-from app import app, schema_manager, db_instance, socketio
+from app import app, schema_manager, db_instance, socketio, redis_client
 from app.lib import validate_request
 from flask_cors import CORS
 from flask_socketio import disconnect, join_room
@@ -101,19 +101,36 @@ def on_join(data):
     join_room(room)
     logging.info(f"user join a room with {room}")
     send(f'connected to {room}', to=room)
-
+    
+def update_get_task(annotation_id, graph=None):
+    cache = redis_client.get(str(annotation_id))
+    status = 'PENDING'
+    if cache is None:
+        task_num = 1
+        redis_client.set(str(annotation_id), json.dumps({'task': task_num, 'graph': graph}))
+    else:
+        cache = json.loads(cache)
+        task_num = cache['task'] + 1
+        redis_client.set(str(annotation_id), json.dumps({'task': task_num, 'graph': graph}))
+        
+        if task_num >= 4:
+            status = 'COMPLETED'
+            
+    return status
 
 def generate_summary(annotation_id, response, summary=None):
     if summary is not None:
-        socketio.emit('task_update', {
-                      'task': summary}, to=str(annotation_id))
+        status = update_get_task(annotation_id)
+        socketio.emit('update', {'status': status, 'update': {'summary': summary}},
+                  to=str(annotation_id))
+
         return
 
     summary = llm.generate_summary(response)
     storage_service.update(annotation_id, {"summary": summary})
 
-    # TODO: store the ststus in redis
-    socketio.emit('update', {'update': {'summary': summary}},
+    status = update_get_task(annotation_id)
+    socketio.emit('update', {'status': status, 'update': {'summary': summary}},
                   to=str(annotation_id))
 
 
@@ -124,9 +141,12 @@ def generate_result(query_code, annotation_id, requests):
                             requests['predicates'], "properties": True}
         response = db_instance.parse_and_serialize(
             response_data, schema_manager.schema, graph_components, 'graph')
-        # TODO: store it in redis as a chache
-        # TODO: store the status in redis
-        socketio.emit('update', {'status': 'PENDING',
+        
+        status = update_get_task(annotation_id, {
+            'nodes': response['nodes'],
+            'edges': response['edges']
+        })
+        socketio.emit('update', {'status': status,
                                  'update': {'graph': True}
                                  },
                       to=str(annotation_id))
@@ -139,8 +159,9 @@ def generate_result(query_code, annotation_id, requests):
 def generate_total_count(count_query, annotation_id, requests, total_count=None):
     try:
         if total_count:
+            status = update_get_task(annotation_id)
             socketio.emit('update', {
-                'status': 'PENDING',
+                'status': status,
                 'update': {'node_count': total_count['node_count'],
                            'edge_count': total_count['edge_count']
                            }},
@@ -160,9 +181,11 @@ def generate_total_count(count_query, annotation_id, requests, total_count=None)
                                {'node_count': response['node_count'],
                                 'edge_count': response['edge_count'],
                                 })
+        
+        status = update_get_task(annotation_id)
 
         socketio.emit('update', {
-            'status': 'PENDING',
+            'status': status,
             'update': {'node_count': response['node_count'],
                        'edge_count': response['edge_count']
                        }},
@@ -175,8 +198,9 @@ def generate_total_count(count_query, annotation_id, requests, total_count=None)
 def generate_label_count(count_query, annotation_id, requests, label_count=None):
     try:
         if label_count:
+            status = update_get_task(annotation_id)
             socketio.emit('update', {
-                'status': 'PENDING',
+                'status': status,
                 'update': {'node_count': label_count['node_count_by_label'],
                            'edge_count': label_count['edge_count_by_label']
                            }},
@@ -186,7 +210,6 @@ def generate_label_count(count_query, annotation_id, requests, label_count=None)
         label_count = db_instance.run_query(count_query)
 
         count_result = [{}, label_count[0]]
-        print("COUNT REUSLT: ", count_result, flush=True)
         graph_components = {"nodes": requests['nodes'],
                             "predicates": requests['predicates'],
                             "properties": False}
@@ -197,9 +220,11 @@ def generate_label_count(count_query, annotation_id, requests, label_count=None)
                                {'node_count_by_label': response['node_count_by_label'],
                                 'edge_count_by_label': response['edge_count_by_label'],
                                 })
+        
+        status = update_get_task(annotation_id)
 
         socketio.emit('update', {
-            'status': 'PENDING',
+            'status': status,
             'update': {'node_count_by_label': response['node_count_by_label'],
                        'edge_count_by_label': response['edge_count_by_label']
                        }},
