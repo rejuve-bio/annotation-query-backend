@@ -8,13 +8,16 @@ services:
       - .:/app
     ports:
       - "${APP_PORT}:${APP_PORT}"
-    command: gunicorn -w 16 --bind 0.0.0.0:${APP_PORT} run:app
+    command: flask run --host=0.0.0.0 --port=${APP_PORT}
     restart: always
     depends_on:
       - mongodb
+      - redis
     environment:
       - MONGO_URI=${MONGO_URI}
       - APP_PORT=${APP_PORT}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
 
   mongodb:
     image: mongo:latest
@@ -23,6 +26,14 @@ services:
     ports:
       - "${MONGODB_DOCKER_PORT}:27017"
     restart: always
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6380:6379"
+    restart: always
+    volumes:
+      - redis_data:/data
 
   caddy:
     image: caddy:latest
@@ -38,5 +49,6 @@ services:
 
 volumes:
   mongo_data:
+  redis_data:
   caddy_data:
   caddy_config:

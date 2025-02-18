@@ -19,6 +19,7 @@ import datetime
 from app.lib import convert_to_csv
 from app.lib import generate_file_path
 from app.lib import adjust_file_path
+from app.lib import Graph
 # monkey.patch_all()
 # Load environmental variables
 load_dotenv()
@@ -115,7 +116,7 @@ def update_get_task(annotation_id, graph=None):
         redis_client.set(str(annotation_id), json.dumps({'task': task_num, 'graph': graph}))
         
         if task_num >= 4:
-            status = 'COMPLETED'
+            status = 'COMPLETE'
             storage_service.update(annotation_id, {'status': status})
             
     return status
@@ -144,9 +145,12 @@ def generate_result(query_code, annotation_id, requests):
         response = db_instance.parse_and_serialize(
             response_data, schema_manager.schema, graph_components, 'graph')
         
+        graph = Graph()
+        grouped_graph = graph.group_graph(response_data)
+        
         status = update_get_task(annotation_id, {
-            'nodes': response['nodes'],
-            'edges': response['edges']
+            'nodes': grouped_graph['nodes'],
+            'edges': grouped_graph['edges']
         })
         socketio.emit('update', {'status': status,
                                  'update': {'graph': True}
@@ -566,6 +570,7 @@ def process_user_history(current_user_id):
             'node_count': document['node_count'],
             'edge_count': document['edge_count'],
             'node_types': document['node_types'],
+            'status': document['status'],
             "created_at": document['created_at'].isoformat(),
             "updated_at": document["updated_at"].isoformat()
         })
@@ -611,6 +616,7 @@ def get_by_id(current_user_id, id):
     edge_count = cursor.edge_count
     node_count_by_label = cursor.node_count_by_label
     edge_count_by_label = cursor.edge_count_by_label
+    status = cursor.status
 
     limit = request.args.get('limit')
     properties = request.args.get('properties')
@@ -673,7 +679,7 @@ def get_by_id(current_user_id, id):
         response_data["edge_count"] = edge_count
         response_data["node_count_by_label"] = node_count_by_label
         response_data["edge_count_by_label"] = edge_count_by_label
-
+        response_data["status"] = status
         # if limit:
         # response_data = limit_graph(response_data, limit)
 
