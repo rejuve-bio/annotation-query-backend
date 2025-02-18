@@ -775,7 +775,7 @@ def process_by_id(current_user_id, id):
             response_data["question"] = question
 
         # Run the query and parse the results
-        result = db_instance.run_query(query, source)
+        result = db_instance.run_query(query)
         response_data = db_instance.parse_and_serialize(
             result, schema_manager.schema, properties)
 
