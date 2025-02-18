@@ -614,8 +614,6 @@ def process_user_history(current_user_id):
 @ app.route('/annotation/<id>', methods=['GET'])
 @ token_required
 def get_by_id(current_user_id, id):
-    if True:
-        return handle_client_id_mock(id)
     response_data = {}
     cursor = storage_service.get_by_id(id)
 
@@ -623,6 +621,9 @@ def get_by_id(current_user_id, id):
     properties = request.args.get('properties')
     # can be either hypothesis or ai_assistant
     source = request.args.get('source')
+    
+    if source is None:
+        return handle_client_id_mock(id)
 
     if properties:
         properties = bool(strtobool(properties))
