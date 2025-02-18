@@ -18,7 +18,7 @@ class Storage(Schema):
     node_count = None
     edge_count = None
     node_types = None
-    node_count_by_lable = None
+    node_count_by_label = None
     edge_count_by_label = None
     status = None
 
@@ -81,7 +81,7 @@ class Storage(Schema):
         title: {self.title}, summary: {self.summary},
         question: {self.question}, answer: {self.answer},
         node_count: {self.node_count}, edge_count: {self.edge_count},
-        node_count_by_label: {self.node_count_by_lable},
+        node_count_by_label: {self.node_count_by_label},
         edge_count_by_label: {self.edge_count_by_label},
         status: {self.status}
         """

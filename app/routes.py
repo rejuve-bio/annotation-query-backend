@@ -111,10 +111,12 @@ def update_get_task(annotation_id, graph=None):
     else:
         cache = json.loads(cache)
         task_num = cache['task'] + 1
+        graph = graph if graph else cache['graph']
         redis_client.set(str(annotation_id), json.dumps({'task': task_num, 'graph': graph}))
         
         if task_num >= 4:
             status = 'COMPLETED'
+            storage_service.update(annotation_id, {'status': status})
             
     return status
 
@@ -201,8 +203,8 @@ def generate_label_count(count_query, annotation_id, requests, label_count=None)
             status = update_get_task(annotation_id)
             socketio.emit('update', {
                 'status': status,
-                'update': {'node_count': label_count['node_count_by_label'],
-                           'edge_count': label_count['edge_count_by_label']
+                'update': {'node_count_by_label': label_count['node_count_by_label'],
+                           'edge_count_by_label': label_count['edge_count_by_label']
                            }},
                           to=str(annotation_id))
             return
@@ -215,6 +217,7 @@ def generate_label_count(count_query, annotation_id, requests, label_count=None)
                             "properties": False}
         response = db_instance.parse_and_serialize(
             count_result, schema_manager.schema, graph_components, 'count')
+        
 
         storage_service.update(annotation_id,
                                {'node_count_by_label': response['node_count_by_label'],
@@ -596,6 +599,7 @@ def get_by_id(current_user_id, id):
 
     if cursor is None:
         return jsonify('No value Found'), 200
+    print(cursor)
     json_request = cursor.request
     query = cursor.query
     title = cursor.title
@@ -638,13 +642,20 @@ def get_by_id(current_user_id, id):
                 annotation_id), "question": question, "answer": answer}
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
+        
+        
+        cache = redis_client.get(str(annotation_id))
 
-        # Run the query and parse the results
-        result = db_instance.run_query(query)
-        graph_components = {"properties": properties}
-        response_data = db_instance.parse_and_serialize(
-            result, schema_manager.schema,
-            graph_components, result_type='graph')
+        if cache is not None:
+            cache = json.loads(cache)
+            response_data = cache['graph']
+        else:
+            # Run the query and parse the results
+            result = db_instance.run_query(query)
+            graph_components = {"properties": properties}
+            response_data = db_instance.parse_and_serialize(
+                result, schema_manager.schema,
+                graph_components, result_type='graph')
 
         if source == 'hypothesis':
             response = {
