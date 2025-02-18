@@ -617,13 +617,13 @@ def get_by_id(current_user_id, id):
     response_data = {}
     cursor = storage_service.get_by_id(id)
 
-    limit = request.args.get('limit')
-    properties = request.args.get('properties')
     # can be either hypothesis or ai_assistant
-    source = request.args.get('source')
+    source = request.args.get('source', None)
     
     if source is None:
         return handle_client_id_mock(id)
+    
+    cursor = storage_service.get_by_id(id)
 
     if properties:
         properties = bool(strtobool(properties))
