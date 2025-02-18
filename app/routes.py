@@ -773,11 +773,13 @@ def process_by_id(current_user_id, id):
     try:
         if question:
             response_data["question"] = question
+            
+        graph_components = {"properties": properties}
 
         # Run the query and parse the results
         result = db_instance.run_query(query)
         response_data = db_instance.parse_and_serialize(
-            result, schema_manager.schema, properties)
+            result, schema_manager.schema, graph_components, result_type='graph')
 
         answer = llm.generate_summary(
             response_data, question, False, summary) if question else None
