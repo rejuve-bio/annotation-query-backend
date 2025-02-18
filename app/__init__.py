@@ -11,6 +11,7 @@ from app.persistence.storage_service import StorageService
 import os
 import logging
 import yaml
+from flask_redis import FlaskRedis
 # from gevent import monkey
 
 # monkey.patch_all()
@@ -18,6 +19,11 @@ import yaml
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*',
                     async_mode='threading', logger=True, engineio_logger=True)
+
+app.config['REDIS_URL'] = os.getenv('REDIS_URL')
+
+# intialize redis
+redis_client = FlaskRedis(app)
 
 
 def load_config():

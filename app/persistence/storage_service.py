@@ -11,14 +11,15 @@ class StorageService():
             request=annotation["request"],
             query=annotation["query"],
             title=annotation["title"],
-            summary=annotation.get("summary", "generating summary"),
+            summary=annotation.get("summary", None),
             question=annotation.get("question", None),
             answer=annotation.get("answer", None),
-            node_count=annotation.get("node_count", 0),
-            edge_count=annotation.get("edge_count", 0),
+            node_count=annotation.get("node_count", None),
+            edge_count=annotation.get("edge_count", None),
             node_types=annotation["node_types"],
-            node_count_by_label=annotation.get("node_count_by_label", []),
-            edge_count_by_label=annotation.get("edge_count_by_label", [])
+            node_count_by_label=annotation.get("node_count_by_label", None),
+            edge_count_by_label=annotation.get("edge_count_by_label", None),
+            status=annotation.get('status', 'PENDING')
         )
 
         id = data.save()

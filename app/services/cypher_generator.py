@@ -495,36 +495,38 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # build edge type set
         node_count_aggregate = {}
         ege_count_aggregate = {}
-        # initialize node count aggreate dictionary where the key is the label.
-        for node in graph_components['nodes']:
-            node_type = node['type']
-            node_count_aggregate[node_type] = {'count': 0}
 
-        # initialize edge count aggreate dictionary where the key is the label.
-        for predicate in graph_components['predicates']:
-            edge_type = predicate['type'].replace(" ", "_").lower()
-            ege_count_aggregate[edge_type] = {'count': 0}
+        if len(count_by_label) != 0:
+            # initialize node count aggreate dictionary where the key is the label.
+            for node in graph_components['nodes']:
+                node_type = node['type']
+                node_count_aggregate[node_type] = {'count': 0}
 
-        # update node count aggregate dictionary with the count of each label
-        for key, value in count_by_label.items():
-            node_type_key = '_'.join(key.split('_')[1:])
-            if node_type_key in node_count_aggregate:
-                node_count_aggregate[node_type_key]['count'] += value
+            # initialize edge count aggreate dictionary where the key is the label.
+            for predicate in graph_components['predicates']:
+                edge_type = predicate['type'].replace(" ", "_").lower()
+                ege_count_aggregate[edge_type] = {'count': 0}
 
-        # update edge count aggregate dictionary with the count of each label
-        for key, value in count_by_label.items():
-            edge_type_key = '_'.join(key.split('_')[1:])
-            if edge_type_key in ege_count_aggregate:
-                ege_count_aggregate[edge_type_key]['count'] += value
+            # update node count aggregate dictionary with the count of each label
+            for key, value in count_by_label.items():
+                node_type_key = '_'.join(key.split('_')[1:])
+                if node_type_key in node_count_aggregate:
+                    node_count_aggregate[node_type_key]['count'] += value
 
-        # update the way node count by label and edge count by label are represented
-        for key, value in node_count_aggregate.items():
-            node_count_by_label.append(
-                {'label': key, 'count': value['count']})
+            # update edge count aggregate dictionary with the count of each label
+            for key, value in count_by_label.items():
+                edge_type_key = '_'.join(key.split('_')[1:])
+                if edge_type_key in ege_count_aggregate:
+                    ege_count_aggregate[edge_type_key]['count'] += value
 
-        for key, value in ege_count_aggregate.items():
-            edge_count_by_label.append(
-                {'label': key, 'count': value['count']})
+            # update the way node count by label and edge count by label are represented
+            for key, value in node_count_aggregate.items():
+                node_count_by_label.append(
+                    {'label': key, 'count': value['count']})
+
+            for key, value in ege_count_aggregate.items():
+                edge_count_by_label.append(
+                    {'label': key, 'count': value['count']})
 
         meta_data = {
             "node_count": node_count,
@@ -547,8 +549,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         if len(results) > 0:
             node_and_edge_count = results[0]
+            print(node_and_edge_count, flush=True)
         if len(results) > 1:
             count_by_label = results[1]
+            print(count_by_label, flush=True)
 
         if result_type == 'graph':
             nodes, edges, node_to_dict, edge_to_dict = self.process_result_graph(

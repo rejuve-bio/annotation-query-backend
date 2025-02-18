@@ -23,8 +23,11 @@ from app.lib import adjust_file_path
 # Load environmental variables
 load_dotenv()
 
-# set mongo loggin
+# set mongo logging
 logging.getLogger('pymongo').setLevel(logging.CRITICAL)
+
+# set redis logging
+logging.getLogger('flask_redis').setLevel(logging.CRITICAL)
 
 # Flask-Mail configuration
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')
@@ -108,8 +111,10 @@ def generate_summary(annotation_id, response, summary=None):
 
     summary = llm.generate_summary(response)
     storage_service.update(annotation_id, {"summary": summary})
-    socketio.emit('task_update', {'task': 'summary',
-                  'summary': summary}, to=str(annotation_id))
+
+    # TODO: store the ststus in redis
+    socketio.emit('update', {'update': {'summary': summary}},
+                  to=str(annotation_id))
 
 
 def generate_result(query_code, annotation_id, requests):
@@ -119,9 +124,11 @@ def generate_result(query_code, annotation_id, requests):
                             requests['predicates'], "properties": True}
         response = db_instance.parse_and_serialize(
             response_data, schema_manager.schema, graph_components, 'graph')
-
-        socketio.emit('task_update', {'task': 'result',
-                                      'graph_result': response},
+        # TODO: store it in redis as a chache
+        # TODO: store the status in redis
+        socketio.emit('update', {'status': 'PENDING',
+                                 'update': {'graph': True}
+                                 },
                       to=str(annotation_id))
 
         return response
@@ -129,18 +136,20 @@ def generate_result(query_code, annotation_id, requests):
         logging.error(e)
 
 
-def generate_count(query_code, annotation_id, requests, count=None):
+def generate_total_count(count_query, annotation_id, requests, total_count=None):
     try:
-        if count:
-            socketio.emit('task_update', {
-                          'task': 'count', 'count_result': count},
+        if total_count:
+            socketio.emit('update', {
+                'status': 'PENDING',
+                'update': {'node_count': total_count['node_count'],
+                           'edge_count': total_count['edge_count']
+                           }},
                           to=str(annotation_id))
             return
 
-        total_count = db_instance.run_query(query_code[0])
-        count_by_label = db_instance.run_query(query_code[1])
+        total_count = db_instance.run_query(count_query)
 
-        count_result = [total_count[0], count_by_label[0]]
+        count_result = [total_count[0], {}]
         graph_components = {"nodes": requests['nodes'],
                             "predicates": requests['predicates'],
                             "properties": False}
@@ -150,13 +159,53 @@ def generate_count(query_code, annotation_id, requests, count=None):
         storage_service.update(annotation_id,
                                {'node_count': response['node_count'],
                                 'edge_count': response['edge_count'],
-                                'node_count_by_label': response['node_count_by_label'],
-                                'edge_count_by_label': response['edge_count_by_label']})
+                                })
 
-        socketio.emit('task_update', {
-                      'task': 'count', 'count_result': response},
+        socketio.emit('update', {
+            'status': 'PENDING',
+            'update': {'node_count': response['node_count'],
+                       'edge_count': response['edge_count']
+                       }},
                       to=str(annotation_id))
     except Exception as e:
+        print(e, flush=True)
+        logging.error(e)
+
+
+def generate_label_count(count_query, annotation_id, requests, label_count=None):
+    try:
+        if label_count:
+            socketio.emit('update', {
+                'status': 'PENDING',
+                'update': {'node_count': label_count['node_count_by_label'],
+                           'edge_count': label_count['edge_count_by_label']
+                           }},
+                          to=str(annotation_id))
+            return
+
+        label_count = db_instance.run_query(count_query)
+
+        count_result = [{}, label_count[0]]
+        print("COUNT REUSLT: ", count_result, flush=True)
+        graph_components = {"nodes": requests['nodes'],
+                            "predicates": requests['predicates'],
+                            "properties": False}
+        response = db_instance.parse_and_serialize(
+            count_result, schema_manager.schema, graph_components, 'count')
+
+        storage_service.update(annotation_id,
+                               {'node_count_by_label': response['node_count_by_label'],
+                                'edge_count_by_label': response['edge_count_by_label'],
+                                })
+
+        socketio.emit('update', {
+            'status': 'PENDING',
+            'update': {'node_count_by_label': response['node_count_by_label'],
+                       'edge_count_by_label': response['edge_count_by_label']
+                       }},
+                      to=str(annotation_id))
+    except Exception as e:
+        print(e, flush=True)
         logging.error(e)
 
 
@@ -192,20 +241,30 @@ def handle_client_request(query, request, current_user_id, node_types):
             except Exception as e:
                 logging.error("Error processing request", e)
 
-        def send_count():
+        def send_total_count():
             time.sleep(0.1)
             try:
-                count_query = [None, None]
-                generate_count(count_query, annotation_id, request, meta_data)
+                generate_total_count(
+                    None, annotation_id, request, meta_data)
+            except Exception as e:
+                logging.error("Error processing request", e)
+
+        def send_label_count():
+            time.sleep(0.1)
+            try:
+                generate_label_count(None, annotation_id, request, meta_data)
             except Exception as e:
                 logging.error("Error processing request", e)
 
         result_generator = threading.Thread(
             name='annotation_generator', target=send_annotation)
         result_generator.start()
-        count_generator = threading.Thread(
-            name='count_generator', target=send_count)
-        count_generator.start()
+        total_count_generator = threading.Thread(
+            name='total_count_generator', target=send_total_count)
+        total_count_generator.start()
+        label_count_generator = threading.Thread(
+            name='label_count_generator', target=send_label_count)
+        label_count_generator.start()
         return Response(
             json.dumps({"annotation_id": str(annotation_id)}),
             mimetype='application/json')
@@ -213,16 +272,11 @@ def handle_client_request(query, request, current_user_id, node_types):
         title = llm.generate_title(query[0])
         annotation = {"current_user_id": str(current_user_id),
                       "query": query[0], "request": request,
-                      "title": title, "node_types": node_types}
+                      "title": title, "node_types": node_types,
+                      "status": "PENDING"}
 
         annotation_id = storage_service.save(annotation)
-        response_data = {"annotation_id": str(annotation_id),
-                         "title": title,
-                         "request": request,
-                         "status": "PENDING"
-                         }
 
-        @copy_current_request_context
         def send_annotation():
             time.sleep(0.1)
             try:
@@ -231,22 +285,35 @@ def handle_client_request(query, request, current_user_id, node_types):
             except Exception as e:
                 logging.error("Error processing request", e)
 
-        def send_count():
+        def send_total_count():
             time.sleep(0.1)
             try:
-                count_query = [query[1], query[2]]
-                generate_count(count_query, annotation_id, request)
+                count_query = query[1]
+                generate_total_count(count_query, annotation_id, request)
+            except Exception as e:
+                logging.error("Error processing request", e)
+
+        def send_label_count():
+            time.sleep(0.1)
+            try:
+                count_query = query[2]
+                generate_label_count(
+                    count_query, annotation_id, request)
             except Exception as e:
                 logging.error("Error processing request", e)
 
         result_generator = threading.Thread(
             name='annotation_generator', target=send_annotation)
         result_generator.start()
-        count_generator = threading.Thread(
-            name='count_generator', target=send_count)
-        count_generator.start()
+        total_count_generator = threading.Thread(
+            name='total_count_generator', target=send_total_count)
+        total_count_generator.start()
+        label_count_generator = threading.Thread(
+            name='label_count_generator', target=send_label_count)
+        label_count_generator.start()
+
         return Response(
-            json.dumps(response_data),
+            json.dumps({"annotation_id": str(annotation_id)}),
             mimetype='application/json')
     else:
         title = llm.generate_title(query)
@@ -257,7 +324,6 @@ def handle_client_request(query, request, current_user_id, node_types):
 
         storage_service.update('annotatoin_id', annotation)
 
-        @copy_current_request_context
         def send_annotation():
             try:
                 response = generate_result(query, annotation_id, request)
@@ -265,11 +331,20 @@ def handle_client_request(query, request, current_user_id, node_types):
             except Exception as e:
                 logging.error("Error processing request", e)
 
-        def send_count():
+        def send_total_count():
             time.sleep(0.1)
             try:
-                count_query = [query[1], query[2]]
-                generate_count(count_query, annotation_id, request)
+                count_query = query[1]
+                generate_total_count(count_query, annotation_id, request)
+            except Exception as e:
+                logging.error("Error processing request", e)
+
+        def send_label_count():
+            time.sleep(0.1)
+            try:
+                count_query = query[2]
+                generate_label_count(
+                    count_query, annotation_id, request)
             except Exception as e:
                 logging.error("Error processing request", e)
 
@@ -277,10 +352,15 @@ def handle_client_request(query, request, current_user_id, node_types):
             name='annotation_generaotr', target=send_annotation)
         result_generator.start()
 
-        count_generator = threading.Thread(
-            name='count_generator', target=send_count)
+        total_count_generator = threading.Thread(
+            name='total_count_generator', target=send_total_count)
 
-        count_generator.start()
+        total_count_generator.start()
+
+        label_count_generator = threading.Thread(
+            name='label_count_generator', target=send_label_count)
+        label_count_generator.start()
+
         return Response(
             json.dumps({'annotation_id': str(annotation_id)}),
             mimetype='application/json'
