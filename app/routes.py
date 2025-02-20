@@ -1,13 +1,10 @@
 from flask import copy_current_request_context, request, jsonify, Response, send_from_directory
-from collections import defaultdict
-import uuid
-import re
 import logging
 import json
 import yaml
 import os
 import threading
-from app import app, databases, schema_manager, db_instance,socketio
+from app import app, databases, schema_manager, db_instance
 from app.lib import validate_request
 from flask_cors import CORS
 from app.lib import limit_graph
@@ -19,14 +16,9 @@ import datetime
 from app.lib import convert_to_csv
 from app.lib import generate_file_path
 from app.lib import adjust_file_path
-from flask_socketio import send,emit,join_room,leave_room
-from app.services.merge_nodes import do_grouping
-import json
- 
+
 # Load environmental variables
 load_dotenv()
-# Set the allowed origin for WebSocket connections
-
 
 # set mongo loggin
 logging.getLogger('pymongo').setLevel(logging.CRITICAL)
@@ -47,10 +39,10 @@ storage_service = app.config['storage_service']
 init_mail(app)
 
 CORS(app)
-data=None
+
 # Setup basic logging
 logging.basicConfig(level=logging.DEBUG)
-formatted_response = None
+
 @app.route('/kg-info', methods=['GET'])
 @token_required
 def get_graph_info(current_user_id):
@@ -74,41 +66,22 @@ def get_edges_endpoint(current_user_id):
 def get_relations_for_node_endpoint(current_user_id, node_label):
     relations = json.dumps(schema_manager.get_relations_for_node(node_label), indent=4)
     return Response(relations, mimetype='application/json')
- 
-@socketio.on('join')
-def on_join(data):
-    username = data['username']
-    room = data['room']
-    join_room(room)
-    send(f"{username} has joined the room.", to=room)
 
-
-@socketio.on('leave')
-def on_leave(data):
-    username = data['username']
-    room = data['room']
-    leave_room(room)
-    send(f"{username} has left the room.", to=room)
 @app.route('/query', methods=['POST'])
 @token_required
 def process_query(current_user_id):
-    @socketio.on('connect')
-    def handle_message(auth):
-        emit('my responce',{'data':"Connected"})
-    logging.info(f"\n\nWebSocket connected for query\n\n")
-    global data
     data = request.get_json()
     if not data or 'requests' not in data:
         return jsonify({"error": "Missing requests data"}), 400
     
     limit = request.args.get('limit')
     properties = request.args.get('properties')
-    source = request.args.get('source') # can be either hypotehesis or ai_assistant
+    source = request.args.get('source') # can be either hypothesis or ai_assistant
     
     if properties:
         properties = bool(strtobool(properties))
     else:
-        properties = False
+        properties = True
 
     if limit:
         try:
@@ -136,13 +109,17 @@ def process_query(current_user_id):
 
         #convert id to appropriate format
         requests = db_instance.parse_id(requests)
+        
+        node_only, run_count = (True, False) if source == 'hypothesis' else (False, True)
 
         # Generate the query code
-        query_code = db_instance.query_Generator(requests, node_map, limit)
+        query_code = db_instance.query_Generator(requests, node_map, limit, node_only)
         
         # Run the query and parse the results
-        result = db_instance.run_query(query_code, source)
-        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+        result = db_instance.run_query(query_code, run_count)
+        graph_components = {"nodes": requests['nodes'], "predicates": 
+                            requests['predicates'], "properties": properties}
+        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, graph_components)
 
         # Extract node types
         nodes = requests['nodes']
@@ -156,7 +133,7 @@ def process_query(current_user_id):
         if isinstance(query_code, list):
             query_code = query_code[0]
 
-        if source == 'hypotehesis':
+        if source == 'hypothesis':
             response = {"nodes": response_data['nodes'], "edges": response_data['edges']}
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
@@ -172,40 +149,22 @@ def process_query(current_user_id):
             if not response_data.get('nodes') and not response_data.get('edges'):
                 summary = 'No data found for the query'
             else:
-                def summarizer_thread():
-                    room = requests.get('room')
-                    message = data.get('message')
-                    
-                        # Broadcast message to the specific room
-                    socketio.emit('message', f"{data.get('username')}: {message}", to=room)
+                summary = llm.generate_summary(response_data) or 'Graph too big, could not summarize'
 
-                        # Example summarization logic (assuming response_data contains the text for summarization)
-                 
-                    summary = llm.generate_summary(response_data,data) or 'Graph too big, could not summarize'
-                        
-                    print("******************************* Summary Generated **********************************************")
-                        
-                        # Send the summary to the room
-             
-                    socketio.emit('summary', {'summary': summary})
-                    print("******************************* Summary Sent to Room *********************************************")
-                                    
-                sender = threading.Thread(name="summarizer_thread", target=summarizer_thread)
-                sender.start()
-            answer = llm.generate_summary(response_data, question, True, summary) if question else None
+            answer = llm.generate_summary(response_data, question, False, summary) if question else None
             node_count = response_data['node_count']
             edge_count = response_data['edge_count'] if "edge_count" in response_data else 0
             node_count_by_label = response_data['node_count_by_label']
             edge_count_by_label = response_data['edge_count_by_label'] if "edge_count_by_label" in response_data else []
             if annotation_id is not None:
-                annotation = {"query": query_code, "summary": summary, "node_count": node_count, 
+                annotation = {"request": requests, "query": query_code, "summary": summary, "node_count": node_count, 
                               "edge_count": edge_count, "node_types": node_types, "node_count_by_label": node_count_by_label,
                               "edge_count_by_label": edge_count_by_label, "updated_at": datetime.datetime.now()}
                 storage_service.update(annotation_id, annotation)
             else:
-                annotation = {"current_user_id": str(current_user_id), "query": query_code,
+                annotation = {"current_user_id": str(current_user_id), "request": requests, "query": query_code,
                               "question": question, "answer": answer,
-                              "title": title, "summary": "", "node_count": node_count,
+                              "title": title, "summary": summary, "node_count": node_count,
                               "edge_count": edge_count, "node_types": node_types, 
                               "node_count_by_label": node_count_by_label, "edge_count_by_label": edge_count_by_label}
                 annotation_id = storage_service.save(annotation)
@@ -222,7 +181,7 @@ def process_query(current_user_id):
         updated_data = storage_service.get_by_id(annotation_id)
 
         response_data["title"] = title
-        
+        response_data["summary"] = summary
         response_data["annotation_id"] = str(annotation_id)
         response_data["created_at"] = updated_data.created_at.isoformat()
         response_data["updated_at"] = updated_data.updated_at.isoformat()
@@ -236,38 +195,42 @@ def process_query(current_user_id):
         if source=='ai-assistant':
             response = {"annotation_id": str(annotation_id), "question": question, "answer": answer}
             formatted_response = json.dumps(response, indent=4)
-             
             return Response(formatted_response, mimetype='application/json')
 
         # if limit:
         #     response_data = limit_graph(response_data, limit)
-        requesut=request.get_json()
+
         formatted_response = json.dumps(response_data, indent=4)
-         
-        final_graph=json.dumps(formatted_response)
-        response = {
-        # "final_graph": json.loads(final_graph),  # Optionally, parse back to ensure correct structure
-        "final_graph":final_graph,
-        
-        "title":title,
-        
-        "annotation_id" :str(annotation_id),
-        "created_at":updated_data.created_at.isoformat(),
-        "updated_at":updated_data.updated_at.isoformat()
-    }   
-        # print(response['final_graph'])
         logging.info(f"\n\n============== Query ==============\n\n{query_code}")
-        return jsonify(response), 200
-        
-         
- 
+        return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
- 
- 
 
-     
+@app.route('/email-query/<id>', methods=['POST'])
+@token_required
+def process_email_query(current_user_id, id):
+    data = request.get_json()
+    if 'email' not in data:
+        return jsonify({"error": "Email missing"}), 400
+    @copy_current_request_context
+    def send_full_data():
+        try:
+            email = data['email']
+        
+            link = process_full_data(current_user_id=current_user_id, annotation_id=id)
+            
+            subject = 'Full Data'
+            body = f'Hello {email}. click this link {link} to download the full data you requested.'
+
+            send_email(subject, [email], body)
+        except Exception as e:
+            logging.error(f"Error processing query: {e}")
+
+    sender = threading.Thread(name='main_sender', target=send_full_data)
+    sender.start() 
+    return jsonify({'message': 'Email sent successfully'}), 200
+
 @app.route('/history', methods=['GET'])
 @token_required
 def process_user_history(current_user_id):
@@ -285,6 +248,7 @@ def process_user_history(current_user_id):
     for document in cursor:
         return_value.append({
             'annotation_id': str(document['_id']),
+            "request": document['request'],
             'title': document['title'],
             'node_count': document['node_count'],
             'edge_count': document['edge_count'],
@@ -296,11 +260,28 @@ def process_user_history(current_user_id):
 
 @app.route('/annotation/<id>', methods=['GET'])
 @token_required
-def process_by_id(current_user_id, id):
+def get_by_id(current_user_id, id):
+    response_data = {}
     cursor = storage_service.get_by_id(id)
+
+    limit = request.args.get('limit')
+    properties = request.args.get('properties')
+    source = request.args.get('source') # can be either hypothesis or ai_assistant
+    
+    if properties:
+        properties = bool(strtobool(properties))
+    else:
+        properties = False
+
+    if limit:
+        try:
+            limit = int(limit)
+        except ValueError:
+            return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
 
     if cursor is None:
         return jsonify('No value Found'), 200
+    json_request = cursor.request
     query = cursor.query
     title = cursor.title
     summary = cursor.summary
@@ -309,6 +290,8 @@ def process_by_id(current_user_id, id):
     answer = cursor.answer
     node_count = cursor.node_count
     edge_count = cursor.edge_count
+    node_count_by_label = cursor.node_count_by_label
+    edge_count_by_label = cursor.edge_count_by_label
 
     limit = request.args.get('limit')
     properties = request.args.get('properties')
@@ -317,7 +300,7 @@ def process_by_id(current_user_id, id):
         properties = bool(strtobool(properties))
     else:
         properties = False
- 
+
     if limit:
         try:
             limit = int(limit)
@@ -327,31 +310,109 @@ def process_by_id(current_user_id, id):
         limit = None
 
 
-    try: 
-       
-        query=query.replace("{PLACEHOLDER}",str(limit)) 
-       
-        # Run the query and parse the results
-        result = db_instance.run_query(query)
-      
-        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
-        
-        response_data["annotation_id"] = str(annotation_id)
-        response_data["title"] = title
-        response_data["summary"] = summary
-        response_data["node_count"] = node_count
-        response_data["edge_count"] = edge_count
-
+    try:   
         if question:
             response_data["question"] = question
 
         if answer:
-            response_data["answer"] = answer
+            response_data["answer"] = answer 
+
+        if source=='ai-assistant':
+            response = {"annotation_id": str(annotation_id), "question": question, "answer": answer}
+            formatted_response = json.dumps(response, indent=4)
+            return Response(formatted_response, mimetype='application/json')
+        
+        # Run the query and parse the results
+        result = db_instance.run_query(query, False)
+        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+
+        if source == 'hypothesis':
+            response = {"nodes": response_data['nodes'], "edges": response_data['edges']}
+            formatted_response = json.dumps(response, indent=4)
+            return Response(formatted_response, mimetype='application/json')
+        
+        response_data["annotation_id"] = str(annotation_id)
+        response_data["request"] = json_request
+        response_data["title"] = title
+        response_data["summary"] = summary
+        response_data["node_count"] = node_count
+        response_data["edge_count"] = edge_count
+        response_data["node_count_by_label"] = node_count_by_label
+        response_data["edge_count_by_label"] = edge_count_by_label
 
         # if limit:
             # response_data = limit_graph(response_data, limit)
 
         formatted_response = json.dumps(response_data, indent=4)
+        return Response(formatted_response, mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/annotation/<id>', methods=['POST'])
+@token_required
+def process_by_id(current_user_id, id):
+    data = request.get_json()
+    if not data or 'requests' not in data:
+        return jsonify({"error": "Missing requests data"}), 400
+    
+    if 'question' not in data["requests"]:
+        return jsonify({"error": "Missing question data"}), 400
+
+    question = data['requests']['question']
+    response_data = {}
+    cursor = storage_service.get_by_id(id)
+
+    limit = request.args.get('limit')
+    properties = request.args.get('properties')
+    source = request.args.get('source') # can be either hypothesis or ai_assistant
+    
+    if properties:
+        properties = bool(strtobool(properties))
+    else:
+        properties = False
+
+    if limit:
+        try:
+            limit = int(limit)
+        except ValueError:
+            return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
+
+    if cursor is None:
+        return jsonify('No value Found'), 200
+    query = cursor.query
+    summary = cursor.summary
+    limit = request.args.get('limit')
+    properties = request.args.get('properties')
+    
+    if properties:
+        properties = bool(strtobool(properties))
+    else:
+        properties = False
+
+    if limit:
+        try:
+            limit = int(limit)
+        except ValueError:
+            return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
+    else:
+        limit = None
+
+    try:   
+        if question:
+            response_data["question"] = question
+        
+        # Run the query and parse the results
+        result = db_instance.run_query(query, source)
+        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+
+        answer = llm.generate_summary(response_data, question, False, summary) if question else None
+
+        storage_service.update(id, {"answer": answer, "updated_at": datetime.datetime.now()})
+
+        response = {"annotation_id": str(id), "question": question, "answer": answer}
+
+        formatted_response = json.dumps(response, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing query: {e}")
@@ -387,14 +448,8 @@ def process_full_data(current_user_id, annotation_id):
 
     if cursor is None:
         return None
+    
     query, title = cursor.query, cursor.title
-    #remove the limit 
-    import re
-    if "LIMIT" in query:
-        query = re.sub(r'\s+LIMIT\s+\d+', '', query)
-     
-
-     
     
     try:
         file_path = generate_file_path(file_name=title, user_id=current_user_id, extension='xls')
@@ -405,11 +460,9 @@ def process_full_data(current_user_id, annotation_id):
             link = f'{request.host_url}{file_path}'
 
             return link
-        
-        # Run the query and parse the results
-        # query code inputs 2 value so source=None
-        result = db_instance.run_query(query,source=None)
     
+        # Run the query and parse the results
+        result = db_instance.run_query(query)
         parsed_result = db_instance.convert_to_dict(result, schema_manager.schema)
 
         file_path = convert_to_csv(parsed_result, user_id= current_user_id, file_name=title)
@@ -475,6 +528,3 @@ def update_title(current_user_id, id):
     except Exception as e:
         logging.error(f"Error updating title: {e}")
         return jsonify({"error": str(e)}), 500
-    
- 
- 
