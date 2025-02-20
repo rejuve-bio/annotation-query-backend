@@ -1,5 +1,8 @@
 import networkx as nx
+import re
 
+def clean_string(s):
+    return re.sub(r'[-_]', '', s)
 
 def validate_request(request, schema, source):
     if 'nodes' not in request:
@@ -20,6 +23,10 @@ def validate_request(request, schema, source):
             raise Exception("type is required")
         if 'node_id' not in node or node['node_id'] == "":
             raise Exception("node_id is required")
+        
+        # format the node id into approperiate format
+        node_id = node['node_id']
+        node['node_id'] = clean_string(node_id)
 
         node.setdefault('properties', {})
 
@@ -52,13 +59,20 @@ def validate_request(request, schema, source):
 
         if not isinstance(predicates, list):
             raise Exception("Predicate should be a list")
-        for predicate in predicates:
+        for i, predicate in enumerate(predicates):
             if 'type' not in predicate or predicate['type'] == "":
                 raise Exception("predicate type is required")
             if 'source' not in predicate or predicate['source'] == "":
                 raise Exception("source is required")
             if 'target' not in predicate or predicate['target'] == "":
                 raise Exception("target is required")
+            
+            predicate['source'] = clean_string(predicate['source'])
+            predicate['target'] = clean_string(predicate['target'])
+            
+            # Handle cases validation for the ai-assistant
+            if 'predicate_id' not in predicate:
+                predicate['predicate_id'] = f'p{i}'
 
             if predicate['source'] not in node_map:
                 raise Exception(
