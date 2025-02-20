@@ -139,7 +139,7 @@ class Graph_Summarizer:
         
         return self.descriptions
 
-    def summary(self,graph,user_query=None,graph_id=None, summary=None):
+    def summary(self,graph, request, user_query=None,graph_id=None, summary=None):
         prev_summery=[]
         response = None
         try:
@@ -156,17 +156,18 @@ class Graph_Summarizer:
             if graph:
                 prev_summery=[]
                 self.graph_description(graph)
+                count_by_label  = [graph['node_count_by_label'], graph['edge_count_by_label']]
                 for i, batch in enumerate(self.descriptions):  
                     if prev_summery:
                         if user_query:
-                            prompt = SUMMARY_PROMPT_CHUNKING_USER_QUERY.format(description=batch,user_query=user_query,prev_summery=prev_summery)
+                            prompt = SUMMARY_PROMPT_CHUNKING_USER_QUERY.format(description=batch,user_query=user_query,prev_summery=prev_summery, json_query=request, count_by_label=count_by_label)
                         else:
-                            prompt = SUMMARY_PROMPT_CHUNKING.format(description=batch,prev_summery=prev_summery)
+                            prompt = SUMMARY_PROMPT_CHUNKING.format(description=batch,prev_summery=prev_summery, json_query=request)
                     else:
                         if user_query:
-                            prompt = SUMMARY_PROMPT_BASED_ON_USER_QUERY.format(description=batch,user_query=user_query)
+                            prompt = SUMMARY_PROMPT_BASED_ON_USER_QUERY.format(description=batch,user_query=user_query, prev_summery='',json_query=request, count_by_label=count_by_label)
                         else:
-                            prompt = SUMMARY_PROMPT.format(description=batch)
+                            prompt = SUMMARY_PROMPT.format(description=batch, json_query=request)
                     response = self.llm.generate(prompt)
                     prev_summery = [response]  
                 # cleaned_desc = self.clean_and_format_response(response)
