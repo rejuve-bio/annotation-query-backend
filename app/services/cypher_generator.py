@@ -75,10 +75,19 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         nodes = requests['nodes']
         predicate_map = {}
 
-        if "predicates" in requests:
+        if "predicates" in requests and len(requests["predicates"]) > 0:
             predicates = requests["predicates"]
-            for predicate in predicates:
-                predicate_map[predicate['predicate_id']] = predicate
+
+            init_pred = predicates[0]
+
+            if 'predicate_id' not in init_pred:
+                for idx, pred in enumerate(predicates):
+                    pred['predicate_id'] = f'p{idx}'
+                for predicate in predicates:
+                    predicate_map[predicate['predicate_id']] = predicate
+            else:
+                for predicate in predicates:
+                    predicate_map[predicate['predicate_id']] = predicate
         else:
             predicates = None
 

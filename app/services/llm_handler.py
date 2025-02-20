@@ -27,7 +27,7 @@ class LLMHandler:
         title = self.model.generate(prompt)
         return title
 
-    def generate_summary(self, graph, user_query=None,graph_id=None, summary=None):
+    def generate_summary(self, graph, request, user_query=None,graph_id=None, summary=None):
         summarizer = Graph_Summarizer(self.model)
-        summary = summarizer.summary(graph, user_query, graph_id, summary)
+        summary = summarizer.summary(graph, request, user_query, graph_id, summary)
         return summary
