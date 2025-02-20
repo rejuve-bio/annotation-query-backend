@@ -18,4 +18,5 @@ httpx==0.27.2
 networkx==3.4.2
 Flask-SocketIO==5.5.1
 flask-redis==0.4.0
-nanoid==2.0.0 
+nanoid==2.0.0
+networkx==3.4.2

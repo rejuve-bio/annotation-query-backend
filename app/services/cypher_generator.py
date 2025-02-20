@@ -337,11 +337,17 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return [total_count, label_count_query]
 
     def limit_query(self, limit):
+        '''
+        for now remove the limit from the backend 
+        and handle it from the client side
+        '''
+        # if limit:
+            # curr_limit = min(1000, int(limit))
+        # else:
+            # curr_limit = 1000
         if limit:
-            curr_limit = min(1000, int(limit))
-        else:
-            curr_limit = 1000
-        return f"LIMIT {curr_limit}"
+            return f"LIMIT {limit}"
+        return f""
 
     def construct_call_clause(self, clauses, limit=None):
         if not ("match_no_clause" in clauses or "match_clause" in clauses):

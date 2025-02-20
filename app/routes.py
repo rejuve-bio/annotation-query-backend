@@ -20,7 +20,6 @@ from app.lib import convert_to_csv
 from app.lib import generate_file_path
 from app.lib import adjust_file_path
 from app.lib import Graph
-# monkey.patch_all()
 # Load environmental variables
 load_dotenv()
 
@@ -43,6 +42,7 @@ app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER')
 
 llm = app.config['llm_handler']
 storage_service = app.config['storage_service']
+EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
 
 # Initialize Flask-Mail
 init_mail(app)
@@ -108,12 +108,12 @@ def update_get_task(annotation_id, graph=None):
     status = 'PENDING'
     if cache is None:
         task_num = 1
-        redis_client.set(str(annotation_id), json.dumps({'task': task_num, 'graph': graph}))
+        redis_client.setex(str(annotation_id), EXP ,json.dumps({'task': task_num, 'graph': graph}))
     else:
         cache = json.loads(cache)
         task_num = cache['task'] + 1
         graph = graph if graph else cache['graph']
-        redis_client.set(str(annotation_id), json.dumps({'task': task_num, 'graph': graph}))
+        redis_client.setex(str(annotation_id), EXP, json.dumps({'task': task_num, 'graph': graph}))
         
         if task_num >= 4:
             status = 'COMPLETE'
@@ -146,7 +146,7 @@ def generate_result(query_code, annotation_id, requests):
             response_data, schema_manager.schema, graph_components, 'graph')
         
         graph = Graph()
-        grouped_graph = graph.group_graph(response_data)
+        grouped_graph = graph.group_graph(response)
         
         status = update_get_task(annotation_id, {
             'nodes': grouped_graph['nodes'],
@@ -157,7 +157,7 @@ def generate_result(query_code, annotation_id, requests):
                                  },
                       to=str(annotation_id))
 
-        return response
+        return grouped_graph
     except Exception as e:
         logging.error(e)
 
@@ -197,7 +197,6 @@ def generate_total_count(count_query, annotation_id, requests, total_count=None)
                        }},
                       to=str(annotation_id))
     except Exception as e:
-        print(e, flush=True)
         logging.error(e)
 
 
@@ -237,7 +236,6 @@ def generate_label_count(count_query, annotation_id, requests, label_count=None)
                        }},
                       to=str(annotation_id))
     except Exception as e:
-        print(e, flush=True)
         logging.error(e)
 
 
@@ -354,9 +352,10 @@ def handle_client_request(query, request, current_user_id, node_types):
         annotation = {"query": query, "request": request,
                       "title": title, "node_types": node_types}
 
-        storage_service.update('annotatoin_id', annotation)
+        storage_service.update(annotation_id, annotation)
 
         def send_annotation():
+            time.sleep(0.1)
             try:
                 response = generate_result(query, annotation_id, request)
                 generate_summary(annotation_id, response)
@@ -508,9 +507,13 @@ def process_query(current_user_id):
                       "node_types": node_types,
                       "node_count_by_label": response['node_count_by_label'],
                       "edge_count_by_label": response['edge_count_by_label'],
-                      "answer": answer, "question": question}
+                      "answer": answer, "question": question,
+                      "status": "COMPLETE"
+                      }
 
         annotation_id = storage_service.save(annotation)
+        redis_client.setex(str(annotation_id), EXP, json.dumps({'task': 4, 
+                                'graph': {'nodes': response['nodes'], 'edges': response['edges']}}))
         response = {"annotation_id": str(
             annotation_id), "question": question, "answer": answer}
         formatted_response = json.dumps(response, indent=4)
@@ -604,7 +607,7 @@ def get_by_id(current_user_id, id):
 
     if cursor is None:
         return jsonify('No value Found'), 200
-    print(cursor)
+
     json_request = cursor.request
     query = cursor.query
     title = cursor.title
@@ -654,14 +657,21 @@ def get_by_id(current_user_id, id):
 
         if cache is not None:
             cache = json.loads(cache)
-            response_data = cache['graph']
-        else:
+            graph = cache['graph']
+            if graph is not None:
+                response_data['nodes'] = graph['nodes']
+                response_data['edges'] = graph['edges']
+        if cache is None and status == 'COMPLETE':
             # Run the query and parse the results
             result = db_instance.run_query(query)
             graph_components = {"properties": properties}
             response_data = db_instance.parse_and_serialize(
                 result, schema_manager.schema,
                 graph_components, result_type='graph')
+            graph = Graph()
+            grouped_graph = graph.group_graph(response_data)
+            response_data['nodes'] = grouped_graph['nodes']
+            response_data['edges'] = grouped_graph['edges']
 
         if source == 'hypothesis':
             response = {
@@ -674,11 +684,15 @@ def get_by_id(current_user_id, id):
         response_data["annotation_id"] = str(annotation_id)
         response_data["request"] = json_request
         response_data["title"] = title
-        response_data["summary"] = summary
-        response_data["node_count"] = node_count
-        response_data["edge_count"] = edge_count
-        response_data["node_count_by_label"] = node_count_by_label
-        response_data["edge_count_by_label"] = edge_count_by_label
+        
+        if summary is not None:
+            response_data["summary"] = summary
+        if node_count is not None:
+            response_data["node_count"] = node_count
+            response_data["edge_count"] = edge_count
+        if node_count_by_label is not None:
+            response_data["node_count_by_label"] = node_count_by_label
+            response_data["edge_count_by_label"] = edge_count_by_label
         response_data["status"] = status
         # if limit:
         # response_data = limit_graph(response_data, limit)
@@ -747,11 +761,21 @@ def process_by_id(current_user_id, id):
     try:
         if question:
             response_data["question"] = question
-
-        # Run the query and parse the results
-        result = db_instance.run_query(query, source)
-        response_data = db_instance.parse_and_serialize(
-            result, schema_manager.schema, properties)
+            
+        cache = redis_client.get(str(id))
+        
+        if cache is not None:
+            cache = json.loads(cache)
+            graph = cache['graph']
+            if graph is not None:
+                response_data['nodes'] = graph['nodes']
+                response_data['edges'] = graph['edges']
+        else:
+            # Run the query and parse the results
+            result = db_instance.run_query(query)
+            graph_components = {"properties": properties}
+            response_data = db_instance.parse_and_serialize(
+                result, schema_manager.schema, graph_components, result_type='graph')
 
         answer = llm.generate_summary(
             response_data, question, False, summary) if question else None

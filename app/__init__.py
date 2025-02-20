@@ -12,9 +12,6 @@ import os
 import logging
 import yaml
 from flask_redis import FlaskRedis
-# from gevent import monkey
-
-# monkey.patch_all()
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*',
