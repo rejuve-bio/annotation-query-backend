@@ -664,7 +664,6 @@ def get_by_id(current_user_id, id):
         limit = None
 
     try:
-    try:
         if question:
             response_data["question"] = question
 
@@ -794,7 +793,6 @@ def process_by_id(current_user_id, id):
     else:
         limit = None
 
-    try:
     try:
         if question:
             response_data["question"] = question
