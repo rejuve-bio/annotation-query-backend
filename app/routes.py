@@ -286,8 +286,7 @@ async def count_nodes_and_edges(node_and_edge_count, annotation,annotation_id,ro
      
  
 
-
-##############
+ 
 
 
 async def count_by_label(count_by_label, properties, annotation,annotation_id,room):
