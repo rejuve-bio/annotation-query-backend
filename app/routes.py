@@ -20,7 +20,7 @@ import datetime
 from app.lib import convert_to_csv
 from app.lib import generate_file_path
 from app.lib import adjust_file_path
-from flask_socketio import send,emit,join_room,leave_room
+from flask_socketio import join_room, leave_room,emit,send
 import redis
 from app.services.cypher_generator import CypherQueryGenerator
  
@@ -81,18 +81,17 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
  
 @socketio.on('join')
 def on_join(data):
-    room=data['room']
-    join_room(room)
-    
-     
-
+    username = data['username']
+    room = data['room']
+    join_room(room)  # Correctly join the room
 
 @socketio.on('leave')
 def on_leave(data):
     username = data['username']
     room = data['room']
     leave_room(room)
-    send(f"{username} has left the room.", to=room)
+
+     
 @app.route('/query', methods=['POST'])
 @token_required
 def process_query(current_user_id):
@@ -162,13 +161,13 @@ def process_query(current_user_id):
             print(f"Using existing annotation_id: {annotation_id}")
             existing_query = storage_service.get_user_query(annotation_id, str(current_user_id), query_code)
         else:
-            title = llm.generate_title(query_code)
+            # title = llm.generate_title(query_code)
             annotation = {
                 "current_user_id": str(current_user_id),
                 "requests": requests,
                 "query": query_code,
                 "question": question,
-                "title": title,
+                "title": "",
                 "answer":"",
                 "summary": "",
                 "node_count": 0,
@@ -198,77 +197,50 @@ def process_query(current_user_id):
  
  
  
-
 async def process_query(requests, annotation_id, properties, question, annotation):
     print("Processing query...")
 
-    room = annotation_id 
-     
-     
+    room = annotation_id
 
     try:
-        print("outside________")
         count_by_label = requests[2] if len(requests) > 1 else []
         node_and_edge_count = requests[1] if len(requests) > 2 else []
-        print("outside_______________")
 
-        # Run graph and count_by_label concurrently with error handling
         try:
-            print("grpah ______________________")
-            graph_task = generate_graph(requests[0], properties, annotation_id, annotation,room)
-            print("grpah ______________________")
-            count_task_label = count_by_label(count_by_label, properties, annotation, annotation_id,room)
-            print("______________")
-            count_nodes = count_nodes_and_edges(node_and_edge_count, annotation, annotation_id,room)
-            print("______________")
+            graph_task = generate_graph(requests[0], properties, annotation_id, annotation, room)
+            count_task_label = count_by_label(count_by_label, properties, annotation, annotation_id, room)
+            count_nodes = count_nodes_and_edges(node_and_edge_count, annotation, annotation_id, room)
+
             graph_result, count_result, count_nodes_result = await asyncio.gather(
                 graph_task, count_task_label, count_nodes, return_exceptions=True
             )
 
             if isinstance(graph_result, Exception):
-                print(f"Error in generate_graph: {graph_result}")
                 graph_result = "Graph generation failed."
-
             if isinstance(count_result, Exception):
-                print(f"Error in count_by_label: {count_result}")
                 count_result = "Label counting failed."
-
             if isinstance(count_nodes_result, Exception):
-                print(f"Error in count_nodes_and_edges: {count_nodes_result}")
                 count_nodes_result = "Node and edge counting failed."
 
         except Exception as e:
-            print(f"Error during concurrent execution: {e}")
-            socketio.emit("error_event", {"message": "Error processing query"}, room=room)
-            return  # Stop execution if core tasks fail
+            socketio.emit("error_event", {"message": f"Error during execution: {e}"}, room=room)
+            return
 
-        print("Processed query successfully.")
-
-        # Send results to client
         socketio.emit("update_event", {"message": graph_result}, room=room)
         socketio.emit("update_event", {"message": count_result}, room=room)
         socketio.emit("update_event", {"message": count_nodes_result}, room=room)
 
-        # Run summary after the previous tasks finish
         try:
-            summary_result = await generate_summary(annotation, question, graph_task, count_task_label, request,room)
+            summary_result = await generate_summary(annotation, question, graph_task, count_task_label, requests, room)
             socketio.emit("update_event", {"message": summary_result}, room=room)
         except Exception as e:
-            print(f"Error in generate_summary: {e}")
-            socketio.emit("error_event", {"message": "Error generating summary"}, room=room)
-
-        print("Processing query completed.")
+            socketio.emit("error_event", {"message": f"Error generating summary: {e}"}, room=room)
 
     except Exception as e:
-        print(f"Unexpected error in process_query: {e}")
-        socketio.emit("error_event", {"message": "An unexpected error occurred"}, room=room)
+        socketio.emit("error_event", {"message": f"Unexpected error: {e}"}, room=room)
 
     finally:
-        # Ensure socket room is cleaned up
-        leave_room(room)
         socketio.emit("close_socket", {"message": "All tasks completed"}, room=room)
-  
-
 
 
 async def count_nodes_and_edges(node_and_edge_count, annotation,annotation_id,room):
