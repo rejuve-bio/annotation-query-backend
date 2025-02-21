@@ -1,5 +1,7 @@
 from flask import copy_current_request_context, request, jsonify, Response, send_from_directory
 import neo4j 
+import traceback
+import asyncio
 import re
 import logging
 import json
@@ -20,7 +22,8 @@ from app.lib import generate_file_path
 from app.lib import adjust_file_path
 from flask_socketio import send,emit,join_room,leave_room
 import redis
-from flask_socketio import SocketIO
+from app.services.cypher_generator import CypherQueryGenerator
+ 
 redis_client=redis.Redis(host='localhost',port=6379,db=0,decode_responses=True)
 # Load environmental variables
 load_dotenv()
@@ -78,10 +81,10 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
  
 @socketio.on('join')
 def on_join(data):
-    username = data['username']
-    room = data['room']
+    room=data['room']
     join_room(room)
-    send(f"{username} has joined the room.", to=room)
+    
+     
 
 
 @socketio.on('leave')
@@ -93,127 +96,184 @@ def on_leave(data):
 @app.route('/query', methods=['POST'])
 @token_required
 def process_query(current_user_id):
-    data = request.get_json()
-    requests = data['requests']
-    if 'annotation_id' in requests:
-            annotation_id = requests['annotation_id'] 
-    cached_data=redis_client.get(annotation_id)
-     
-    if cached_data:
-        return jsonify(json.loads(cached_data)),200
-    if not data or 'requests' not in data:
-        return jsonify({"error": "Missing requests data"}), 400
-    
-    limit = request.args.get('limit')
-    properties = request.args.get('properties')
-    source = request.args.get('source') # can be either hypotehesis or ai_assistant
-    
-    if properties:
-        properties = bool(strtobool(properties))
-    else:
-        properties = False
-
-    if limit:
-        try:
-            limit = int(limit)
-        except ValueError:
-            return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
-    else:
-        limit = None
     try:
+        # Get request data safely
+        data = request.get_json()
+        if not data or 'requests' not in data:
+            return jsonify({"error": "Missing requests data"}), 400
+        
         requests = data['requests']
-        annotation_id = None
-        question = None
-        answer = None
+        annotation_id = requests.get('annotation_id', None)
 
+        # Try fetching cached data from Redis
+        if annotation_id:
+            cached_data = redis_client.get(annotation_id)
+            if cached_data:
+                return jsonify(json.loads(cached_data)), 200
         
-        if 'annotation_id' in requests:
-            annotation_id = requests['annotation_id'] 
-        
-        if 'question' in requests:
-            question = requests['question']
+        print("Checkpoint: Passed Redis Cache Check")
+
+        # Extract query parameters
+        limit = request.args.get('limit')
+        properties = request.args.get('properties')
+        source = request.args.get('source')  # Either 'hypothesis' or 'ai_assistant'
+
+        properties = bool(strtobool(properties)) if properties else False
+
+        if limit:
+            try:
+                limit = int(limit)
+            except ValueError:
+                return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
+        else:
+            limit = None
+
+        print("Checkpoint: Extracted Parameters Successfully")
+
+        # Extract required fields
+        question = requests.get('question', None)
 
         # Validate the request data before processing
         node_map = validate_request(requests, schema_manager.schema)
         if node_map is None:
             return jsonify({"error": "Invalid node_map returned by validate_request"}), 400
+        
+        print("Checkpoint: Request Validation Successful")
 
-        #convert id to appropriate format
+        # Convert ID formats
         requests = db_instance.parse_id(requests)
 
         # Generate the query code
         query_code = db_instance.query_Generator(requests, node_map, limit)
-        
-        # Run the query and parse the results
-        result = db_instance.run_query(query_code, source)
-        response_data = db_instance.parse_and_serialize(result, schema_manager.schema, properties)
+
+        print("Checkpoint: Query Code Generated Successfully")
 
         # Extract node types
-        nodes = requests['nodes']
-        node_types = set()
-
-        for node in nodes:
-            node_types.add(node["type"])
-
+        node_types = {node["type"] for node in requests.get('nodes', [])}
         node_types = list(node_types)
+
+        print("Checkpoint: Extracted Node Types Successfully")
 
         if isinstance(query_code, list):
             query_code = query_code[0]
 
-        if source == 'hypotehesis':
-            response = {"nodes": response_data['nodes'], "edges": response_data['edges']}
-            formatted_response = json.dumps(response, indent=4)
-            return Response(formatted_response, mimetype='application/json')
-
+        # Handling annotation storage
         if annotation_id:
+            print(f"Using existing annotation_id: {annotation_id}")
             existing_query = storage_service.get_user_query(annotation_id, str(current_user_id), query_code)
         else:
-            existing_query = None
-
-        if existing_query is None:
-            
             title = llm.generate_title(query_code)
-            annotation = {"current_user_id": str(current_user_id), "requests": requests, "query": query_code,
-                      "question": question, "title": title, "summary": "", "node_count": "",
-                      "edge_count": "", "node_count_by_label": "", "edge_count_by_label": ""}
-            annotation_id=storage_service.save(annotation)
-
-
-             
-             
+            annotation = {
+                "current_user_id": str(current_user_id),
+                "requests": requests,
+                "query": query_code,
+                "question": question,
+                "title": title,
+                "answer":"",
+                "summary": "",
+                "node_count": 0,
+                "edge_count": 0,
+                "node_count_by_label": 0,
+                "edge_count_by_label": 0,
+                "node_types":""
+            }
+            annotation_id = storage_service.save(annotation)
         
-        
-       
-        socketio.start_background_task(run_async_tasks,annotation_id,annotation,question)
+        print("Checkpoint: Annotation Handling Completed")
 
-        
+        # Run async processing correctly
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(process_query(requests, annotation_id, properties, question, annotation))
 
-         
-    
-
-    
-async def run_async_tasks(annotation_id,annotation,question):
-    try:
-        result=await asyncio.gather(
-            generate_graph(results, graph_components, annotation_id,annotation,question,request),
-            count_nodes_and_edges(annotation),
-            count_by_label(annotation),
-            generate_summary(annotation,question)
-        )
-        socketio.emit("summary_update", {"status": "complete", "annotation_id": annotation_id})
+        result = {"message": "Query processed successfully"}
+        return jsonify(result)
 
     except Exception as e:
-        socketio.emit("summary_update", {"status": "error", "error": str(e)})
-async def count_nodes_and_edges(results, annotation):
-    node_count = 0
-    edge_count = 0
+        print("Error occurred in process_query:")
+        traceback.print_exc()  # Prints the full error traceback
 
-    if len(results) > 1:
-        node_and_edge_count = results[1]
-        for count_record in node_and_edge_count:
-            node_count += count_record.get('total_nodes', 0)
-            edge_count += count_record.get('total_edges', 0)
+        return jsonify({"error": str(e)}), 500
+        
+ 
+ 
+ 
 
+async def process_query(requests, annotation_id, properties, question, annotation):
+    print("Processing query...")
+
+    room = annotation_id 
+     
+     
+
+    try:
+        print("outside________")
+        count_by_label = requests[2] if len(requests) > 1 else []
+        node_and_edge_count = requests[1] if len(requests) > 2 else []
+        print("outside_______________")
+
+        # Run graph and count_by_label concurrently with error handling
+        try:
+            print("grpah ______________________")
+            graph_task = generate_graph(requests[0], properties, annotation_id, annotation,room)
+            print("grpah ______________________")
+            count_task_label = count_by_label(count_by_label, properties, annotation, annotation_id,room)
+            print("______________")
+            count_nodes = count_nodes_and_edges(node_and_edge_count, annotation, annotation_id,room)
+            print("______________")
+            graph_result, count_result, count_nodes_result = await asyncio.gather(
+                graph_task, count_task_label, count_nodes, return_exceptions=True
+            )
+
+            if isinstance(graph_result, Exception):
+                print(f"Error in generate_graph: {graph_result}")
+                graph_result = "Graph generation failed."
+
+            if isinstance(count_result, Exception):
+                print(f"Error in count_by_label: {count_result}")
+                count_result = "Label counting failed."
+
+            if isinstance(count_nodes_result, Exception):
+                print(f"Error in count_nodes_and_edges: {count_nodes_result}")
+                count_nodes_result = "Node and edge counting failed."
+
+        except Exception as e:
+            print(f"Error during concurrent execution: {e}")
+            socketio.emit("error_event", {"message": "Error processing query"}, room=room)
+            return  # Stop execution if core tasks fail
+
+        print("Processed query successfully.")
+
+        # Send results to client
+        socketio.emit("update_event", {"message": graph_result}, room=room)
+        socketio.emit("update_event", {"message": count_result}, room=room)
+        socketio.emit("update_event", {"message": count_nodes_result}, room=room)
+
+        # Run summary after the previous tasks finish
+        try:
+            summary_result = await generate_summary(annotation, question, graph_task, count_task_label, request,room)
+            socketio.emit("update_event", {"message": summary_result}, room=room)
+        except Exception as e:
+            print(f"Error in generate_summary: {e}")
+            socketio.emit("error_event", {"message": "Error generating summary"}, room=room)
+
+        print("Processing query completed.")
+
+    except Exception as e:
+        print(f"Unexpected error in process_query: {e}")
+        socketio.emit("error_event", {"message": "An unexpected error occurred"}, room=room)
+
+    finally:
+        # Ensure socket room is cleaned up
+        leave_room(room)
+        socketio.emit("close_socket", {"message": "All tasks completed"}, room=room)
+  
+
+
+
+async def count_nodes_and_edges(node_and_edge_count, annotation,annotation_id,room):
+        
+        node_count,edge_count=CypherQueryGenerator.count_node_edges( node_and_edge_count)
         update_annotation = {
             "node_count": node_count,
             "edge_count": edge_count,
@@ -221,40 +281,17 @@ async def count_nodes_and_edges(results, annotation):
         }
 
         await storage_service.update(annotation["_id"], update_annotation)
-        socketio.emit("summary_update", {"status": "pending", "summary": update_annotation})
+        socketio.emit("summary_update", {"status": "pending", "summary": update_annotation},to=room)
 
-    return {"node_count": node_count, "edge_count": edge_count}
-
+     
  
 
 
 ##############
 
 
-async def count_by_label(results, graph_components, annotation):
-    node_count_by_label = []
-    edge_count_by_label = []
-
-    if len(results) > 2:
-        count_by_label = results[2]
-
-        node_count_aggregate = {node['type']: {'count': 0} for node in graph_components['nodes']}
-        edge_count_aggregate = {predicate['type'].replace(" ", "_").lower(): {'count': 0} for predicate in graph_components['predicates']}
-
-        for count_record in count_by_label:
-            for key, value in count_record.items():
-                node_type_key = '_'.join(key.split('_')[1:])
-                if node_type_key in node_count_aggregate:
-                    node_count_aggregate[node_type_key]['count'] += value
-
-            for key, value in count_record.items():
-                edge_type_key = '_'.join(key.split('_')[1:])
-                if edge_type_key in edge_count_aggregate:
-                    edge_count_aggregate[edge_type_key]['count'] += value
-
-        node_count_by_label = [{'label': key, 'count': value['count']} for key, value in node_count_aggregate.items()]
-        edge_count_by_label = [{'label': key, 'count': value['count']} for key, value in edge_count_aggregate.items()]
-
+async def count_by_label(count_by_label, properties, annotation,annotation_id,room):
+        node_count_by_label, edge_count_by_label=CypherQueryGenerator.count_by_label( count_by_label,properties)
         update_annotation = {
             "node_count_by_label": node_count_by_label,
             "edge_count_by_label": edge_count_by_label,
@@ -262,98 +299,33 @@ async def count_by_label(results, graph_components, annotation):
         }
 
         await storage_service.update(annotation["_id"], update_annotation)
-        socketio.emit("summary_update", {"status": "pending", "summary": update_annotation})
+        socketio.emit("update-event", {"status": "pending", "summary": update_annotation},to=room)
 
-    return {"node_count_by_label": node_count_by_label, "edge_count_by_label": edge_count_by_label}
+     
 
 
  
 
-async def generate_graph(results, graph_components, annotation_id,annotation,question,request):
-    match_result = results[0]
-    nodes = []
-    edges = []
-    node_dict = {}
-    node_to_dict = {}
-    edge_to_dict = {}
-    node_type = set()
-    edge_type = set()
-    visited_relations = set()
-    named_types = ['gene_name', 'transcript_name', 'protein_name', 'pathway_name', 'term_name']
-
-    for record in match_result:
-        for item in record.values():
-            if isinstance(item, neo4j.graph.Node):
-                node_id = f"{list(item.labels)[0]} {item['id']}"
-                if node_id not in node_dict:
-                    node_data = {
-                        "data": {
-                            "id": node_id,
-                            "type": list(item.labels)[0],
-                        }
-                    }
-
-                    for key, value in item.items():
-                        if graph_components['properties']:
-                            if key != "id" and key != "synonyms":
-                                node_data["data"][key] = value
-                        else:
-                            if key in named_types:
-                                node_data["data"]["name"] = value
-                    if "name" not in node_data["data"]:
-                        node_data["data"]["name"] = node_id
-
-                    nodes.append(node_data)
-                    node_type.add(node_data["data"]["type"])
-                    node_to_dict.setdefault(node_data["data"]["type"], []).append(node_data)
-                    node_dict[node_id] = node_data
-
-            elif isinstance(item, neo4j.graph.Relationship):
-                source_label = list(item.start_node.labels)[0]
-                target_label = list(item.end_node.labels)[0]
-                source_id = f"{source_label} {item.start_node['id']}"
-                target_id = f"{target_label} {item.end_node['id']}"
-                edge_data = {
-                    "data": {
-                        "edge_id": f"{source_label}_{item.type}_{target_label}",
-                        "label": item.type,
-                        "source": source_id,
-                        "target": target_id,
-                    }
-                }
-                temp_relation_id = f"{source_id} - {item.type} - {target_id}"
-                if temp_relation_id in visited_relations:
-                    continue
-                visited_relations.add(temp_relation_id)
-
-                for key, value in item.items():
-                    if key == 'source':
-                        edge_data["data"]["source_data"] = value
-                    else:
-                        edge_data["data"][key] = value
-
-                edges.append(edge_data)
-                edge_type.add(edge_data["data"]["label"])
-                edge_to_dict.setdefault(edge_data["data"]["label"], []).append(edge_data)
-    responce_data={"nodes": nodes, "edges": edges}
-    await redis_client.setex(annotation_id, 3600, json.dumps(responce_data, indent=4))
-    socketio.emit("graph_update", {"status": "pending", "graph": True})
-    generate_summary(annotation, question,responce_data,request)
-    return nodes, edges 
+async def generate_graph(requests, properties, annotation_id,annotation,room):
+    request_data=CypherQueryGenerator.graph_result_nodes(requests[0], properties)
+    # await redis_client.setex(annotation_id, 3600, json.dumps(responce_data, indent=4))
+    socketio.emit("update-event", {"status": "pending", "graph": True})
+    
+     
  
-async def generate_summary(annotation, question,response_data,request):
+async def generate_summary(annotation, question,graph_task,count_task_label,request,room):
     """Generates a summary asynchronously."""
-    if not response_data.get('nodes') and not response_data.get('edges'):
+    if not graph_task.get('nodes') and not graph_task.get('edges'):
                 summary = 'No data found for the query'
     else:
-        summary = await llm.generate_summary(response_data,request) or "Graph too big to summarize"
-    answer = await llm.generate_summary(response_data, request, question, False, summary) if question else None
+        summary = await llm.generate_summary(graph_task,request) or "Graph too big to summarize"
+    answer = await llm.generate_summary(graph_task, request, question, False, summary) if question else None
 
     update_annotation = {"summary": summary, "updated_at": datetime.datetime.now()}
     await storage_service.update(annotation["_id"], update_annotation)
 
     # Emit WebSocket update
-    socketio.emit("summary_update", {"status": "pending", "summary": summary})
+    socketio.emit("update_event", {"status": "pending", "summary": summary},to=room)
     return answer
 
 

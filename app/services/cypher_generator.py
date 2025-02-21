@@ -401,6 +401,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return properties
 
     def parse_neo4j_results(self, results, graph_components):
+        
         (nodes, edges, _, _, meta_data) = self.process_result(results, graph_components)
         return {"nodes": nodes, "edges": edges, "node_count": meta_data['node_count'], 
                 "edge_count": meta_data['edge_count'], "node_count_by_label": meta_data['node_count_by_label'], 
@@ -412,24 +413,16 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return parsed_result
 
     def convert_to_dict(self, results, schema, graph_components):
+        match_result=results[0]
         graph_components['properties'] = True
-        (_, _, node_dict, edge_dict, _) = self.process_result(results, graph_components)
+        (_, _, node_dict, edge_dict, _) = self.graph_result_nodes(match_result, graph_components)
         return (node_dict, edge_dict)
 
-    def process_result(self, results,graph_components):
-        match_result = results[0]
-        node_count_by_label = []
-        edge_count_by_label = []
-        node_count = 0
-        edge_count = 0
-        node_and_edge_count = []
-        count_by_label = []
+   
 
-        if len(results) > 2:
-            node_and_edge_count = results[1]
-        if len(results) > 1:
-            count_by_label = results[2]
 
+    def graph_result_nodes(self, match_result, graph_components):
+        """Extracts nodes and edges from the match result."""
         nodes = []
         edges = []
         node_dict = {}
@@ -438,7 +431,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         node_type = set()
         edge_type = set()
         visited_relations = set()
-
         named_types = ['gene_name', 'transcript_name', 'protein_name', 'pathway_name', 'term_name']
 
         for record in match_result:
@@ -452,7 +444,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                                 "type": list(item.labels)[0],
                             }
                         }
-
                         for key, value in item.items():
                             if graph_components['properties']:
                                 if key != "id" and key != "synonyms":
@@ -468,6 +459,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                             node_to_dict[node_data['data']['type']] = []
                         node_to_dict[node_data['data']['type']].append(node_data)
                         node_dict[node_id] = node_data
+
                 elif isinstance(item, neo4j.graph.Relationship):
                     source_label = list(item.start_node.labels)[0]
                     target_label = list(item.end_node.labels)[0]
@@ -475,7 +467,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     target_id = f"{list(item.end_node.labels)[0]} {item.end_node['id']}"
                     edge_data = {
                         "data": {
-                            # "id": item.id,
                             "edge_id": f"{source_label}_{item.type}_{target_label}",
                             "label": item.type,
                             "source": source_id,
@@ -497,45 +488,68 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         edge_type.add(edge_data["data"]["label"])
                         edge_to_dict[edge_data['data']['label']] = []
                     edge_to_dict[edge_data['data']['label']].append(edge_data)
+        request_data={'nodes':nodes,'edges':edges}
+
+        return request_data
+
+    def count_by_label(self, count_by_label, graph_components):
+        """Computes node and edge count by label."""
+        node_count_by_label = []
+        edge_count_by_label = []
+
+        if not count_by_label:
+            return node_count_by_label, edge_count_by_label
+
+        node_count_aggregate = {}
+        edge_count_aggregate = {}
+
+        for node in graph_components['nodes']:
+            node_type = node['type']
+            node_count_aggregate[node_type] = {'count': 0}
+
+        for predicate in graph_components['predicates']:
+            edge_type = predicate['type'].replace(" ", "_").lower()
+            edge_count_aggregate[edge_type] = {'count': 0}
+
+        for count_record in count_by_label:
+            for key, value in count_record.items():
+                node_type_key = '_'.join(key.split('_')[1:])
+                if node_type_key in node_count_aggregate:
+                    node_count_aggregate[node_type_key]['count'] += value
+
+                edge_type_key = '_'.join(key.split('_')[1:])
+                if edge_type_key in edge_count_aggregate:
+                    edge_count_aggregate[edge_type_key]['count'] += value
+
+        for key, value in node_count_aggregate.items():
+            node_count_by_label.append({'label': key, 'count': value['count']})
+
+        for key, value in edge_count_aggregate.items():
+            edge_count_by_label.append({'label': key, 'count': value['count']})
+
+        return node_count_by_label, edge_count_by_label
+
+    def count_node_edges(self, node_and_edge_count):
+        """Computes total node and edge count."""
+        node_count = 0
+        edge_count = 0
 
         if node_and_edge_count:
             for count_record in node_and_edge_count:
                 node_count += count_record.get('total_nodes', 0)
                 edge_count += count_record.get('total_edges', 0)
 
-        if count_by_label:
-            # build edge type set
-            node_count_aggregate = {}
-            ege_count_aggregate = {}
+        return node_count, edge_count
 
-            # initialize node count aggreate dictionary where the key is the label.
-            for node in graph_components['nodes']:
-                node_type = node['type']
-                node_count_aggregate[node_type] = {'count': 0}
+    def process_result(self, results, graph_components):
+        """Processes the results and returns structured graph data."""
+        match_result = results[0]
+        node_and_edge_count = results[1] if len(results) > 2 else []
+        count_by_label = results[2] if len(results) > 1 else []
 
-            # initialize edge count aggreate dictionary where the key is the label.
-            for predicate in graph_components['predicates']:
-                edge_type = predicate['type'].replace(" ", "_").lower()
-                ege_count_aggregate[edge_type] = {'count': 0}
-
-            for count_record in count_by_label:
-                # update node count aggregate dictionary with the count of each label
-                for key, value in count_record.items():
-                    node_type_key = '_'.join(key.split('_')[1:])
-                    if node_type_key in node_count_aggregate:
-                        node_count_aggregate[node_type_key]['count'] += value
-
-                # update edge count aggregate dictionary with the count of each label
-                for key, value in count_record.items():
-                    edge_type_key = '_'.join(key.split('_')[1:])
-                    if edge_type_key in ege_count_aggregate:
-                        ege_count_aggregate[edge_type_key]['count'] += value
-
-                # update the way node count by label and edge count by label are represented
-                for key, value in node_count_aggregate.items():
-                    node_count_by_label.append({'label': key, 'count': value['count']})
-                for key, value in ege_count_aggregate.items(): 
-                    edge_count_by_label.append({'label': key, 'count': value['count']})
+        nodes, edges, node_to_dict, edge_to_dict = self.graph_result_nodes(match_result, graph_components)
+        node_count_by_label, edge_count_by_label = self.count_by_label(count_by_label, graph_components)
+        node_count, edge_count = self.count_node_edges(node_and_edge_count)
 
         meta_data = {
             "node_count": node_count,
@@ -543,8 +557,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             "node_count_by_label": node_count_by_label,
             "edge_count_by_label": edge_count_by_label
         }
-    
-        return (nodes, edges, node_to_dict, edge_to_dict, meta_data)
+
+        return nodes, edges, node_to_dict, edge_to_dict, meta_data
+
 
     def parse_id(self, request):
         nodes = request["nodes"]

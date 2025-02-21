@@ -12,15 +12,17 @@ from app.services.llm_handler import LLMHandler
 from app.persistence.storage_service import StorageService
 from db import mongo_init
 from flask_cors import CORS
+ 
 # Initialize Flask app
 app = Flask(__name__)
-
+CORS(app)
 
 # Set secret key
 app.config['SECRET_KEY'] = 'secret'
 
-socketio = SocketIO(app,cors_allowed_origins="*")
-CORS(app)
+socketio = SocketIO(app, async_mode="gevent", cors_allowed_origins="*")
+
+
 # Function to load configuration from YAML file
 def load_config():
     config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.yaml')
