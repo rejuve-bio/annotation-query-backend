@@ -15,11 +15,9 @@ from flask_cors import CORS
  
 # Initialize Flask app
 app = Flask(__name__)
-<<<<<<< HEAD
+
 CORS(app)
-=======
-#
->>>>>>> c11017ed88ea316a294b4f3fe3d5107c0ebcfe14
+ 
 
 # Set secret key
 app.config['SECRET_KEY'] = 'secret'
