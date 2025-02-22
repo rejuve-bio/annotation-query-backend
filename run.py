@@ -1,4 +1,4 @@
-from app import app, socketio
+from app import app 
 from dotenv import load_dotenv
 import os
 
@@ -9,4 +9,4 @@ load_dotenv()
 APP_PORT = os.getenv('APP_PORT', 5000)  # Default to 5000 if APP_PORT is not set
 
 if __name__ == "__main__":
-    socketio.run(app, debug=True, host="0.0.0.0", port=int(APP_PORT), use_reloader=False)
+    app.run(app, debug=True, host="0.0.0.0", port=int(APP_PORT), use_reloader=False)
