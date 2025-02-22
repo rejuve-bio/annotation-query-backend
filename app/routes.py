@@ -90,195 +90,112 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
 #     username = data['username']
 #     room = data['room']
 #     leave_room(room)
-
-     
 @app.route('/query', methods=['POST'])
 @token_required
 def process_query(current_user_id):
-    try:
-        # Get request data safely
-        data = request.get_json()
-        if not data or 'requests' not in data:
-            return jsonify({"error": "Missing requests data"}), 400
-        
-        requests = data['requests']
-        annotation_id = requests.get('annotation_id', None)
-
-        # Try fetching cached data from Redis
-        if annotation_id:
-            cached_data = redis_client.get(annotation_id)
-            if cached_data:
-                return jsonify(json.loads(cached_data)), 200
-        
-        print("Checkpoint: Passed Redis Cache Check")
-
-        # Extract query parameters
-        limit = request.args.get('limit')
-        properties = request.args.get('properties')
-        source = request.args.get('source')  # Either 'hypothesis' or 'ai_assistant'
-
-        properties = bool(strtobool(properties)) if properties else False
-
-        if limit:
-            try:
-                limit = int(limit)
-            except ValueError:
-                return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
-        else:
-            limit = None
-
-        print("Checkpoint: Extracted Parameters Successfully")
-
-        # Extract required fields
-        question = requests.get('question', None)
-
-        # Validate the request data before processing
-        node_map = validate_request(requests, schema_manager.schema)
-        if node_map is None:
-            return jsonify({"error": "Invalid node_map returned by validate_request"}), 400
-        
-        print("Checkpoint: Request Validation Successful")
-
-        # Convert ID formats
-        requests = db_instance.parse_id(requests)
-
-        # Generate the query code
-        query_code = db_instance.query_Generator(requests, node_map, limit)
-
-        print("Checkpoint: Query Code Generated Successfully")
-
-        # Extract node types
-        node_types = {node["type"] for node in requests.get('nodes', [])}
-        node_types = list(node_types)
-
-        print("Checkpoint: Extracted Node Types Successfully")
-
-        if isinstance(query_code, list):
-            query_code = query_code[0]
-
-        # Handling annotation storage
-        if annotation_id:
-            print(f"Using existing annotation_id: {annotation_id}")
-            existing_query = storage_service.get_user_query(annotation_id, str(current_user_id), query_code)
-            title=''
-        else:
-            title = llm.generate_title(query_code)
-            global annotation
-            annotation = {
-                "current_user_id": str(current_user_id),
-                "requests": requests,
-                "query": query_code,
-                "question": question,
-                "title": title,
-                "answer":"",
-                "summary": "",
-                "node_count": 0,
-                "edge_count": 0,
-                "node_count_by_label": 0,
-                "edge_count_by_label": 0,
-                "node_types":""
-            }
-            annotation_id = storage_service.save(annotation)
-        
-        print("Checkpoint: Annotation Handling Completed")
-
-        # Run async processing correctly
-        
-        process_query(requests, annotation_id, properties, question, annotation)
-        result = {"requests": requests,"annotation_id":str(annotation_id),"title":title}
-        return jsonify(result)
-
-    except Exception as e:
-        print("Error occurred in process_query:")
-        traceback.print_exc()  # Prints the full error traceback
-
-        return jsonify({"error": str(e)}), 500
-        
- 
-
-def process_query(requests, annotation_id, properties, question, annotation):
-    print("Processing query...")
-
-    room = annotation_id
-    graph_task = None  # Initialize graph_task to None
-
-    print("request",request)
-    print("____________________")
-     
-    count_by_label = requests[2] if len(requests) > 2 else []
-    node_and_edge_count = requests[1] if len(requests) > 1 else []
-
-    
-    tasks=[generate_graph(requests[0], properties, annotation_id, annotation, room),count_by_label(count_by_label, properties, annotation, annotation_id, room),count_nodes_and_edges(node_and_edge_count, annotation, annotation_id, room)]
-    
-    async def fetch_all_work():
-        tasks_out=[asyncio.create_task(i) for i in tasks]
-        return await asyncio.gather(*tasks_out)
-    return asyncio.run(fetch_all_work)
-
+    async def _process_query():
+        try:
+            data = request.get_json()
+            if not data or 'requests' not in data:
+                return jsonify({"error": "Missing requests data"}), 400
             
-         
+            requests = data['requests']
+            annotation_id = requests.get('annotation_id', None)
 
- 
+            if annotation_id and annotation_id in redis_client:
+                return jsonify(json.loads(redis_client[annotation_id])), 200
 
-async def count_nodes_and_edges(node_and_edge_count, annotation,annotation_id,room):
-        
-        node_count,edge_count=CypherQueryGenerator.count_node_edges( node_and_edge_count)
-        update_annotation ={"$set": {
-            "node_count": node_count,
-            "edge_count": edge_count,
-            "updated_at": datetime.datetime.now()
-        }}
+            limit = request.args.get('limit')
+            properties = request.args.get('properties')
+            source = request.args.get('source')
 
-        await storage_service.update(annotation_id, update_annotation)
-        # socketio.emit("summary_update", {"status": "pending", "summary": update_annotation},to=room)
-        return node_count,edge_count
-     
- 
+            properties = bool(strtobool(properties)) if properties else False
+            limit = int(limit) if limit else None
 
- 
+            question = requests.get('question', None)
+            node_map = validate_request(requests, schema_manager.schema)
+            if node_map is None:
+                return jsonify({"error": "Invalid node_map returned by validate_request"}), 400
 
+            requests = db_instance.parse_id(requests)
+            query_code = db_instance.query_Generator(requests, node_map, limit)
+            result = db_instance.run_query(query_code, source)
+            node_types = {node["type"] for node in requests.get('nodes', [])}
 
-async def count_by_label(count_by_label, properties, annotation,annotation_id,room):
-        node_count_by_label, edge_count_by_label=CypherQueryGenerator.count_by_label( count_by_label,properties)
-        update_annotation = {"$set":{
-            "node_count_by_label": node_count_by_label,
-            "edge_count_by_label": edge_count_by_label,
-            "updated_at": datetime.datetime.now()
-        }}
+            if annotation_id:
+                title = ''
+            else:
+                title = await llm.generate_title(query_code)
+                annotation = {
+                    "current_user_id": str(current_user_id),
+                    "requests": requests,
+                    "query": query_code,
+                    "question": question,
+                    "title": title,
+                    "answer": "",
+                    "summary": "",
+                    "node_count": 0,
+                    "edge_count": 0,
+                    "node_count_by_label": 0,
+                    "edge_count_by_label": 0,
+                    "node_types": list(node_types)
+                }
+                annotation_id = "mock_annotation_id"  # Mock save operation
 
-        await storage_service.update(annotation_id, update_annotation)
-        # socketio.emit("update-event", {"status": "pending", "summary": update_annotation},to=room)
-        return node_count_by_label,edge_count_by_label
-     
+            await process_query_tasks(result, annotation_id, properties, question)
+            return jsonify({"requests": requests, "annotation_id": str(annotation_id), "title": title})
 
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify({"error": str(e)}), 500
 
- 
+    # Run the async function and return the result
+    return asyncio.run(_process_query())
 
-async def generate_graph(requests, properties, annotation_id,annotation,room):
-    request_data=CypherQueryGenerator.graph_result_nodes(requests[0], properties)
-    
-     
-    return request_data
-    
-     
- 
-async def generate_summary(annotation,annotation_id, question,graph_task,count_task_label,request,room):
-    """Generates a summary asynchronously."""
-    if not graph_task.get('nodes') and not graph_task.get('edges'):
-                summary = 'No data found for the query'
-    else:
-        summary = await llm.generate_summary(graph_task,request) or "Graph too big to summarize"
-    answer = await llm.generate_summary(graph_task, request, question, False, summary) if question else None
+async def process_query_tasks(result, annotation_id, properties, question):
+    room = annotation_id
+    count_by_label_value = result[2] if len(result) > 2 else []
+    node_and_edge_count = result[1] if len(result) > 1 else []
+    print("result",len(result))
+    print("countand edges",count_by_label_value)
+    print("node_and_edge_count",node_and_edge_count)
+    matched_result=result[0]
+    tasks = [
+        asyncio.create_task(generate_graph(matched_result, properties)),
+        asyncio.create_task(count_by_label(count_by_label_value, properties,  annotation_id)),
+        asyncio.create_task(count_nodes_and_edges(node_and_edge_count, annotation_id))
+    ]
 
-    update_annotation ={ "$set":{"summary": summary, "updated_at": datetime.datetime.now()}}
+    for task in asyncio.as_completed(tasks):
+        result = await task
+        print(f"Task completed with result {result}")
+
+async def count_nodes_and_edges(node_and_edge_count, annotation_id):
+    print("node and edge count ",node_and_edge_count)
+    node_count, edge_count = CypherQueryGenerator.count_node_edges(node_and_edge_count)
+    update_annotation = {"$set": {
+        "node_count": node_count,
+        "edge_count": edge_count,
+        "updated_at": datetime.datetime.now()
+    }}
     await storage_service.update(annotation_id, update_annotation)
+    return node_count, edge_count
 
-    # Emit WebSocket update
+async def count_by_label(count_by_label_value, properties, annotation_id):
+    node_count_by_label, edge_count_by_label = CypherQueryGenerator.count_by_label(count_by_label_value, properties)
+    update_annotation = {"$set": {
+        "node_count_by_label": node_count_by_label,
+        "edge_count_by_label": edge_count_by_label,
+        "updated_at": datetime.datetime.now()
+    }}
+    await storage_service.update(annotation_id, update_annotation)
+    return node_count_by_label, edge_count_by_label
+
+async def generate_graph(requests, properties):
+    request_data = CypherQueryGenerator.graph_result_nodes(requests, properties)
+    return request_data
      
-    return summary,answer
-
-
+ 
  
 
 
