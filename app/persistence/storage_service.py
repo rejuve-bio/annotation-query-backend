@@ -39,7 +39,10 @@ class StorageService():
         return data
     
     def update(self, id, data):
-        data = Storage.update({"_id": id}, {"$set": data}, many=False)
+        # Ensure the update document is correctly formatted
+        update_document = {"$set": data}
+        result = Storage.update({"_id": id}, update_document, many=False)
+        return result
 
     def delete(self, id):
         data = Storage.delete({"_id": id})

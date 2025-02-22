@@ -24,6 +24,7 @@ from flask_socketio import join_room, leave_room,emit,send
 import redis
 from app.services.cypher_generator import CypherQueryGenerator
  
+
 redis_client=redis.Redis(host='localhost',port=6379,db=0,decode_responses=True)
 # Load environmental variables
 load_dotenv()
@@ -96,31 +97,36 @@ def process_query(current_user_id):
     async def _process_query():
         try:
             data = request.get_json()
+            print("data", data)
+            annotation_id = data['requests'].get('annotation_id', None)
+
             if not data or 'requests' not in data:
                 return jsonify({"error": "Missing requests data"}), 400
-            
-            requests = data['requests']
-            annotation_id = requests.get('annotation_id', None)
-
-            if annotation_id and annotation_id in redis_client:
-                return jsonify(json.loads(redis_client[annotation_id])), 200
 
             limit = request.args.get('limit')
             properties = request.args.get('properties')
-            source = request.args.get('source')
 
-            properties = bool(strtobool(properties)) if properties else False
-            limit = int(limit) if limit else None
+            if properties:
+                properties = bool(strtobool(properties))
+            else:
+                properties = False
 
-            question = requests.get('question', None)
+            if limit:
+                try:
+                    limit = int(limit)
+                except ValueError:
+                    return jsonify({"error": "Invalid limit value. It should be an integer."}), 400
+            else:
+                limit = None
+
+            requests = data['requests']
             node_map = validate_request(requests, schema_manager.schema)
             if node_map is None:
                 return jsonify({"error": "Invalid node_map returned by validate_request"}), 400
 
             requests = db_instance.parse_id(requests)
-            query_code = db_instance.query_Generator(requests, node_map, limit)
-            result = db_instance.run_query(query_code, source)
-            node_types = {node["type"] for node in requests.get('nodes', [])}
+            query_code = db_instance.query_Generator(requests, node_map)
+            result = db_instance.run_query(query_code)
 
             if annotation_id:
                 title = ''
@@ -130,7 +136,7 @@ def process_query(current_user_id):
                     "current_user_id": str(current_user_id),
                     "requests": requests,
                     "query": query_code,
-                    "question": question,
+                    "question": "",
                     "title": title,
                     "answer": "",
                     "summary": "",
@@ -138,11 +144,11 @@ def process_query(current_user_id):
                     "edge_count": 0,
                     "node_count_by_label": 0,
                     "edge_count_by_label": 0,
-                    "node_types": list(node_types)
+                    "node_types": ""
                 }
                 annotation_id = "mock_annotation_id"  # Mock save operation
 
-            await process_query_tasks(result, annotation_id, properties, question)
+            await process_query_tasks(result, annotation_id, properties)
             return jsonify({"requests": requests, "annotation_id": str(annotation_id), "title": title})
 
         except Exception as e:
@@ -152,17 +158,15 @@ def process_query(current_user_id):
     # Run the async function and return the result
     return asyncio.run(_process_query())
 
-async def process_query_tasks(result, annotation_id, properties, question):
+async def process_query_tasks(result, annotation_id, properties):
     room = annotation_id
     count_by_label_value = result[2] if len(result) > 2 else []
     node_and_edge_count = result[1] if len(result) > 1 else []
-    print("result",len(result))
-    print("countand edges",count_by_label_value)
-    print("node_and_edge_count",node_and_edge_count)
-    matched_result=result[0]
+    matched_result = result[0]
+
     tasks = [
         asyncio.create_task(generate_graph(matched_result, properties)),
-        asyncio.create_task(count_by_label(count_by_label_value, properties,  annotation_id)),
+        asyncio.create_task(count_by_label_function(count_by_label_value, properties, annotation_id)),
         asyncio.create_task(count_nodes_and_edges(node_and_edge_count, annotation_id))
     ]
 
@@ -171,33 +175,28 @@ async def process_query_tasks(result, annotation_id, properties, question):
         print(f"Task completed with result {result}")
 
 async def count_nodes_and_edges(node_and_edge_count, annotation_id):
-    print("node and edge count ",node_and_edge_count)
-    node_count, edge_count = CypherQueryGenerator.count_node_edges(node_and_edge_count)
-    update_annotation = {"$set": {
+    node_count, edge_count = CypherQueryGenerator.count_node_and_edges_function(node_and_edge_count)
+    update_annotation = {
         "node_count": node_count,
         "edge_count": edge_count,
         "updated_at": datetime.datetime.now()
-    }}
-    await storage_service.update(annotation_id, update_annotation)
+    }
+    storage_service.update(annotation_id, update_annotation)
     return node_count, edge_count
 
-async def count_by_label(count_by_label_value, properties, annotation_id):
-    node_count_by_label, edge_count_by_label = CypherQueryGenerator.count_by_label(count_by_label_value, properties)
-    update_annotation = {"$set": {
+async def count_by_label_function(count_by_label_value, properties, annotation_id):
+    node_count_by_label, edge_count_by_label = CypherQueryGenerator.count_by_label_function(count_by_label_value)
+    update_annotation =  {
         "node_count_by_label": node_count_by_label,
         "edge_count_by_label": edge_count_by_label,
         "updated_at": datetime.datetime.now()
-    }}
-    await storage_service.update(annotation_id, update_annotation)
+    }
+    storage_service.update(annotation_id, update_annotation)
     return node_count_by_label, edge_count_by_label
 
 async def generate_graph(requests, properties):
-    request_data = CypherQueryGenerator.graph_result_nodes(requests, properties)
+    request_data = CypherQueryGenerator.graph_function(requests, properties)
     return request_data
-     
- 
- 
-
 
 
 @app.route('/history', methods=['GET'])
