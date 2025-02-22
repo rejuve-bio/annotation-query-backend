@@ -737,9 +737,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         edge_count_by_label = []
 
         if count_by_label:
-            for count_record in count_by_label:
-                node_count_by_label.extend(count_record.get('nodes_count_by_label', []))
-                edge_count_by_label.extend(count_record.get('edges_count_by_type', []))
+            for record in count_by_label:
+                # Extract node and edge counts from the Record object
+                for key, value in record.items():
+                    if key.startswith("n"):  # Node counts
+                        label = key.split("_", 1)[1]  # Remove the "n1_", "n2_", etc.
+                        node_count_by_label.append({"label": label, "count": value})
+                    elif key.startswith("p"):  # Edge counts
+                        label = key.split("_", 1)[1]  # Remove the "p1_", "p2_", etc.
+                        edge_count_by_label.append({"label": label, "count": value})
 
         return node_count_by_label, edge_count_by_label
     # def process_result(self, results, all_properties):

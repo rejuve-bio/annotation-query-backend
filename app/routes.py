@@ -182,9 +182,11 @@ async def count_nodes_and_edges(node_and_edge_count, annotation_id):
         "updated_at": datetime.datetime.now()
     }
     storage_service.update(annotation_id, update_annotation)
+    print("count nodes",node_count,edge_count)
     return node_count, edge_count
 
 async def count_by_label_function(count_by_label_value, properties, annotation_id):
+    print("edge_count_by_label",count_by_label_value)
     node_count_by_label, edge_count_by_label = CypherQueryGenerator.count_by_label_function(count_by_label_value)
     update_annotation =  {
         "node_count_by_label": node_count_by_label,
@@ -192,11 +194,12 @@ async def count_by_label_function(count_by_label_value, properties, annotation_i
         "updated_at": datetime.datetime.now()
     }
     storage_service.update(annotation_id, update_annotation)
+    print("node_count_by_label",node_count_by_label,edge_count_by_label)
     return node_count_by_label, edge_count_by_label
 
 async def generate_graph(requests, properties):
     request_data = CypherQueryGenerator.graph_function(requests, properties)
-    return request_data
+    return 1
 
 
 @app.route('/history', methods=['GET'])
