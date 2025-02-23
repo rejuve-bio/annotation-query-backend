@@ -378,6 +378,58 @@ def generate_label_count(count_query, annotation_id, requests, count_label_statu
         count_label_status.set()
         logging.error(e)
 
+def start_thread(annotation_id, args):
+    all_status = args['all_status']
+    find_query = args['query'][0]
+    total_count_query = args['query'][1]
+    label_count_query = args['query'][2]
+    request = args['request']
+    summary = args['summary']
+    meta_data = args['meta_data']
+
+    def send_annotation():
+        time.sleep(0.1)
+        try:
+            generate_result(find_query, annotation_id, request, all_status['result_done'])
+        except Exception as e:
+                logging.error("Error processing request", e)
+      
+    def send_summary():
+        time.sleep(0.1)
+        try:
+            generate_summary(annotation_id, request, all_status, summary)
+        except Exception as e:
+            logging.error("Error processing request", e)
+    
+    
+    def send_total_count():
+        time.sleep(0.1)
+        try:
+            generate_total_count(
+                total_count_query, annotation_id, request, all_status['total_count_done'], meta_data)
+        except Exception as e:
+            logging.error("Error processing request", e)
+    def send_label_count():
+        time.sleep(0.1)
+        try:
+            generate_label_count(label_count_query, annotation_id, request, all_status['label_count_done'], meta_data)
+        except Exception as e:
+            logging.error("Error processing request", e)
+
+    result_generator = threading.Thread(
+        name='result_generator', target=send_annotation)
+    result_generator.start()
+    total_count_generator = threading.Thread(
+        name='total_count_generator', target=send_total_count)
+    total_count_generator.start()
+    label_count_generator = threading.Thread(
+        name='label_count_generator', target=send_label_count)
+    label_count_generator.start()
+    
+    summary_generator = threading.Thread(
+        name='summmary_generator', target=send_summary)
+    summary_generator.start()
+    
 def handle_client_request(query, request, current_user_id, node_types):
     annotation_id = request.get('annotation_id', None)
     # check if annotation exist
@@ -407,51 +459,11 @@ def handle_client_request(query, request, current_user_id, node_types):
             annotation_id, {"statu": "PENDING", "updated_at": datetime.datetime.now()})
         reset_status(annotation_id)
         
-        def send_annotation():
-            time.sleep(0.1)
-            try:
-                generate_result(query[0], annotation_id, request, result_done)
-            except Exception as e:
-                logging.error("Error processing request", e)
-                
-        def send_summary():
-            time.sleep(0.1)
-            try:
-                all_status = {"result_done": result_done,
-                              "total_count_done": total_count_done,
-                              "label_count_done": label_count_done}
-                generate_summary(annotation_id, request, all_status, summary)
-            except Exception as e:
-                logging.error("Error processing request", e)
-
-        def send_total_count():
-            time.sleep(0.1)
-            try:
-                generate_total_count(
-                    None, annotation_id, request, total_count_done, meta_data)
-            except Exception as e:
-                logging.error("Error processing request", e)
-
-        def send_label_count():
-            time.sleep(0.1)
-            try:
-                generate_label_count(None, annotation_id, request, label_count_done, meta_data)
-            except Exception as e:
-                logging.error("Error processing request", e)
-
-        result_generator = threading.Thread(
-            name='result_generator', target=send_annotation)
-        result_generator.start()
-        total_count_generator = threading.Thread(
-            name='total_count_generator', target=send_total_count)
-        total_count_generator.start()
-        label_count_generator = threading.Thread(
-            name='label_count_generator', target=send_label_count)
-        label_count_generator.start()
+        args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
+                               'label_count_done': label_count_done}, 'query': query, 'request': request,
+                'summary': summary, 'meta_data': meta_data}
         
-        summary_generator = threading.Thread(
-            name='summmary_generator', target=send_summary)
-        summary_generator.start()
+        start_thread(annotation_id, args)
         return Response(
             json.dumps({"annotation_id": str(annotation_id)}),
             mimetype='application/json')
@@ -464,53 +476,10 @@ def handle_client_request(query, request, current_user_id, node_types):
 
         annotation_id = storage_service.save(annotation)
 
-        def send_annotation():
-            time.sleep(0.1)
-            try:
-                generate_result(query[0], annotation_id, request, result_done)
-            except Exception as e:
-                logging.error("Error processing request", e)
-                
-        def send_summary():
-            time.sleep(0.1)
-            try:
-                all_status = {"result_done": result_done,
-                              "total_count_done": total_count_done,
-                              "label_count_done": label_count_done}
-                generate_summary(annotation_id, request, all_status)
-            except Exception as e:
-                logging.error("Error processing request", e)
-
-        def send_total_count():
-            time.sleep(0.1)
-            try:
-                count_query = query[1]
-                generate_total_count(count_query, annotation_id, request, total_count_done)
-            except Exception as e:
-                logging.error("Error processing request", e)
-
-        def send_label_count():
-            time.sleep(0.1)
-            try:
-                count_query = query[2]
-                generate_label_count(
-                    count_query, annotation_id, request, label_count_done)
-            except Exception as e:
-                logging.error("Error processing request", e)
-
-        result_generator = threading.Thread(
-            name='result_generator', target=send_annotation)
-        result_generator.start()
-        total_count_generator = threading.Thread(
-            name='total_count_generator', target=send_total_count)
-        total_count_generator.start()
-        label_count_generator = threading.Thread(
-            name='label_count_generator', target=send_label_count)
-        label_count_generator.start()
-        
-        summary_generator = threading.Thread(
-            name='summmary_generator', target=send_summary)
-        summary_generator.start()
+        args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
+                               'label_count_done': label_count_done}, 'query': query, 'request': request,
+                'summary': None, 'meta_data': None}
+        start_thread(annotation_id, args)
 
         return Response(
             json.dumps({"annotation_id": str(annotation_id)}),
@@ -528,56 +497,11 @@ def handle_client_request(query, request, current_user_id, node_types):
         storage_service.update(annotation_id, annotation)
         reset_task(annotation_id)
 
-        def send_annotation():
-            time.sleep(0.1)
-            try:
-                generate_result(query[0], annotation_id, request, result_done)
-            except Exception as e:
-                logging.error("Error processing request", e)
-                
-        def send_summary():
-            time.sleep(0.1)
-            try:
-                all_status = {"result_done": result_done,
-                              "total_count_done": total_count_done,
-                              "label_count_done": label_count_done}
-                generate_summary(annotation_id, request, all_status)
-            except Exception as e:
-                logging.error("Error processing request", e)
-
-        def send_total_count():
-            time.sleep(0.1)
-            try:
-                count_query = query[1]
-                generate_total_count(count_query, annotation_id, request, total_count_done)
-            except Exception as e:
-                logging.error("Error processing request", e)
-
-        def send_label_count():
-            time.sleep(0.1)
-            try:
-                count_query = query[2]
-                generate_label_count(
-                    count_query, annotation_id, request, label_count_done)
-            except Exception as e:
-                logging.error("Error processing request", e)
-
-        result_generator = threading.Thread(
-            name='result_generator', target=send_annotation)
-        result_generator.start()
-
-        total_count_generator = threading.Thread(
-            name='total_count_generator', target=send_total_count)
-
-        total_count_generator.start()
-
-        label_count_generator = threading.Thread(
-            name='label_count_generator', target=send_label_count)
-        label_count_generator.start()
+        args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
+                               'label_count_done': label_count_done}, 'query': query, 'request': request,
+                'summary': None, 'meta_data': None}
         
-        summary_generator = threading.Thread(
-            name='summmary_generator', target=send_summary)
-        summary_generator.start()
+        start_thread(annotation_id, args)
 
         return Response(
             json.dumps({'annotation_id': str(annotation_id)}),
