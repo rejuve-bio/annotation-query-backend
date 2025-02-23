@@ -207,6 +207,11 @@ async def count_by_label_function(count_by_label_value, properties, annotation_i
 
 async def generate_graph(requests, properties):
     request_data = CypherQueryGenerator.graph_function(requests, properties)
+
+    if isinstance(request_data, tuple):
+        # Convert tuple to dictionary if necessary
+        request_data = {"nodes": request_data[0], "edges": request_data[1]}
+    print(type(request_data))
     return request_data
 async def summary(graph, request, node_count_by_label,edge_count_by_label,annotation_id):
     summary = llm.generate_summary(graph, request,node_count_by_label,edge_count_by_label) or 'Graph too big, could not summarize'

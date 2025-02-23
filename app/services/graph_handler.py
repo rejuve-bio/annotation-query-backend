@@ -124,8 +124,16 @@ class Graph_Summarizer:
 
 
     
-    def graph_description(self,graph):
+    def graph_description(self, graph):
+        print("graph________***", graph)
+        if not isinstance(graph, dict):
+            raise ValueError("Expected 'graph' to be a dictionary, but got: {}".format(type(graph)))
+        
+        if 'nodes' not in graph:
+            raise ValueError("The 'graph' dictionary must contain a 'nodes' key.")
+        
         nodes = {node['data']['id']: node['data'] for node in graph['nodes']}
+    # Rest of your code...
     
         # Check if the 'edges' key exists in the graph
         if len(graph['edges']) > 0:
