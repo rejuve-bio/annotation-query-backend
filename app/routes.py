@@ -23,13 +23,14 @@ from app.lib import adjust_file_path
 from flask_socketio import join_room, leave_room,emit,send
 import redis
 from app.services.cypher_generator import CypherQueryGenerator
- 
+from run import socketio
+
 
 redis_client=redis.Redis(host='localhost',port=6379,db=0,decode_responses=True)
 # Load environmental variables
 load_dotenv()
 # Set the allowed origin for WebSocket connections
- 
+current_user_id=None
 def handle_message(auth):
     emit('my responce',{'data':"Connected"})
  
@@ -71,6 +72,7 @@ def get_nodes_endpoint(current_user_id):
 @app.route('/edges', methods=['GET'])
 @token_required
 def get_edges_endpoint(current_user_id):
+    
     edges = json.dumps(schema_manager.get_edges(), indent=4)
     return Response(edges, mimetype='application/json')
 
@@ -79,25 +81,37 @@ def get_edges_endpoint(current_user_id):
 def get_relations_for_node_endpoint(current_user_id, node_label):
     relations = json.dumps(schema_manager.get_relations_for_node(node_label), indent=4)
     return Response(relations, mimetype='application/json')
- 
-# @socketio.on('join')
-# def on_join(data):
-#     username = data['username']
-#     room = data['room']
-#     join_room(room)  # Correctly join the room
+@socketio.on('join')
+def on_join(data):
+    try:
+        user_id = current_user_id
+        room = data['room']
+        join_room(room)
+        socketio.emit('status', {"status": "connected", "message": f"{user_id} has joined the room {room}"}, room=room)
+    except Exception as e:
+        socketio.emit('status', {"status": "error", "message": f"Failed to join room: {str(e)}"}, room=room)
 
-# @socketio.on('leave')
-# def on_leave(data):
-#     username = data['username']
-#     room = data['room']
-#     leave_room(room)
+@socketio.on('leave')
+def on_leave(data):
+    user_id = current_user_id
+    room = data['room']
+    leave_room(room)
+    socketio.emit('status', {"status": "disconnected", "message": f"{user_id} has left the room {room}"}, room=room)
+
+
 @app.route('/query', methods=['POST'])
 @token_required
 def process_query(current_user_id):
+    current_user_id=current_user_id
+    if redis_client.exists("annotation_id"):
+        cached_data = redis_client.get("annotation_id")
+        cached_data=json.loads(cached_data)
+        return cached_data
+
     async def _process_query():
         try:
             data = request.get_json()
-            print("data", data)
+             
             annotation_id = data['requests'].get('annotation_id', None)
 
             if not data or 'requests' not in data:
@@ -129,7 +143,8 @@ def process_query(current_user_id):
             result = db_instance.run_query(query_code)
 
             if annotation_id:
-                title = ''
+                 
+                title =  llm.generate_title(query_code)
             else:
                 title = await llm.generate_title(query_code)
                 annotation = {
@@ -146,14 +161,15 @@ def process_query(current_user_id):
                     "edge_count_by_label": 0,
                     "node_types": ""
                 }
-                annotation_id = "mock_annotation_id"  # Mock save operation
+                   # Mock save operation
 
             graph, node_count_by_label, edge_count_by_label = await process_query_tasks(result, annotation_id, properties)
-
+            redis_client.setex(annotation_id,7200,json.dumps(graph))
             # Generate summary using the results from process_query_tasks
-            summary_result = await summary(graph, requests, node_count_by_label, edge_count_by_label, annotation_id)
-            print(summary_result)
-            return jsonify({"requests": requests, "annotation_id": str(annotation_id), "title": title, "summary": summary_result})
+            room=annotation_id
+            summary_val = await summary(graph, requests, node_count_by_label, edge_count_by_label, annotation_id,room)
+            socketio.emit({"status":"pending","summary":summary_val},room=room)
+            return jsonify({"requests": requests, "annotation_id": str(annotation_id), "title": title})
 
         except Exception as e:
             traceback.print_exc()
@@ -169,20 +185,20 @@ async def process_query_tasks(result, annotation_id, properties):
     matched_result = result[0]
 
     tasks = [
-        asyncio.create_task(generate_graph(matched_result, properties)),
-        asyncio.create_task(count_by_label_function(count_by_label_value, properties, annotation_id)),
-        asyncio.create_task(count_nodes_and_edges(node_and_edge_count, annotation_id))
+        asyncio.create_task(generate_graph(matched_result, properties,room)),
+        asyncio.create_task(count_by_label_function(count_by_label_value,  annotation_id,room)),
+        asyncio.create_task(count_nodes_and_edges(node_and_edge_count, annotation_id,room))
     ]
 
     # Wait for all tasks to complete
     results = await asyncio.gather(*tasks)
     graph = results[0]   
     node_count_by_label, edge_count_by_label = results[1]   
-     
-
+    socketio.emit('status', {"status": "completed", "message": "All tasks have been processed"}, room=room)
+    socketio.emit('close_connection', {"message": "Connection will now close"}, room=room)
     return graph, node_count_by_label, edge_count_by_label
 
-async def count_nodes_and_edges(node_and_edge_count, annotation_id):
+async def count_nodes_and_edges(node_and_edge_count, annotation_id,room):
     node_count, edge_count = CypherQueryGenerator.count_node_and_edges_function(node_and_edge_count)
     update_annotation = {
         "node_count": node_count,
@@ -190,11 +206,13 @@ async def count_nodes_and_edges(node_and_edge_count, annotation_id):
         "updated_at": datetime.datetime.now()
     }
     storage_service.update(annotation_id, update_annotation)
-    print("count nodes",node_count,edge_count)
+
+    # print("count nodes",node_count,edge_count)
+    socketio.emit("update_event",{"status":"pending","node_count":node_count,"edge_count":edge_count},room=room)
     return node_count, edge_count
 
-async def count_by_label_function(count_by_label_value, properties, annotation_id):
-    print("edge_count_by_label",count_by_label_value)
+async def count_by_label_function(count_by_label_value, annotation_id,room):
+    # print("edge_count_by_label",count_by_label_value)
     node_count_by_label, edge_count_by_label = CypherQueryGenerator.count_by_label_function(count_by_label_value)
     update_annotation =  {
         "node_count_by_label": node_count_by_label,
@@ -202,25 +220,29 @@ async def count_by_label_function(count_by_label_value, properties, annotation_i
         "updated_at": datetime.datetime.now()
     }
     storage_service.update(annotation_id, update_annotation)
-    print("node_count_by_label",node_count_by_label,edge_count_by_label)
+    # print("node_count_by_label",node_count_by_label,edge_count_by_label)
+    socketio.emit("update_event",{"node_count_by_label":node_count_by_label,"edge_count_by_label":
+                edge_count_by_label},room=room)
     return node_count_by_label, edge_count_by_label
 
-async def generate_graph(requests, properties):
+async def generate_graph(requests, properties,room):
     request_data = CypherQueryGenerator.graph_function(requests, properties)
 
     if isinstance(request_data, tuple):
         # Convert tuple to dictionary if necessary
         request_data = {"nodes": request_data[0], "edges": request_data[1]}
-    print(type(request_data))
+    socketio.emit('update_event',{"summary":request_data},room=room)
     return request_data
-async def summary(graph, request, node_count_by_label,edge_count_by_label,annotation_id):
-    summary = llm.generate_summary(graph, request,node_count_by_label,edge_count_by_label) or 'Graph too big, could not summarize'
+async def summary(graph, requests, node_count_by_label, edge_count_by_label, annotation_id,room):
+    summary = llm.generate_summary(graph, requests,node_count_by_label,edge_count_by_label) or 'Graph too big, could not summarize'
 
     updated_annotation={
         "summary":summary,
         "updated_at":datetime.datetime.now()
     }
     storage_service.update(annotation_id,updated_annotation)
+    socketio.emit('update_event',{"summary":summary},room=room)
+     
     return summary
     
 @app.route('/history', methods=['GET'])

@@ -13,6 +13,7 @@ from app.persistence.storage_service import StorageService
 from db import mongo_init
 from flask_cors import CORS
  
+ 
 # Initialize Flask app
 app = Flask(__name__)
 
@@ -21,9 +22,8 @@ CORS(app, origins=["http://localhost:5173/"])
 
 # Set secret key
 app.config['SECRET_KEY'] = 'secret'
-
-# socketio = SocketIO(app, cors_allowed_origins="http://localhost:5173/")
-
+ 
+ 
 
 # Function to load configuration from YAML file
 def load_config():
