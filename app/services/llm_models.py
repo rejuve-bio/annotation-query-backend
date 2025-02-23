@@ -12,7 +12,7 @@ class LLMInterface:
 class GeminiModel(LLMInterface):
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+        self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
     
     def generate(self, prompt: str) -> Dict[str, Any]:
         headers = {
