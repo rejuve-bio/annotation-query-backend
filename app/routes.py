@@ -148,8 +148,12 @@ def process_query(current_user_id):
                 }
                 annotation_id = "mock_annotation_id"  # Mock save operation
 
-            await process_query_tasks(result, annotation_id, properties)
-            return jsonify({"requests": requests, "annotation_id": str(annotation_id), "title": title})
+            graph, node_count_by_label, edge_count_by_label = await process_query_tasks(result, annotation_id, properties)
+
+            # Generate summary using the results from process_query_tasks
+            summary_result = await summary(graph, requests, node_count_by_label, edge_count_by_label, annotation_id)
+            print(summary_result)
+            return jsonify({"requests": requests, "annotation_id": str(annotation_id), "title": title, "summary": summary_result})
 
         except Exception as e:
             traceback.print_exc()
@@ -170,9 +174,13 @@ async def process_query_tasks(result, annotation_id, properties):
         asyncio.create_task(count_nodes_and_edges(node_and_edge_count, annotation_id))
     ]
 
-    for task in asyncio.as_completed(tasks):
-        result = await task
-        print(f"Task completed with result {result}")
+    # Wait for all tasks to complete
+    results = await asyncio.gather(*tasks)
+    graph = results[0]   
+    node_count_by_label, edge_count_by_label = results[1]   
+     
+
+    return graph, node_count_by_label, edge_count_by_label
 
 async def count_nodes_and_edges(node_and_edge_count, annotation_id):
     node_count, edge_count = CypherQueryGenerator.count_node_and_edges_function(node_and_edge_count)
@@ -199,9 +207,17 @@ async def count_by_label_function(count_by_label_value, properties, annotation_i
 
 async def generate_graph(requests, properties):
     request_data = CypherQueryGenerator.graph_function(requests, properties)
-    return 1
+    return request_data
+async def summary(graph, request, node_count_by_label,edge_count_by_label,annotation_id):
+    summary = llm.generate_summary(graph, request,node_count_by_label,edge_count_by_label) or 'Graph too big, could not summarize'
 
-
+    updated_annotation={
+        "summary":summary,
+        "updated_at":datetime.datetime.now()
+    }
+    storage_service.update(annotation_id,updated_annotation)
+    return summary
+    
 @app.route('/history', methods=['GET'])
 @token_required
 def process_user_history(current_user_id):
