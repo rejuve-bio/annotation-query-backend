@@ -49,3 +49,12 @@ class StorageService():
     def delete(self, id):
         data = Storage.delete({"_id": id})
         return data
+    
+    def delete_many_by_id(self, ids):
+        delete_count = 0
+        
+        for id in ids:
+            self.delete(id)
+            delete_count += 1
+        
+        return delete_count

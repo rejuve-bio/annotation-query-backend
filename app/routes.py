@@ -813,7 +813,7 @@ def get_by_id(current_user_id, id):
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
         
-        if len(response_data['nodes']) == 0:
+        if 'nodes' in response_data and len(response_data['nodes']) == 0:
             response = jsonify({"error": "No data found for the query"})
             response = Response(response.response, status=404)
             response.status = "404 No matching results for the query"
@@ -883,6 +883,8 @@ def process_by_id(current_user_id, id):
     query = cursor.query
     summary = cursor.summary
     json_request = cursor.request
+    node_count_by_label = cursor.node_count_by_label
+    edge_count_by_label = cursor.edge_count_by_label
     limit = request.args.get('limit')
     properties = request.args.get('properties')
 
@@ -921,6 +923,9 @@ def process_by_id(current_user_id, id):
             response_data = db_instance.parse_and_serialize(
                 result, schema_manager.schema, graph_components, result_type='graph')
 
+        response_data['node_count_by_label'] = node_count_by_label
+        response_data['edge_count_by_label'] = edge_count_by_label
+ 
         answer = llm.generate_summary(
             response_data, json_request, question, False, summary) if question else None
 
@@ -1069,4 +1074,33 @@ def update_title(current_user_id, id):
     except Exception as e:
         logging.error(f"Error updating title: {e}")
         return jsonify({"error": str(e)}), 500
-
+    
+@app.route('/annotation/delete', methods=['DELETE'])
+@token_required
+def delete_many(current_user_id):
+    data = request.get_json()
+    
+    if 'annotation_ids' not in data:
+        return jsonify({"error": "Missing annotation ids"}), 400
+        
+    annotation_ids = data['annotation_ids']
+    
+    if not isinstance(annotation_ids, list):
+        return jsonify({"error": "Annotation ids must be a list"}), 400
+    
+    if len(annotation_ids) == 0:
+        return jsonify({"error": "Annotation ids must not be empty"}), 400
+    
+    try:
+        delete_count = storage_service.delete_many_by_id(annotation_ids)
+        
+        response_data = {
+            'message': f'Out of {len(annotation_ids)}, {delete_count} were successfully deleted.'
+        }
+        
+        formatted_response = json.dumps(response_data, indent=4)
+        return Response(formatted_response, mimetype='application/json')
+    except Exception as e:
+        logging.error('Error deleting annotations: {e}')
+        return jsonify({"error": str(e)}), 500
+    
