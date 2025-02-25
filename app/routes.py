@@ -269,7 +269,7 @@ def generate_total_count(count_query, annotation_id, requests, total_count_statu
     try:
 
         total_count = db_instance.run_query(count_query)
-        
+
         if len(total_count) == 0:
             status = update_task(annotation_id)
             storage_service.update(annotation_id, {'status': status, 'node_count': 0, 'edge_count': 0})
@@ -607,7 +607,8 @@ def process_query(current_user_id):
 
         answer = llm.generate_summary(result_graph, requests, question, False, summary)
 
-        response = result_graph
+        graph = Graph()
+        response = graph.group_graph(result_graph)
         response['node_count'] = meta_data['node_count']
         response['edge_count'] = meta_data['edge_count']
         response['node_count_by_label'] = meta_data['node_count_by_label']
@@ -637,7 +638,6 @@ def process_query(current_user_id):
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 
 @app.route('/email-query/<id>', methods=['POST'])
