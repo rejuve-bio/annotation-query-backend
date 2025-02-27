@@ -70,3 +70,4 @@ schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
 
 # Import routes at the end to avoid circular imports
 from app import routes
+from app.annotation_controller import handle_client_request, process_full_data
