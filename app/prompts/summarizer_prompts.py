@@ -73,10 +73,10 @@ SUMMARY_PROMPT_CHUNKING = """
                 Given request used to fetch the graph data: \n{json_query}\n\n"
                 Your task is to analyze the graph ,including the previous summary and summarize the most important trends, patterns, and relationships.\n
                 Instructions:\n
-                  - Count and list important metrics, such as the number of nodes and edges.    
-                  - Identify any central nodes and explain their role in the network.     
-                  - Mention any notable structures in the graph, such as chains, hubs, or clusters.      
-                  - Discuss any specific characteristics of the data, such as alternative splicing or regulatory mechanisms that may be involved.     
+                  - Count and list important metrics, such as the number of nodes and edges.
+                  - Identify any central nodes and explain their role in the network.
+                  - Mention any notable structures in the graph, such as chains, hubs, or clusters.
+                  - Discuss any specific characteristics of the data, such as alternative splicing or regulatory mechanisms that may be involved.
                   - Format the response clearly and concisely.\n\n
                 Count and list important metrics
                 Identify any central nodes or relationships and highlight any important patterns.
@@ -93,7 +93,7 @@ Given the following graph data:
 
 Given request used to fetch the graph data: \n{json_query}\n\n"
 
-Your task is to analyze and summarize the most important trends, patterns, and relationships in a list of paragraphs. 
+Your task is to analyze and summarize the most important trends, patterns, and relationships in a list of paragraphs.
 Each paragraph should address one of the following points:
 - Identify key trends and relationships in the graph data.
 - Count and list important metrics, such as the number of nodes and edges.

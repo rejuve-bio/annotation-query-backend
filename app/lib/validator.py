@@ -1,11 +1,15 @@
 import networkx as nx
+import re
 
-def validate_request(request, schema):
+def clean_string(s):
+    return re.sub(r'[-_]', '', s)
+
+def validate_request(request, schema, source):
     if 'nodes' not in request:
         raise Exception("node is missing")
 
     nodes = request['nodes']
-        
+
     # validate nodes
     if not isinstance(nodes, list):
         raise Exception("nodes should be a list")
@@ -20,8 +24,12 @@ def validate_request(request, schema):
         if 'node_id' not in node or node['node_id'] == "":
             raise Exception("node_id is required")
         
+        # format the node id into approperiate format
+        node_id = node['node_id']
+        node['node_id'] = clean_string(node_id)
+
         node.setdefault('properties', {})
-       
+
         if 'chr' in node["properties"]:
             chr_property = node["properties"]["chr"]
             chr_property = str(chr_property)
@@ -48,37 +56,51 @@ def validate_request(request, schema):
     # validate predicates
     if 'predicates' in request:
         predicates = request['predicates']
-            
+
         if not isinstance(predicates, list):
             raise Exception("Predicate should be a list")
-        for predicate in predicates:
+        for i, predicate in enumerate(predicates):
             if 'type' not in predicate or predicate['type'] == "":
                 raise Exception("predicate type is required")
             if 'source' not in predicate or predicate['source'] == "":
                 raise Exception("source is required")
             if 'target' not in predicate or predicate['target'] == "":
                 raise Exception("target is required")
+            
+            predicate['source'] = clean_string(predicate['source'])
+            predicate['target'] = clean_string(predicate['target'])
+            
+            # Handle cases validation for the ai-assistant
+            if 'predicate_id' not in predicate:
+                predicate['predicate_id'] = f'p{i}'
 
             if predicate['source'] not in node_map:
-                raise Exception(f"Source node {predicate['source']} does not exist in the nodes object")
+                raise Exception(
+                    f"Source node {predicate['source']}\
+                    does not exist in the nodes object")
             if predicate['target'] not in node_map:
-                raise Exception(f"Target node {predicate['target']} does not exist in the nodes object")
-            
+                raise Exception(
+                    f"Target node {predicate['target']}\
+                    does not exist in the nodes object")
+
             # format the predicate type using _
             predicate_type = predicate['type'].split(' ')
             predicate_type = '_'.join(predicate_type)
-            
+
             source_type = node_map[predicate['source']]['type']
             target_type = node_map[predicate['target']]['type']
 
             predicate_type = f'{source_type}_{predicate_type}_{target_type}'
             if predicate_type not in schema:
-                raise Exception(f"Invalid source and target for the predicate {predicate['type']}")
+                raise Exception(
+                    f"Invalid source and target for\
+                    the predicate {predicate['type']}")
+    if source != 'hypothesis':
+        if check_disconnected_graph(request):
+            raise Exception("Disconnected subgraph found")
 
-    if check_disconnected_graph(request):
-        raise Exception("Disconnected subgraph found")
-        
     return node_map
+
 
 def check_disconnected_graph(request):
     # create a networkx graph
@@ -86,15 +108,15 @@ def check_disconnected_graph(request):
     edges = request['predicates']
 
     G = nx.Graph()
-    
+
     # create the nodes
     for node in nodes:
         G.add_node(node["node_id"])
-    
+
     # create the edges
     for edge in edges:
         G.add_edge(edge["source"], edge["target"])
-    
+
     # identify subgraphs
     connected_components = list(nx.connected_components(G))
 
@@ -102,4 +124,3 @@ def check_disconnected_graph(request):
         return True
 
     return False
-

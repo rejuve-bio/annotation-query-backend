@@ -6,7 +6,7 @@ load_dotenv()
 
 class LLMHandler:
     def __init__(self):
-        model_type = os.getenv('LLM_MODEL')
+        model_type = os.getenv('LLM_MODEL')   
 
         if model_type == 'openai':
             openai_api_key = os.getenv('OPENAI_API_KEY')
