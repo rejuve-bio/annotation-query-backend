@@ -76,7 +76,7 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
 @socketio.on('connect')
 def on_connect(current_user_id):
     logging.info("User connected")
-    send('User is conneected')
+    send('User is connected')
 
 @socketio.on('disconnect')
 def on_disconnect():
@@ -598,8 +598,7 @@ def delete_many(current_user_id):
     try:
         data = json.loads(data)  # Now parse the cleaned string
     except json.JSONDecodeError:
-        return {"error": "Invalid JSON"}, 400  # Return 400 if the JSON is invalid
-    data = request.data.decode('utf-8').strip()  # Decode and strip the string of any extra spaces or quotes
+        return {"error": "Invalid JSON"}, 400  # Return 400 if the JSON is invalids
     
     if 'annotation_ids' not in data:
         return jsonify({"error": "Missing annotation ids"}), 400
