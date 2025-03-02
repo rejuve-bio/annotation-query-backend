@@ -76,7 +76,7 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
 @socketio.on('connect')
 def on_connect(current_user_id):
     logging.info("User connected")
-    send('User is connected')
+    send('User is conneected')
 
 @socketio.on('disconnect')
 def on_disconnect():
@@ -586,6 +586,7 @@ def update_title(current_user_id, id):
         return jsonify({"error": str(e)}), 500
     
 @app.route('/annotation/delete', methods=['POST'])
+
 @token_required
 def delete_many(current_user_id):
     data = request.data.decode('utf-8').strip()  # Decode and strip the string of any extra spaces or quotes
@@ -598,6 +599,7 @@ def delete_many(current_user_id):
         data = json.loads(data)  # Now parse the cleaned string
     except json.JSONDecodeError:
         return {"error": "Invalid JSON"}, 400  # Return 400 if the JSON is invalid
+    data = request.data.decode('utf-8').strip()  # Decode and strip the string of any extra spaces or quotes
     
     if 'annotation_ids' not in data:
         return jsonify({"error": "Missing annotation ids"}), 400
@@ -622,3 +624,4 @@ def delete_many(current_user_id):
     except Exception as e:
         logging.error('Error deleting annotations: {e}')
         return jsonify({"error": str(e)}), 500
+    
