@@ -598,7 +598,7 @@ def delete_many(current_user_id):
     try:
         data = json.loads(data)  # Now parse the cleaned string
     except json.JSONDecodeError:
-        return {"error": "Invalid JSON"}, 400  # Return 400 if the JSON is invalids
+        return {"error": "Invalid JSON"}, 400  # Return 400 if the JSON is invalid
     
     if 'annotation_ids' not in data:
         return jsonify({"error": "Missing annotation ids"}), 400
