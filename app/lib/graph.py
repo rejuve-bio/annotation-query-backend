@@ -18,6 +18,7 @@ class Graph:
         Each connection is keyed by the edge label and stores whether
         the node is the source, and a set of node IDs it connects to.
         '''
+        node_to_id_map = {node["data"]["id"]: node["data"] for node in graph.get("nodes", [])}
         node_mapping = {}
 
         def add_to_map(edge, node_role):
@@ -37,14 +38,14 @@ class Graph:
             add_to_map(edge, "source")
             add_to_map(edge, "target")
 
-        return node_mapping
+        return node_mapping, node_to_id_map
 
     def collapse_nodes(self, graph):
         """
         Collapse nodes that have the same connectivity.
         Returns a new graph where groups of nodes have been merged into a single node.
         """
-        node_mapping = self.get_node_to_connections_map(graph)
+        node_mapping, node_to_id_map = self.get_node_to_connections_map(graph)
         map_string = {}  # Maps a hash to a group { connections, nodes }
         ids = {}         # Maps each original node ID to its group hash
 
@@ -67,11 +68,11 @@ class Graph:
                 json_str.encode("utf-8")).hexdigest()
 
             if connections_hash in map_string:
-                map_string[connections_hash]["nodes"].append(node_id)
+                map_string[connections_hash]["nodes"].append(node_to_id_map[node_id])
             else:
                 map_string[connections_hash] = {
                     "connections": connections_array,
-                    "nodes": [node_id]
+                    "nodes": [node_to_id_map[node_id]]
                 }
             ids[node_id] = connections_hash
 
@@ -80,9 +81,9 @@ class Graph:
         # For each group, create a new compound node and new edges.
         for group_hash, group in map_string.items():
             # Find a representative node from the original annotation
-            rep_node = next(
-                (n for n in graph["nodes"]
-                    if n["data"]["id"] in group["nodes"]), None)
+            rep_node = rep_node = next((n for n in graph["nodes"]\
+                if n["data"]["id"] in \
+                    {node["id"] for node in group["nodes"]}), None)
 
             if rep_node is None:
                 continue
@@ -134,7 +135,7 @@ class Graph:
         This creates compound (parent) nodes for groups of nodes
         that share identical edges.
         """
-        node_mapping = self.get_node_to_connections_map(graph)
+        node_mapping, _ = self.get_node_to_connections_map(graph)
         # Maps a sorted, comma‐joined string of node IDs to parent info.
         parent_map = {}
 
@@ -213,7 +214,7 @@ class Graph:
                 if parent["id"] not in parents:
                     continue
                 # Determine which end of the edge to check.
-                if parent["isSource"]:
+                if parent["is_source"]:
                     edge_key = e["data"]["target"]
                     parent_node = e["data"]["source"]
                 else:
@@ -232,7 +233,7 @@ class Graph:
         for key, parent in parent_map.items():
             if parent["id"] not in parents:
                 continue
-            if parent["isSource"]:
+            if parent["is_source"]:
                 source = parent["node"]
                 target = parent["id"]
             else:
