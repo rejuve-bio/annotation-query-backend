@@ -586,6 +586,7 @@ def update_title(current_user_id, id):
         return jsonify({"error": str(e)}), 500
     
 @app.route('/annotation/delete', methods=['POST'])
+
 @token_required
 def delete_many(current_user_id):
     data = request.data.decode('utf-8').strip()  # Decode and strip the string of any extra spaces or quotes
@@ -622,3 +623,4 @@ def delete_many(current_user_id):
     except Exception as e:
         logging.error('Error deleting annotations: {e}')
         return jsonify({"error": str(e)}), 500
+    
