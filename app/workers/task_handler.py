@@ -29,8 +29,10 @@ def update_task(annotation_id, graph=None):
         if task_num >= 4 and cache['status'] == 'CANCELLED':
             storage_service.delete(annotation_id)
             redis_client.delete(f"{annotation_id}_tasks")
-            annotation_threads = app.config['annotation_threads']
-            del annotation_threads[str(annotation_id)]
+            redis_client.delete(str(annotation_id))
+            with app.config['annotation_lock']:
+                annotation_threads = app.config['annotation_threads']
+                del annotation_threads[str(annotation_id)]
     else:
         status = 'COMPLETE' if task_num >= 4 else 'PENDING'
         
@@ -40,7 +42,7 @@ def update_task(annotation_id, graph=None):
         }))
         storage_service.update(annotation_id, {'status': status})
         redis_client.delete(f"{annotation_id}_tasks")
-    else:
+    elif status == 'PENDING':
         redis_client.set(str(annotation_id), json.dumps({
             'graph': graph, 'status': status
         }))

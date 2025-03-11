@@ -533,6 +533,23 @@ def serve_file(file_name):
 @token_required
 def delete_by_id(current_user_id, id):
     try:
+        # first check if there is any running running annoation
+        with app.config['annotation_lock']:
+            thread_event = app.config['annotation_threads']
+            stop_event = thread_event.get(id, None)
+        
+            # if there is stop the running annoation
+            if stop_event is not None:
+                stop_event.set()
+
+                response_data = {
+                    'message': f'Annotation {id} has been cancelled.'
+                }
+
+                formatted_response = json.dumps(response_data, indent=4)
+                return Response(formatted_response, mimetype='application/json')
+        
+        # else delete the annotation from the db
         existing_record = storage_service.get_by_id(id)
 
         if existing_record is None:
@@ -622,26 +639,3 @@ def delete_many(current_user_id):
     except Exception as e:
         logging.error('Error deleting annotations: {e}')
         return jsonify({"error": str(e)}), 500
-    
-@app.route('/cancel/<id>', methods=['GET'])
-@token_required
-def cancel_annotation(current_user_id, id):
-    try:
-        annotation_threads = app.config['annotation_threads']
-        stop_event = annotation_threads.get(id, None)
-
-        if stop_event is None:
-            return jsonify({"error": "Annotation not found"}), 404
-  
-        stop_event.set()
-        
-        response_data = {
-            'message': f'Annotation {id} has been cancelled.'
-        }
-        
-        formatted_response = json.dumps(response_data, indent=4)
-        return Response(formatted_response, mimetype='application/json')
-    except Exception as e:
-        logging.error('Error deleting annotations: {e}')
-        return jsonify({"error": str(e)}), 500
-    
