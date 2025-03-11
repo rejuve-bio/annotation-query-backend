@@ -187,7 +187,10 @@ def process_query(current_user_id):
         answer = llm.generate_summary(result_graph, requests, question, False, summary)
 
         graph = Graph()
-        response = graph.group_graph(result_graph)
+        if len(result_graph['edges']) == 0:
+            response = graph.group_node_only(result_graph)
+        else:
+            response = graph.group_graph(result_graph)
         response['node_count'] = meta_data['node_count']
         response['edge_count'] = meta_data['edge_count']
         response['node_count_by_label'] = meta_data['node_count_by_label']
@@ -363,7 +366,10 @@ def get_by_id(current_user_id, id):
                 result, schema_manager.schema,
                 graph_components, result_type='graph')
             graph = Graph()
-            grouped_graph = graph.group_graph(response_data)
+            if (len(response_data['edges']) == 0):
+                response_data = graph.group_node_only(response_data)
+            else:
+                grouped_graph = graph.group_graph(response_data)
             response_data['nodes'] = grouped_graph['nodes']
             response_data['edges'] = grouped_graph['edges']
 
