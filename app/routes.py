@@ -586,7 +586,6 @@ def update_title(current_user_id, id):
         return jsonify({"error": str(e)}), 500
     
 @app.route('/annotation/delete', methods=['POST'])
-
 @token_required
 def delete_many(current_user_id):
     data = request.data.decode('utf-8').strip()  # Decode and strip the string of any extra spaces or quotes
@@ -616,6 +615,28 @@ def delete_many(current_user_id):
         
         response_data = {
             'message': f'Out of {len(annotation_ids)}, {delete_count} were successfully deleted.'
+        }
+        
+        formatted_response = json.dumps(response_data, indent=4)
+        return Response(formatted_response, mimetype='application/json')
+    except Exception as e:
+        logging.error('Error deleting annotations: {e}')
+        return jsonify({"error": str(e)}), 500
+    
+@app.route('/cancel/<id>', methods=['GET'])
+@token_required
+def cancel_annotation(current_user_id, id):
+    try:
+        annotation_threads = app.config['annotation_threads']
+        stop_event = annotation_threads.get(id, None)
+
+        if stop_event is None:
+            return jsonify({"error": "Annotation not found"}), 404
+  
+        stop_event.set()
+        
+        response_data = {
+            'message': f'Annotation {id} has been cancelled.'
         }
         
         formatted_response = json.dumps(response_data, indent=4)

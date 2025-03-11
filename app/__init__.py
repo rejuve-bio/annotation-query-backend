@@ -12,6 +12,7 @@ import os
 import logging
 import yaml
 from flask_redis import FlaskRedis
+from app.error import ThreadStopException
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*',
@@ -64,6 +65,7 @@ storage_service = StorageService()  # Initialize the storage service
 
 app.config['llm_handler'] = llm
 app.config['storage_service'] = storage_service
+app.config['annotation_threads'] = {}
 
 schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
                                biocypher_config_path='./config/biocypher_config.yaml')
