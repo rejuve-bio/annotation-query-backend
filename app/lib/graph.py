@@ -11,7 +11,34 @@ class Graph:
         graph = self.collapse_nodes(graph)
         graph = self.group_into_parents(graph)
         return graph
-
+    def group_node_only(self, graph, request):
+        nodes = graph['nodes']
+        new_graph = {'nodes': [], 'edges': []}
+        
+        node_map_by_label = {}
+        
+        request_nodes = request['nodes']
+        
+        for node in request_nodes:
+            node_map_by_label[node['type']] = []
+            
+        for node in nodes:
+            if node['data']['type'] in node_map_by_label:
+                node_map_by_label[node['data']['type']].append(node)
+        
+        for node_type, nodes in node_map_by_label.items():
+            name = f"{len(nodes)} {node_type} nodes"
+            new_node = {
+                "data": {
+                    "id": generate(),
+                    "type": node_type,
+                    "name": name,
+                    "nodes": nodes
+                }
+            }
+            new_graph['nodes'].append(new_node)
+        return new_graph
+        
     def get_node_to_connections_map(self, graph):
         '''
         Build a mapping from node IDs to a dictionary of connections.
