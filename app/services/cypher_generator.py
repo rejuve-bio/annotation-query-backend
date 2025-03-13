@@ -7,6 +7,7 @@ from neo4j import GraphDatabase
 import glob
 import os
 from neo4j.graph import Node, Relationship
+from app.error import ThreadStopException
 
 load_dotenv()
 
@@ -61,13 +62,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         logger.info(
             f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code):
+    def run_query(self, query_code, stop_event=None):
         results = []
 
         # use lazy loading for improved performance
         with self.driver.session() as session:
             result = session.run(query_code)
             for record in result:
+                if stop_event.is_set():
+                    raise ThreadStopException('query runner is stopped')
                 results.append(record)
         return results
 

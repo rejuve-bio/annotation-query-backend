@@ -187,7 +187,10 @@ def process_query(current_user_id):
         answer = llm.generate_summary(result_graph, requests, question, False, summary)
 
         graph = Graph()
-        response = graph.group_graph(result_graph)
+        if len(result_graph['edges']) == 0:
+            response = graph.group_node_only(result_graph)
+        else:
+            response = graph.group_graph(result_graph)
         response['node_count'] = meta_data['node_count']
         response['edge_count'] = meta_data['edge_count']
         response['node_count_by_label'] = meta_data['node_count_by_label']
@@ -363,7 +366,10 @@ def get_by_id(current_user_id, id):
                 result, schema_manager.schema,
                 graph_components, result_type='graph')
             graph = Graph()
-            grouped_graph = graph.group_graph(response_data)
+            if (len(response_data['edges']) == 0):
+                response_data = graph.group_node_only(response_data)
+            else:
+                grouped_graph = graph.group_graph(response_data)
             response_data['nodes'] = grouped_graph['nodes']
             response_data['edges'] = grouped_graph['edges']
 
@@ -533,6 +539,23 @@ def serve_file(file_name):
 @token_required
 def delete_by_id(current_user_id, id):
     try:
+        # first check if there is any running running annoation
+        with app.config['annotation_lock']:
+            thread_event = app.config['annotation_threads']
+            stop_event = thread_event.get(id, None)
+        
+            # if there is stop the running annoation
+            if stop_event is not None:
+                stop_event.set()
+
+                response_data = {
+                    'message': f'Annotation {id} has been cancelled.'
+                }
+
+                formatted_response = json.dumps(response_data, indent=4)
+                return Response(formatted_response, mimetype='application/json')
+        
+        # else delete the annotation from the db
         existing_record = storage_service.get_by_id(id)
 
         if existing_record is None:
@@ -586,7 +609,6 @@ def update_title(current_user_id, id):
         return jsonify({"error": str(e)}), 500
     
 @app.route('/annotation/delete', methods=['POST'])
-
 @token_required
 def delete_many(current_user_id):
     data = request.data.decode('utf-8').strip()  # Decode and strip the string of any extra spaces or quotes
@@ -623,4 +645,3 @@ def delete_many(current_user_id):
     except Exception as e:
         logging.error('Error deleting annotations: {e}')
         return jsonify({"error": str(e)}), 500
-    
