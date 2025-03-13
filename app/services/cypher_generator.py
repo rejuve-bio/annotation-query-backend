@@ -69,7 +69,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         with self.driver.session() as session:
             result = session.run(query_code)
             for record in result:
-                if stop_event.is_set():
+                if stop_event is not None and stop_event.is_set():
                     raise ThreadStopException('query runner is stopped')
                 results.append(record)
         return results

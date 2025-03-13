@@ -1,12 +1,15 @@
+import logging
 from flask import Response, request
 from app import app, db_instance, schema_manager
 import json
 import os
 import threading
 import datetime
-from app.workers.task_handler import start_thread, reset_task, reset_status
+from app.workers.task_handler import generate_result, start_thread, reset_task, reset_status
 from app.lib import convert_to_csv, generate_file_path, \
     adjust_file_path
+import time
+from app.constants import TaskStatus
 
 llm = app.config['llm_handler']
 storage_service = app.config['storage_service']
@@ -38,7 +41,7 @@ def handle_client_request(query, request, current_user_id, node_types):
             "edge_count_by_label": existing_query.edge_count_by_label,
         }
         storage_service.update(
-            annotation_id, {"status": "PENDING", "updated_at": datetime.datetime.now()})
+            annotation_id, {"status": TaskStatus.PENDING.value, "updated_at": datetime.datetime.now()})
         reset_status(annotation_id)
         
         args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
@@ -54,7 +57,7 @@ def handle_client_request(query, request, current_user_id, node_types):
         annotation = {"current_user_id": str(current_user_id),
                       "query": query[0], "request": request,
                       "title": title, "node_types": node_types,
-                      "status": "PENDING"}
+                      "status": TaskStatus.PENDING.value}
 
         annotation_id = storage_service.save(annotation)
 
@@ -72,7 +75,7 @@ def handle_client_request(query, request, current_user_id, node_types):
         # save the query and return the annotation
         annotation = {"query": query[0], "request": request,
                       "title": title, "node_types": node_types,
-                      'status': 'PENDING', 'node_count': None, 
+                      'status': TaskStatus.PENDING.value, 'node_count': None, 
                       'edge_count': None, 'node_count_by_label': None,
                       'edge_count_by_label': None}
 
@@ -126,3 +129,30 @@ def process_full_data(current_user_id, annotation_id):
 
     except Exception as e:
         raise e
+
+def requery(annotation_id, query, request):
+    #Event to track tasks
+    result_done = threading.Event()
+    storage_service.update(
+        annotation_id, {"status": TaskStatus.PENDING.value})
+    
+    app.config['annotation_threads'][str(annotation_id)] = threading.Event()
+
+    reset_status(annotation_id)
+
+    #TODO: make it thread safe by locking the resources 
+    annotation_threads = app.config['annotation_threads']
+    annotation_threads[str(annotation_id)] = threading.Event()
+
+    def send_annotation():
+        time.sleep(0.1)
+        try:
+            generate_result(query, annotation_id, request, result_done, status=TaskStatus.COMPLETE.value)
+        except Exception as e:
+                logging.error("Error generating result graph %s", e)
+      
+    
+    result_generator = threading.Thread(
+        name='result_generator', target=send_annotation)
+    result_generator.start()
+    return

@@ -49,3 +49,10 @@ def convert_to_csv(response, user_id, file_name):
         os.remove(file_path)
         logging.error(e)
     return file_path
+
+    
+def extract_middle(words):
+    words = words.split("_")
+    if len(words) <= 2:
+        return words[1] if len(words) == 2 else ""
+    return "_".join(words[1:-1])
