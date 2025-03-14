@@ -25,7 +25,6 @@ app.config['REDIS_URL'] = os.getenv('REDIS_URL')
 # intialize redis
 redis_client = FlaskRedis(app)
 
-
 def load_config():
     config_path = os.path.join(os.path.dirname(
         __file__), '..', 'config', 'config.yaml')
