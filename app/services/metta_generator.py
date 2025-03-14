@@ -7,7 +7,6 @@ from .query_generator_interface import QueryGeneratorInterface
 # Set up logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-
 class MeTTa_Query_Generator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
         self.metta = MeTTa()
@@ -193,6 +192,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         (_, node_dict, edge_dict) = self.process_result(result[0], True)
         return (node_dict, edge_dict)
 
+    # Won't work because of we don't try to parse node count and count by labels
     def process_result(self, results, all_properties):
         nodes = {}
         relationships_dict = {}

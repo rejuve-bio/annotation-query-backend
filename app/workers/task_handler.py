@@ -169,7 +169,7 @@ def generate_result(query_code, annotation_id, requests, result_status, status=N
 
         graph = Graph()
         
-        if len(response['edges']) == 0:
+        if len(response['edges']) == 0 and len(response['nodes']) > 0:
             grouped_graph = graph.group_node_only(response, requests)
         else:
             grouped_graph = graph.group_graph(response)
