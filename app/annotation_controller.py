@@ -140,7 +140,6 @@ def requery(annotation_id, query, request):
 
     reset_status(annotation_id)
 
-    #TODO: make it thread safe by locking the resources 
     annotation_threads = app.config['annotation_threads']
     annotation_threads[str(annotation_id)] = threading.Event()
 
