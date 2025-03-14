@@ -11,7 +11,6 @@ load_dotenv()
 # JWT Secret Key
 JWT_SECRET = os.getenv("JWT_SECRET")
 
-
 def token_required(f) -> any:
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -37,7 +36,7 @@ def token_required(f) -> any:
 
 def socket_token_required(f):
     @wraps(f)
-    def decorated(self, *args, **kwargs):
+    def decorated(*args, **kwargs):
         logging.info(f"Checking token for {f.__name__}")
         try:
             # Get auth token from connection args
@@ -84,8 +83,8 @@ def socket_token_required(f):
                 disconnect()
                 return False
 
-            return f(self, *args, current_user_id=current_user_id, **kwargs)
-
+            # Pass current_user_id and maintain other args
+            return f(current_user_id, *args, **kwargs)
         except Exception as e:
             logging.error(f"Socket auth error in {f.__name__}: {str(e)}")
             disconnect()

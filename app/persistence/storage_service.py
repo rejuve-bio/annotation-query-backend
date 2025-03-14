@@ -42,6 +42,10 @@ class StorageService():
         data = Storage.find_one(
             {"_id": annotation_id, "user_id": user_id, "query": query})
         return data
+    
+    def get_user_annotation(self, annotation_id, user_id):
+        data = Storage.find_one({"_id": annotation_id, "user_id": user_id})
+        return data
 
     def update(self, id, data):
         data = Storage.update({"_id": id}, {"$set": data}, many=False)

@@ -15,7 +15,8 @@ from dotenv import load_dotenv
 from distutils.util import strtobool
 import datetime
 from app.lib import Graph
-from app.annotation_controller import handle_client_request, process_full_data
+from app.annotation_controller import handle_client_request, process_full_data, requery
+from app.constants import TaskStatus
 
 # Load environmental variables
 load_dotenv()
@@ -72,9 +73,9 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
     return Response(relations, mimetype='application/json')
 
 
-@socket_token_required
 @socketio.on('connect')
-def on_connect(current_user_id):
+@socket_token_required
+def on_connect(current_user_id, args):
     logging.info("User connected")
     send('User is connected')
 
@@ -129,7 +130,6 @@ def process_query(current_user_id):
                 {"error": "Invalid node_map returned by validate_request"}
             ), 400
 
-        # convert id to appropriate format
         # convert id to appropriate format
         requests = db_instance.parse_id(requests)
 
@@ -207,7 +207,7 @@ def process_query(current_user_id):
                       "node_count_by_label": response['node_count_by_label'],
                       "edge_count_by_label": response['edge_count_by_label'],
                       "answer": answer, "question": question,
-                      "status": "COMPLETE"
+                      "status": TaskStatus.COMPLETE.value
                       }
 
         annotation_id = storage_service.save(annotation)
@@ -219,7 +219,7 @@ def process_query(current_user_id):
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing query: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": (e)}), 500
 
 
 @app.route('/email-query/<id>', methods=['POST'])
@@ -284,7 +284,10 @@ def process_user_history(current_user_id):
 @token_required
 def get_by_id(current_user_id, id):
     response_data = {}
-    cursor = storage_service.get_by_id(id)
+    cursor = storage_service.get_user_annotation(id, current_user_id)
+    
+    if cursor is None:
+        return jsonify('No value Found'), 404
 
     limit = request.args.get('limit')
     properties = request.args.get('properties')
@@ -304,9 +307,6 @@ def get_by_id(current_user_id, id):
             return jsonify(
                 {"error": "Invalid limit value. It should be an integer."}
             ), 400
-
-    if cursor is None:
-        return jsonify('No value Found'), 200
 
     json_request = cursor.request
     query = cursor.query
@@ -321,20 +321,12 @@ def get_by_id(current_user_id, id):
     edge_count_by_label = cursor.edge_count_by_label
     status = cursor.status
 
-    if properties:
-        properties = bool(strtobool(properties))
-    else:
-        properties = False
-
-    if limit:
-        try:
-            limit = int(limit)
-        except ValueError:
-            return jsonify(
-                {"error": "Invalid limit value. It should be an integer."}
-            ), 400
-    else:
-        limit = None
+    # Extract node types
+    nodes = json_request['nodes']
+    node_types = set()
+    for node in nodes:
+        node_types.add(node["type"])
+    node_types = list(node_types)
 
     try:
         if question:
@@ -349,45 +341,6 @@ def get_by_id(current_user_id, id):
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
         
-        
-        cache = redis_client.get(str(annotation_id))
-
-        if cache is not None:
-            cache = json.loads(cache)
-            graph = cache['graph']
-            if graph is not None:
-                response_data['nodes'] = graph['nodes']
-                response_data['edges'] = graph['edges']
-        if cache is None and status == 'COMPLETE':
-            # Run the query and parse the results
-            result = db_instance.run_query(query)
-            graph_components = {"properties": properties}
-            response_data = db_instance.parse_and_serialize(
-                result, schema_manager.schema,
-                graph_components, result_type='graph')
-            graph = Graph()
-            if (len(response_data['edges']) == 0):
-                response_data = graph.group_node_only(response_data)
-            else:
-                grouped_graph = graph.group_graph(response_data)
-            response_data['nodes'] = grouped_graph['nodes']
-            response_data['edges'] = grouped_graph['edges']
-
-        if source == 'hypothesis':
-            response = {
-                "nodes": response_data['nodes'],
-                "edges": response_data['edges']
-            }
-            formatted_response = json.dumps(response, indent=4)
-            return Response(formatted_response, mimetype='application/json')
-        
-        if 'nodes' in response_data and len(response_data['nodes']) == 0:
-            response = jsonify({"error": "No data found for the query"})
-            response = Response(response.response, status=404)
-            response.status = "404 No matching results for the query"
-            return response
-
-
         response_data["annotation_id"] = str(annotation_id)
         response_data["request"] = json_request
         response_data["title"] = title
@@ -401,6 +354,57 @@ def get_by_id(current_user_id, id):
             response_data["node_count_by_label"] = node_count_by_label
             response_data["edge_count_by_label"] = edge_count_by_label
         response_data["status"] = status
+        
+        cache = redis_client.get(str(annotation_id))
+
+        if cache is not None:
+            cache = json.loads(cache)
+            graph = cache['graph']
+            if graph is not None:
+                response_data['nodes'] = graph['nodes']
+                response_data['edges'] = graph['edges']
+                
+            if 'nodes' in response_data and len(response_data['nodes']) == 0:
+                response = jsonify({"error": "No data found for the query"})
+                response = Response(response.response, status=404)
+                response.status = "404 No matching results for the query"
+                return response
+            return Response(json.dumps(response_data, indent=4), mimetype='application/json')
+
+        if status in [TaskStatus.PENDING.value, TaskStatus.COMPLETE.value] and source is None:
+            if status == TaskStatus.COMPLETE.value:
+                response_data['status'] = TaskStatus.PENDING.value
+                requery(annotation_id, query, json_request)
+            formatted_response = json.dumps(response_data, indent=4)
+            return Response(formatted_response, mimetype='application/json')
+        
+        # Run the query and parse the results
+        result = db_instance.run_query(query)
+        graph_components = {"properties": properties}
+        response_data = db_instance.parse_and_serialize(
+            result, schema_manager.schema,
+            graph_components, result_type='graph')
+        graph = Graph()
+        if (len(response_data['edges']) == 0):
+            response_data = graph.group_node_only(response_data)
+        else:
+            grouped_graph = graph.group_graph(response_data)
+        response_data['nodes'] = grouped_graph['nodes']
+        response_data['edges'] = grouped_graph['edges']
+        
+        if source == 'hypothesis':
+            response = {
+                "nodes": response_data['nodes'],
+                "edges": response_data['edges']
+            }
+            formatted_response = json.dumps(response, indent=4)
+            return Response(formatted_response, mimetype='application/json')
+        
+        if 'nodes' in response_data and len(response_data['nodes']) == 0:
+            response = jsonify({"error": "No data found for the query"})
+            response = Response(response.response, status=404)
+            response.status = "404 No matching results for the query"
+            return response
         # if limit:
         # response_data = limit_graph(response_data, limit)
 
@@ -409,8 +413,6 @@ def get_by_id(current_user_id, id):
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
-
-
 
 @app.route('/annotation/<id>', methods=['POST'])
 @token_required
@@ -425,7 +427,7 @@ def process_by_id(current_user_id, id):
 
     question = data['requests']['question']
     response_data = {}
-    cursor = storage_service.get_by_id(id)
+    cursor = storage_service.get_user_annotation(id, current_user_id)
 
     limit = request.args.get('limit')
     properties = request.args.get('properties')
@@ -453,22 +455,6 @@ def process_by_id(current_user_id, id):
     json_request = cursor.request
     node_count_by_label = cursor.node_count_by_label
     edge_count_by_label = cursor.edge_count_by_label
-
-
-    if properties:
-        properties = bool(strtobool(properties))
-    else:
-        properties = False
-
-    if limit:
-        try:
-            limit = int(limit)
-        except ValueError:
-            return jsonify(
-                {"error": "Invalid limit value. It should be an integer."}
-            ), 400
-    else:
-        limit = None
 
     try:
         if question:
@@ -498,7 +484,6 @@ def process_by_id(current_user_id, id):
         storage_service.update(
             id, {"answer": answer, "updated_at": datetime.datetime.now()})
 
-
         response = {"annotation_id": str(
             id), "question": question, "answer": answer}
 
@@ -507,8 +492,6 @@ def process_by_id(current_user_id, id):
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
-
-
 
 @app.route('/annotation/<id>/full', methods=['GET'])
 @token_required
@@ -539,6 +522,12 @@ def serve_file(file_name):
 @token_required
 def delete_by_id(current_user_id, id):
     try:
+        # check if the user have access to delete the resource
+        annotation = storage_service.get_user_annotation(id, current_user_id)
+        
+        if annotation is None:
+            return jsonify('No value Found'), 404
+
         # first check if there is any running running annoation
         with app.config['annotation_lock']:
             thread_event = app.config['annotation_threads']
@@ -627,6 +616,12 @@ def delete_many(current_user_id):
         
     annotation_ids = data['annotation_ids']
     
+    #check if user have access to delete the resource
+    for annotation_id in annotation_ids:
+        annotation = storage_service.get_user_annotation(annotation_id, current_user_id)
+        if annotation is None:
+            return jsonify('No value Found'), 404
+    
     if not isinstance(annotation_ids, list):
         return jsonify({"error": "Annotation ids must be a list"}), 400
     
@@ -643,5 +638,5 @@ def delete_many(current_user_id):
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
-        logging.error('Error deleting annotations: {e}')
+        logging.error(f"Error deleting annotations: {e}")
         return jsonify({"error": str(e)}), 500

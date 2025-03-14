@@ -14,6 +14,7 @@ import yaml
 from flask_redis import FlaskRedis
 from app.error import ThreadStopException
 import threading
+from app.constants import TaskStatus
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*',
@@ -23,7 +24,6 @@ app.config['REDIS_URL'] = os.getenv('REDIS_URL')
 
 # intialize redis
 redis_client = FlaskRedis(app)
-
 
 def load_config():
     config_path = os.path.join(os.path.dirname(
@@ -74,4 +74,4 @@ schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
 
 # Import routes at the end to avoid circular imports
 from app import routes
-from app.annotation_controller import handle_client_request, process_full_data
+from app.annotation_controller import handle_client_request, process_full_data, requery

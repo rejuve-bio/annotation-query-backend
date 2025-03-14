@@ -1,7 +1,7 @@
 from nanoid import generate
 import json
 import hashlib
-
+from app.lib.utils import extract_middle
 
 class Graph:
     def __init__(self):
@@ -11,6 +11,7 @@ class Graph:
         graph = self.collapse_nodes(graph)
         graph = self.group_into_parents(graph)
         return graph
+
     def group_node_only(self, graph, request):
         nodes = graph['nodes']
         new_graph = {'nodes': [], 'edges': []}
@@ -38,7 +39,7 @@ class Graph:
             }
             new_graph['nodes'].append(new_node)
         return new_graph
-        
+
     def get_node_to_connections_map(self, graph):
         '''
         Build a mapping from node IDs to a dictionary of connections.
@@ -51,14 +52,14 @@ class Graph:
         def add_to_map(edge, node_role):
             node_key = edge["data"][node_role]
             connections = node_mapping.get(node_key, {})
-            label = edge["data"]["label"]
-            if label not in connections:
-                connections[label] = {"is_source": (
+            edge_id = edge["data"]["edge_id"]
+            if edge_id not in connections:
+                connections[edge_id] = {"is_source": (
                     node_role == "source"), "nodes": set()}
             # Determine the “other” node for this edge.
             other_node = edge["data"]["target"] if node_role == "source"\
                 else edge["data"]["source"]
-            connections[label]["nodes"].add(other_node)
+            connections[edge_id]["nodes"].add(other_node)
             node_mapping[node_key] = connections
 
         for edge in graph.get("edges", []):
@@ -79,12 +80,12 @@ class Graph:
         # Group nodes by their connection signature.
         for node_id, connections in node_mapping.items():
             connections_array = []
-            for label, connection in connections.items():
+            for edge_id, connection in connections.items():
                 # Sort the list of connected node IDs for consistency.
                 nodes_list = sorted(list(connection["nodes"]))
                 connections_array.append({
                     "nodes": nodes_list,
-                    "type": label,
+                    "edge_id": edge_id,
                     "is_source": connection["is_source"]
                 })
             # Sort the connections array using its JSON representation.
@@ -108,7 +109,7 @@ class Graph:
         # For each group, create a new compound node and new edges.
         for group_hash, group in map_string.items():
             # Find a representative node from the original annotation
-            rep_node = rep_node = next((n for n in graph["nodes"]\
+            rep_node = next((n for n in graph["nodes"]\
                 if n["data"]["id"] in \
                     {node["id"] for node in group["nodes"]}), None)
 
@@ -138,22 +139,23 @@ class Graph:
                 if connection["is_source"]:
                     for n in connection["nodes"]:
                         other_node_id = ids.get(n)
+                        label = extract_middle(connection["edge_id"])
                         edge = {
                             "data": {
                                 "id": generate(),
-                                "label": connection["type"],
+                                "edge_id": connection["edge_id"],
+                                "label": label,
                                 "source": group_hash,  # current group node is the source
                                 "target": other_node_id
                             }
                         }
                         # Use a string key to avoid duplicate edges.
-                        key = f"{edge['data']['label']}{edge['data']['source']}{edge['data']['target']}"
+                        key = f"{edge['data']['edge_id']}{edge['data']['source']}{edge['data']['target']}"
                         if key in added:
                             continue
                         added.add(key)
                         new_edges.append(edge)
             new_graph["edges"].extend(new_edges)
-
         return new_graph
 
     def group_into_parents(self, graph):
@@ -168,15 +170,17 @@ class Graph:
 
         # Build an initial parent_map for connection records that involve two or more nodes.
         for node_id, connections in node_mapping.items():
-            for label, record in connections.items():
+            for edge_id, record in connections.items():
                 if len(record["nodes"]) < 2:
                     continue
                 key_nodes = sorted(list(record["nodes"]))
                 key = ",".join(key_nodes)
                 if key not in parent_map:
+                    label = extract_middle(edge_id)
                     parent_map[key] = {
                         "id": generate(),
                         "node": node_id,
+                        "edge_id": edge_id,
                         "label": label,
                         "count": len(record["nodes"]),
                         "is_source": record["is_source"]
@@ -250,7 +254,7 @@ class Graph:
 
                 if (edge_key in key.split(",") and
                     parent["node"] == parent_node and
-                        parent["label"] == e["data"]["label"]):
+                        parent["edge_id"] == e["data"]["edge_id"]):
                     keep_edge = False
                     break
             if keep_edge:
@@ -271,10 +275,10 @@ class Graph:
                     "id": generate(),
                     "source": source,
                     "target": target,
-                    "label": parent["label"]
+                    "label": parent["label"],
+                    "edge_id": parent["edge_id"]
                 }
             }
             new_edges.append(new_edge)
         graph["edges"] = new_edges
-
         return graph

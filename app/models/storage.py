@@ -11,9 +11,11 @@ class Storage(Schema):
     # Attributes
     id = None
     user_id = None
+    request = None
     query = None
     title = None
     summary = None
+    question = None
     answer = None
     node_count = None
     edge_count = None
@@ -77,7 +79,8 @@ class Storage(Schema):
         super().__init__(self.schema_name, self.schema, kwargs)
 
     def __str__(self):
-        return f"""user_id: {self.user_id}, query: {self.query},
+        return f"""user_id: {self.user_id}, request: {self.request}, 
+        query: {self.query},
         title: {self.title}, summary: {self.summary},
         question: {self.question}, answer: {self.answer},
         node_count: {self.node_count}, edge_count: {self.edge_count},

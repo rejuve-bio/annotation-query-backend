@@ -431,7 +431,7 @@
     "nodes": [
       {
         "data": {
-          "name": "gene",
+          "id": "gene",
           "properties": [
             "chr",
             "end",
@@ -444,7 +444,7 @@
       },
       {
         "data": {
-          "name": "transcript",
+          "id": "transcript",
           "properties": [
             "chr",
             "transcript_id",
@@ -458,7 +458,7 @@
       },
       {
         "data": {
-          "name": "protein",
+          "id": "protein",
           "properties": [
             "accessions",
             "synonyms",
@@ -468,7 +468,7 @@
       },
       {
         "data": {
-          "name": "pathway",
+          "id": "pathway",
           "properties": [
             "pathway_name"
           ]
@@ -476,7 +476,7 @@
       },
       {
         "data": {
-          "name": "go",
+          "id": "go",
           "properties": [
             "subontology",
             "synonyms",
@@ -486,7 +486,7 @@
       },
       {
         "data": {
-          "name": "tad",
+          "id": "tad",
           "properties": [
             "chr",
             "end",
@@ -497,7 +497,7 @@
       },
       {
         "data": {
-          "name": "snp",
+          "id": "snp",
           "properties": [
             "raw_cadd_score",
             "ref",
@@ -513,7 +513,7 @@
       },
       {
         "data": {
-          "name": "exon",
+          "id": "exon",
           "properties": [
             "chr",
             "transcript_id",
@@ -527,7 +527,7 @@
       },
       {
         "data": {
-          "name": "non_coding_rna",
+          "id": "non_coding_rna",
           "properties": [
             "chr",
             "end",
@@ -538,7 +538,7 @@
       },
       {
         "data": {
-          "name": "structural_variant",
+          "id": "structural_variant",
           "properties": [
             "evidence",
             "variant_accession",
@@ -551,7 +551,7 @@
       },
       {
         "data": {
-          "name": "promoter",
+          "id": "promoter",
           "properties": [
             "chr",
             "end",
@@ -561,7 +561,7 @@
       },
       {
         "data": {
-          "name": "enhancer",
+          "id": "enhancer",
           "properties": [
             "chr",
             "end",
@@ -573,7 +573,7 @@
       },
       {
         "data": {
-          "name": "super_enhancer",
+          "id": "super_enhancer",
           "properties": [
             "chr",
             "end",
@@ -584,7 +584,7 @@
       },
       {
         "data": {
-          "name": "uberon",
+          "id": "uberon",
           "properties": [
             "synonyms",
             "term_name"
@@ -593,7 +593,7 @@
       },
       {
         "data": {
-          "name": "clo",
+          "id": "clo",
           "properties": [
             "synonyms",
             "term_name"
@@ -602,7 +602,7 @@
       },
       {
         "data": {
-          "name": "cl",
+          "id": "cl",
           "properties": [
             "synonyms",
             "term_name"
@@ -611,7 +611,7 @@
       },
       {
         "data": {
-          "name": "efo",
+          "id": "efo",
           "properties": [
             "synonyms",
             "term_name"
@@ -620,7 +620,7 @@
       },
       {
         "data": {
-          "name": "bto",
+          "id": "bto",
           "properties": [
             "synonyms",
             "term_name"
@@ -629,7 +629,7 @@
       },
       {
         "data": {
-          "name": "tfbs",
+          "id": "tfbs",
           "properties": [
             "chr",
             "end",
@@ -753,7 +753,34 @@
       {
         "data": {
           "source": "gene",
-          "target": "ontology_term",
+          "target": "cl",
+          "possible_connections": [
+            "expressed_in"
+          ]
+        }
+      },
+      {
+        "data": {
+          "source": "gene",
+          "target": "uberon",
+          "possible_connections": [
+            "expressed_in"
+          ]
+        }
+      },
+      {
+        "data": {
+          "source": "gene",
+          "target": "clo",
+          "possible_connections": [
+            "expressed_in"
+          ]
+        }
+      },
+      {
+        "data": {
+          "source": "gene",
+          "target": "efo",
           "possible_connections": [
             "expressed_in"
           ]

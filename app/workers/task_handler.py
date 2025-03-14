@@ -6,27 +6,36 @@ import os
 import threading
 import time
 from app.lib import Graph
+from app.constants import TaskStatus
 
 llm = app.config['llm_handler']
 storage_service = app.config['storage_service']
 EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
 
 def update_task(annotation_id, graph=None):
-    status = 'PENDING'
-    
+    status = TaskStatus.PENDING.value
     # Get the cached data (Handle case where cache is None)
     cache = redis_client.get(str(annotation_id))
+    
     cache = json.loads(cache) if cache else {'graph': None, 'status': status}
     
+    status = cache['status']
     # Merge graph updates
     graph = graph if graph else cache['graph']
     
+    if status == TaskStatus.COMPLETE.value:
+        redis_client.setex(str(annotation_id), EXP, json.dumps({
+            'graph': graph, 'status': TaskStatus.COMPLETE.value
+        }))
+        storage_service.update(annotation_id, {'status': status})
+        redis_client.delete(f"{annotation_id}_tasks")
+        return TaskStatus.COMPLETE.value
+    
     # Increment task count atomically and get the new count
     task_num = redis_client.incr(f"{annotation_id}_tasks")
-    
-    status = cache['status']
-    if status == 'FAILED' or status == 'CANCELLED':
-        if task_num >= 4 and cache['status'] == 'CANCELLED':
+
+    if status in [TaskStatus.FAILED.value, TaskStatus.CANCELLED.value]:
+        if task_num >= 4 and cache['status'] == TaskStatus.CANCELLED.value:
             storage_service.delete(annotation_id)
             redis_client.delete(f"{annotation_id}_tasks")
             redis_client.delete(str(annotation_id))
@@ -34,15 +43,14 @@ def update_task(annotation_id, graph=None):
                 annotation_threads = app.config['annotation_threads']
                 del annotation_threads[str(annotation_id)]
     else:
-        status = 'COMPLETE' if task_num >= 4 else 'PENDING'
-        
-    if status in ['FAILED', 'COMPLETE'] and task_num >= 4:
+        status = TaskStatus.COMPLETE.value if task_num >= 4 else TaskStatus.PENDING.value
+    if status in [TaskStatus.FAILED.value, TaskStatus.COMPLETE.value] and task_num >= 4:
         redis_client.setex(str(annotation_id), EXP, json.dumps({
             'graph': graph, 'status': status
         }))
         storage_service.update(annotation_id, {'status': status})
         redis_client.delete(f"{annotation_id}_tasks")
-    elif status == 'PENDING':
+    elif status == TaskStatus.PENDING.value:
         redis_client.set(str(annotation_id), json.dumps({
             'graph': graph, 'status': status
         }))
@@ -57,7 +65,7 @@ def get_status(annotation_id):
         status = cache['status']
         return status
     else:
-        return 'PENDING'
+        return TaskStatus.PENDING.value
     
 def set_status(annotation_id, status):
     cache = redis_client.get(str(annotation_id))
@@ -70,7 +78,7 @@ def set_status(annotation_id, status):
 
 def reset_status(annotation_id):
     redis_client.delete(f"{annotation_id}_tasks")
-    set_status(annotation_id, 'PENDING')
+    set_status(annotation_id, TaskStatus.PENDING.value)
 
 def reset_task(annotation_id):
     redis_client.delete(f"{annotation_id}_tasks")
@@ -83,9 +91,9 @@ def generate_summary(annotation_id, request, all_status, summary=None):
     total_count_done.wait()
     label_count_done.wait()
 
-    if get_status(annotation_id) == 'FAILED':
+    if get_status(annotation_id) == TaskStatus.FAILED.value:
         summary = 'Failed to generate summary'
-        status = 'FAILED'
+        status = TaskStatus.FAILED.value
         status = update_task(annotation_id)
         socketio.emit('update', {'status': status, 'update': {'summary': summary}},
                   to=str(annotation_id))
@@ -126,7 +134,12 @@ def generate_summary(annotation_id, request, all_status, summary=None):
         status = update_task(annotation_id)
         socketio.emit('update', {'status': status, 'update': {'summary': summary}},
                   to=str(annotation_id))
-        
+    except ThreadStopException as e:
+        set_status(annotation_id, TaskStatus.CANCELLED.value)
+        update_task(annotation_id)
+        socketio.emit('update', {'status': TaskStatus.CANCELLED.value, 
+                                'update': {'summary': 'Summary cancelled'}})
+        logging.error("Error generating result graph %s", e)
     except Exception as e:
         logging.exception("Error generating summary %s", e)
         status = update_task(annotation_id)
@@ -135,15 +148,15 @@ def generate_summary(annotation_id, request, all_status, summary=None):
                       to=str(annotation_id))
 
 
-def generate_result(query_code, annotation_id, requests, result_status):
+def generate_result(query_code, annotation_id, requests, result_status, status=None):
     try:
         annotation_threads = app.config['annotation_threads']
         stop_event = annotation_threads[str(annotation_id)]
         if stop_event.is_set():
             raise ThreadStopException('Stoping result generation thread')
         
-        if get_status(annotation_id) == 'CANCELLED':
-            socketio.emit('update', {'status': 'CANCELLED', 'update': {'graph': False}})
+        if get_status(annotation_id) == TaskStatus.CANCELLED.value:
+            socketio.emit('update', {'status': TaskStatus.CANCELLED.value, 'update': {'graph': False}})
             status = update_task(annotation_id)
             result_status.set()
             return
@@ -156,10 +169,13 @@ def generate_result(query_code, annotation_id, requests, result_status):
 
         graph = Graph()
         
-        if len(response['edges']) == 0:
+        if len(response['edges']) == 0 and len(response['nodes']) > 0:
             grouped_graph = graph.group_node_only(response, requests)
         else:
             grouped_graph = graph.group_graph(response)
+            
+        if status:
+            set_status(annotation_id, status)
         status = update_task(annotation_id, {
             'nodes': grouped_graph['nodes'],
             'edges': grouped_graph['edges']
@@ -173,31 +189,36 @@ def generate_result(query_code, annotation_id, requests, result_status):
 
         return grouped_graph
     except ThreadStopException as e:
-        set_status(annotation_id, 'CANCELLED')
+        set_status(annotation_id, TaskStatus.CANCELLED.value)
         update_task(annotation_id, {
             "nodes": [],
             "edges": []
         })
-        socketio.emit('update', {'status': 'CANCELLED', 'update': {'graph': False}})
+        socketio.emit('update', {'status': TaskStatus.CANCELLED.value, 'update': {'graph': False}})
         result_status.set()
         logging.error("Error generating result graph %s", e)
     except Exception as e:
-        set_status(annotation_id, 'FAILED')
-        socketio.emit('update', {'status': 'FAILED', 'update': {'graph': False}})
-        storage_service.update(annotation_id, {'status': 'FAILED'})
+        set_status(annotation_id, TaskStatus.FAILED.value)
+        socketio.emit('update', {'status': TaskStatus.FAILED.value, 'update': {'graph': False}})
+        storage_service.update(annotation_id, {'status': TaskStatus.FAILED.value})
         result_status.set()
         logging.error("Error generating result graph %s", e)
 
 
 def generate_total_count(count_query, annotation_id, requests, total_count_status, meta_data=None):
-    if get_status(annotation_id) == 'FAILED':
-        socketio.emit('update', {'status': 'FAILED', 'update': {'node_count': 0, 'edge_count': 0}})
+    if get_status(annotation_id) == TaskStatus.FAILED.value:
+        socketio.emit('update', {'status': TaskStatus.FAILED.value, 
+                                 'update': {'node_count': 0, 'edge_count': 0}
+                                })
         status = update_task(annotation_id)
         total_count_status.set()
         return
     
-    if get_status(annotation_id) == 'CANCELLED':
-        socketio.emit('update', {'status': 'CANCELLED', 'update': {'node_count': 0, 'edge_count': 0}})
+    if get_status(annotation_id) == TaskStatus.FAILED.value:
+        socketio.emit('update', {'status': TaskStatus.CANCELLED.value, 
+                                 'update': 
+                                    {'node_count': 0, 'edge_count': 0}
+                                })
         status = update_task(annotation_id)
         total_count_status.set()
         return
@@ -253,16 +274,23 @@ def generate_total_count(count_query, annotation_id, requests, total_count_statu
                       to=str(annotation_id))
         total_count_status.set()
     except ThreadStopException as e:
-        set_status(annotation_id, 'CANCELLED')
+        set_status(annotation_id, TaskStatus.CANCELLED.value)
         update_task(annotation_id)
-        socketio.emit('update', {'status': 'CANCELLED', 'update': {'node_count': 0, 'edge_count': 0}})
+        socketio.emit('update', {'status': TaskStatus.CANCELLED.value, 
+                                 'update': {'node_count': 0, 'edge_count': 0}
+                                 })
         total_count_status.set()
         logging.error("Error generating total count %s", e)
     except Exception as e:
-        set_status(annotation_id, 'CANCELLED')
+        set_status(annotation_id, TaskStatus.FAILED.value)
         update_task(annotation_id)
-        storage_service.update(annotation_id, {'status': 'FAILED', 'node_count': 0, 'edge_count': 0})
-        socketio.emit('update', {'status': 'FAILED', 'update': {'node_count': 0, 'edge_count': 0}})
+        storage_service.update(annotation_id, {'status': TaskStatus.FAILED.value, 
+                                               'node_count': 0, 
+                                               'edge_count': 0
+                                            })
+        socketio.emit('update', {'status': TaskStatus.FAILED.value, 
+                                 'update': {'node_count': 0, 'edge_count': 0}
+                                })
         total_count_status.set()
         logging.error("Error generating total count %s", e)
 
@@ -286,18 +314,18 @@ def generate_empty_lable_count(requests):
     return update
 
 def generate_label_count(count_query, annotation_id, requests, count_label_status, meta_data=None):
-    if get_status(annotation_id) == 'FAILED':
+    if get_status(annotation_id) == TaskStatus.FAILED.value:
         update = generate_empty_lable_count(requests)
         status = update_task(annotation_id)
         socketio.emit('update', {'status': status, 'update': update})
         count_label_status.set()
         return
     
-    if get_status(annotation_id) == 'CANCELLED':
+    if get_status(annotation_id) == TaskStatus.CANCELLED.value:
         update = generate_empty_lable_count(requests)
         status = update_task(annotation_id)
         socketio.emit('update', {
-            'status': 'CANCELLED',
+            'status': TaskStatus.CANCELLED.value,
             'update': {'node_count_by_label':[],
                        'edge_count_by_label':[]
                        }})
@@ -347,11 +375,11 @@ def generate_label_count(count_query, annotation_id, requests, count_label_statu
                       to=str(annotation_id))
         count_label_status.set()
     except ThreadStopException as e:
-        set_status(annotation_id, 'CANCELLED')
+        set_status(annotation_id, TaskStatus.CANCELLED.value)
         update_task(annotation_id)
         update = generate_empty_lable_count(requests)
         socketio.emit('update', {
-            'status': 'CANCELLED',
+            'status': TaskStatus.CANCELLED.value,
             'update': {'node_count_by_label':[],
                        'edge_count_by_label':[]
                        }},
@@ -363,9 +391,11 @@ def generate_label_count(count_query, annotation_id, requests, count_label_statu
         update_task(annotation_id)
 
         update = generate_empty_lable_count(requests)
-        storage_service.update(annotation_id, {'status': 'FAILED', 'node_count_by_label': update['node_count_by_label'],
-                                               'edge_count_by_label': update['edge_count_by_label']})
-        socketio.emit('update', {'status': 'FAILED', 'update': update})
+        storage_service.update(annotation_id, {'status': TaskStatus.FAILED.value, 
+                                               'node_count_by_label': update['node_count_by_label'],
+                                               'edge_count_by_label': update['edge_count_by_label']
+                                               })
+        socketio.emit('update', {'status': TaskStatus.FAILED.value, 'update': update})
         count_label_status.set()
         logging.error("Error generating label count %s", e)
 
