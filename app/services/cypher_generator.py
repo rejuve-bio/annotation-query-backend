@@ -70,7 +70,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             result = session.run(query_code)
             for record in result:
                 if stop_event is not None and stop_event.is_set():
-                    raise ThreadStopException('query runner is stopped')
+                    raise ThreadStopException('Query runner is stopped')
                 results.append(record)
         return results
 
@@ -95,8 +95,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             predicates = None
 
         cypher_queries = []
-        # node_dict = {node['node_id']: node for node in nodes}
-
         match_preds = []
         return_preds = []
         where_preds = []
