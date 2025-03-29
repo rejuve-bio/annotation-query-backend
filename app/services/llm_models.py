@@ -3,11 +3,9 @@ from typing import Any, Dict
 import requests
 import openai
 
-
 class LLMInterface:
     def generate(self, prompt: str) -> Dict[str, Any]:
         raise NotImplementedError("Subclasses must implement the generate method")
-
 
 class GeminiModel(LLMInterface):
     def __init__(self, api_key: str):

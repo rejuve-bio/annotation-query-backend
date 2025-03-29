@@ -17,6 +17,7 @@ import datetime
 from app.lib import Graph
 from app.annotation_controller import handle_client_request, process_full_data, requery
 from app.constants import TaskStatus
+from app.workers.task_handler import get_annotation_redis
 
 # Load environmental variables
 load_dotenv()
@@ -90,7 +91,17 @@ def on_join(data):
     room = data['room']
     join_room(room)
     logging.info(f"user join a room with {room}")
-    send(f'connected to {room}', to=room)
+        # send(f'connected to {room}', to=room)
+    cache = get_annotation_redis(room)
+    
+    if cache != None:
+        status = cache['status']
+        graph = cache['graph']
+        graph_status = True if graph is not None else False
+        
+        if status == TaskStatus.COMPLETE.value:
+            socketio.emit('update', {'status': status, 'update': {'graph': graph_status}},
+                  to=str(room))
 
 @app.route('/query', methods=['POST'])  # type: ignore
 @token_required
