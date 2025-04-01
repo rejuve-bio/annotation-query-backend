@@ -57,7 +57,6 @@ def update_task(annotation_id, graph=None):
     
     return status
 
-
 def get_status(annotation_id):
     cache = redis_client.get(str(annotation_id))
     if cache is not None:
@@ -75,6 +74,14 @@ def set_status(annotation_id, status):
         redis_client.set(str(annotation_id), json.dumps(cache))
     else:
         redis_client.set(str(annotation_id), json.dumps({'graph': None, 'status': status}))
+
+def get_annotation_redis(annotation_id):
+    cache = redis_client.get(str(annotation_id))
+    if cache is not None:
+        cache = json.loads(cache)
+        return cache
+    else:
+        return None
 
 def reset_status(annotation_id):
     redis_client.delete(f"{annotation_id}_tasks")
@@ -413,14 +420,12 @@ def start_thread(annotation_id, args):
     annotation_threads[str(annotation_id)] = threading.Event()
 
     def send_annotation():
-        time.sleep(0.1)
         try:
             generate_result(find_query, annotation_id, request, all_status['result_done'])
         except Exception as e:
                 logging.error("Error generating result graph %s", e)
       
     def send_summary():
-        time.sleep(0.1)
         try:
             generate_summary(annotation_id, request, all_status, summary)
         except Exception as e:
@@ -428,14 +433,13 @@ def start_thread(annotation_id, args):
     
     
     def send_total_count():
-        time.sleep(0.1)
         try:
             generate_total_count(
                 total_count_query, annotation_id, request, all_status['total_count_done'], meta_data)
         except Exception as e:
             logging.error("Error generating total count %s", e)
+
     def send_label_count():
-        time.sleep(0.1)
         try:
             generate_label_count(label_count_query, annotation_id, request, all_status['label_count_done'], meta_data)
         except Exception as e:
