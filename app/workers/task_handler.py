@@ -358,8 +358,6 @@ def generate_label_count(count_query, annotation_id, requests, count_label_statu
                             "properties": False}
         response = db_instance.parse_and_serialize(
             count_result, schema_manager.schema, graph_components, 'count')
-        
-
         storage_service.update(annotation_id,
                                {'node_count_by_label': response['node_count_by_label'],
                                 'edge_count_by_label': response['edge_count_by_label'],
