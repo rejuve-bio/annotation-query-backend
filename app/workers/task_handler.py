@@ -7,55 +7,57 @@ import threading
 import time
 from app.lib import Graph
 from app.constants import TaskStatus
+import traceback
 
 llm = app.config['llm_handler']
 storage_service = app.config['storage_service']
 EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
 
 def update_task(annotation_id, graph=None):
-    status = TaskStatus.PENDING.value
-    # Get the cached data (Handle case where cache is None)
-    cache = redis_client.get(str(annotation_id))
-    
-    cache = json.loads(cache) if cache else {'graph': None, 'status': status}
-    
-    status = cache['status']
-    # Merge graph updates
-    graph = graph if graph else cache['graph']
-    
-    if status == TaskStatus.COMPLETE.value:
-        redis_client.setex(str(annotation_id), EXP, json.dumps({
-            'graph': graph, 'status': TaskStatus.COMPLETE.value
-        }))
-        storage_service.update(annotation_id, {'status': status})
-        redis_client.delete(f"{annotation_id}_tasks")
-        return TaskStatus.COMPLETE.value
-    
-    # Increment task count atomically and get the new count
-    task_num = redis_client.incr(f"{annotation_id}_tasks")
-
-    if status in [TaskStatus.FAILED.value, TaskStatus.CANCELLED.value]:
-        if task_num >= 4 and cache['status'] == TaskStatus.CANCELLED.value:
-            storage_service.delete(annotation_id)
+    with app.config['annotation_lock']:
+        status = TaskStatus.PENDING.value
+        # Get the cached data (Handle case where cache is None)
+        cache = redis_client.get(str(annotation_id))
+        
+        cache = json.loads(cache) if cache else {'graph': None, 'status': status}
+        
+        status = cache['status']
+        # Merge graph updates
+        graph = graph if graph else cache['graph']
+        
+        if status == TaskStatus.COMPLETE.value:
+            redis_client.setex(str(annotation_id), EXP, json.dumps({
+                'graph': graph, 'status': TaskStatus.COMPLETE.value
+            }))
+            storage_service.update(annotation_id, {'status': status})
             redis_client.delete(f"{annotation_id}_tasks")
-            redis_client.delete(str(annotation_id))
-            with app.config['annotation_lock']:
-                annotation_threads = app.config['annotation_threads']
-                del annotation_threads[str(annotation_id)]
-    else:
-        status = TaskStatus.COMPLETE.value if task_num >= 4 else TaskStatus.PENDING.value
-    if status in [TaskStatus.FAILED.value, TaskStatus.COMPLETE.value] and task_num >= 4:
-        redis_client.setex(str(annotation_id), EXP, json.dumps({
-            'graph': graph, 'status': status
-        }))
-        storage_service.update(annotation_id, {'status': status})
-        redis_client.delete(f"{annotation_id}_tasks")
-    elif status == TaskStatus.PENDING.value:
-        redis_client.set(str(annotation_id), json.dumps({
-            'graph': graph, 'status': status
-        }))
+            return TaskStatus.COMPLETE.value
+        
+        # Increment task count atomically and get the new count
+        task_num = redis_client.incr(f"{annotation_id}_tasks")
     
-    return status
+        if status in [TaskStatus.FAILED.value, TaskStatus.CANCELLED.value]:
+            if task_num >= 4 and cache['status'] == TaskStatus.CANCELLED.value:
+                storage_service.delete(annotation_id)
+                redis_client.delete(f"{annotation_id}_tasks")
+                redis_client.delete(str(annotation_id))
+                with app.config['annotation_lock']:
+                    annotation_threads = app.config['annotation_threads']
+                    del annotation_threads[str(annotation_id)]
+        else:
+            status = TaskStatus.COMPLETE.value if task_num >= 4 else TaskStatus.PENDING.value
+        if status in [TaskStatus.FAILED.value, TaskStatus.COMPLETE.value] and task_num >= 4:
+            redis_client.setex(str(annotation_id), EXP, json.dumps({
+                'graph': graph, 'status': status
+            }))
+            storage_service.update(annotation_id, {'status': status})
+            redis_client.delete(f"{annotation_id}_tasks")
+        elif status == TaskStatus.PENDING.value:
+            redis_client.set(str(annotation_id), json.dumps({
+                'graph': graph, 'status': status
+            }))
+        
+        return status
 
 
 def get_status(annotation_id):

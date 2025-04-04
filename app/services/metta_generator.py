@@ -67,9 +67,15 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                     predicate_map[predicate['predicate_id']] = predicate
         else:
             predicates = None
+            
+            
+        match_preds = []
+        return_preds = []
+        node_representation = ''
 
-        metta_output = '''!(match &space (,'''
-        output = ''' ('''
+        match_clause = '''!(match &space (,'''
+        return_clause = ''' ('''
+        metta_output = ''
  
         # if there is no predicate
         if not predicates:
@@ -77,17 +83,27 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                 node_type = node["type"]
                 node_id = node["node_id"]
                 node_identifier = '$' + node["node_id"]
+
                 if node["id"]:
                     essemble_id = node["id"]
-                    metta_output += f' ({node_type} {essemble_id})'
-                    output += f' ({node_type} {essemble_id})'
+                    match_preds.append(f'({node_type} {essemble_id})')
+                    return_preds.append(f'({node_type} {essemble_id})')
                 else:
                     if len(node["properties"]) == 0:
-                        metta_output += f' ({node_type} ${node_id})'
+                        match_preds.append(f'({node_type} ${node_id})')
                     else:
-                        metta_output += self.construct_node_representation(node, node_identifier)
-                    output += f' ({node_type} {node_identifier})'
-            return metta_output
+                        match_preds.append(self.construct_node_representation(node, node_identifier))
+                    return_preds.append(f'({node_type} {node_identifier})')
+                    
+            query_clause = {
+                "match_preds": match_preds,
+                "return_preds": return_preds 
+            }
+            count_query = self.count_query_generator(query_clause, node_only=True)
+            match_clause += ' '.join(match_preds)
+            return_clause += ' '.join(return_preds)
+            metta_output += f'{match_clause}){return_clause}))'
+            return [metta_output, count_query[0], count_query[1]]
 
         for predicate in predicates:
             predicate_type = predicate['type'].replace(" ", "_")
@@ -98,7 +114,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
             source_node = node_map[source_id]
             if not source_node['id']:
                 node_identifier = "$" + source_id
-                metta_output += self.construct_node_representation(source_node, node_identifier)
+                node_representation += self.construct_node_representation(source_node, node_identifier)
                 source = f'({source_node["type"]} {node_identifier})'
             else:
                 source = f'({str(source_node["type"])} {str(source_node["id"])})'
@@ -108,55 +124,54 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
             target_node = node_map[target_id]
             if not target_node['id']:
                 target_identifier = "$" + target_id
-                metta_output += self.construct_node_representation(target_node, target_identifier)
+                node_representation += self.construct_node_representation(target_node, target_identifier)
                 target = f'({target_node["type"]} {target_identifier})'
             else:
                 target = f'({str(target_node["type"])} {str(target_node["id"])})'
 
+            
             # Add relationship
-            metta_output += f' ({predicate_type} {source} {target})'
-            output += f' ({predicate_type} {source} {target})'
+            match_preds.append(f'{node_representation} ({predicate_type} {source} {target})')
+            return_preds.append((predicate_type, source, target))
 
-        metta_output += f' ){output}))'
-        count = self.count_query_generator(predicates, node_map)
+        query_clause = {
+            "match_preds": match_preds,
+            "return_preds": return_preds 
+        }
+        count = self.count_query_generator(query_clause, node_only=False)
+        match_clause += ' '.join(match_preds)
+        return_output = []
+        for returns in return_preds:
+            predicate_type, source, target = returns
+            return_output.append(f'({predicate_type} {source} {target})')
+        return_clause += ' '.join(return_output)
+        metta_output += f'{match_clause}){return_clause}))'
+
         return [metta_output, count[0], count[1]]
 
-    def count_query_generator(self, predicates, node_map):
+    def count_query_generator(self, query_clauses, node_only):
         metta_output = '''(match &space (,'''
         output = ''' ('''
- 
-        for predicate in predicates:
-            predicate_type = predicate['type'].replace(" ", "_")
-            source_id = predicate['source']
-            target_id = predicate['target']
 
-            # Handle source node
-            source_node = node_map[source_id]
-            if not source_node['id']:
-                node_identifier = "$" + source_id
-                metta_output += self.construct_node_representation(source_node, node_identifier)
-                source = f'({source_node["type"]} {node_identifier})'
+        match_clause = ' '.join(query_clauses['match_preds'])
+        return_clause = []
+
+        for returns in query_clauses['return_preds']:
+            if node_only:
+                return_clause.append(f'(Node {returns})')
             else:
-                source = f'({str(source_node["type"])} {str(source_node["id"])})'
-
-
-            # Handle target node
-            target_node = node_map[target_id]
-            if not target_node['id']:
-                target_identifier = "$" + target_id
-                metta_output += self.construct_node_representation(target_node, target_identifier)
-                target = f'({target_node["type"]} {target_identifier})'
-            else:
-                target = f'({str(target_node["type"])} {str(target_node["id"])})'
-
-            # Add relationship
-            metta_output += f' ({predicate_type} {source} {target})'
-            output += f' ((Edge {predicate_type}) (Node {source}) (Node {target}))'
-        metta_output += f' ){output}))'
-        count_query = f'''(total_count (collapse {metta_output}))'''
-        count_query = f'''!{count_query}'''
+                predicate_type, source, target = returns
+                return_clause.append(f'((Edge {predicate_type}) (Node {source}) (Node {target}))')
+                
+            
+        output += ' '.join(return_clause)
+        
+        metta_output += f'{match_clause}){output}))'
+        
+        total_count_query = f'''!(total_count (collapse {metta_output}))'''
         lable_count_query = f'''!(label_count (collapse {metta_output}))'''
-        return [count_query, lable_count_query]
+
+        return [total_count_query, lable_count_query]
 
         
     def run_query(self, query_code, stop_event=True):
@@ -165,6 +180,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
     def parse_and_serialize(self, input, schema, graph_components, result_type):
         if result_type == 'graph':
             result = self.prepare_query_input(input, schema)
+            
             result = self.parse_and_serialize_properties(result[0], graph_components, result_type)
             return result
         else:
