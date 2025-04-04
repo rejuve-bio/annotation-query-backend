@@ -5,4 +5,3 @@ from .email import send_email
 from .auth import token_required
 from .utils import convert_to_csv, generate_file_path, adjust_file_path, extract_middle
 from .graph import Graph
-from .metta_ground import Metta_Ground

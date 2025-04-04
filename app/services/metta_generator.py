@@ -3,7 +3,7 @@ import os
 from hyperon import MeTTa, SymbolAtom, ExpressionAtom, GroundedAtom
 import logging
 from .query_generator_interface import QueryGeneratorInterface
-from app.lib.metta_ground import Metta_Ground
+from .metta import Metta_Ground, metta_seralizer
 # Set up logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -159,7 +159,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         return [count_query, lable_count_query]
 
         
-    def run_query(self, query_code, limit=None, stop_event=True):
+    def run_query(self, query_code, stop_event=True):
         return self.metta.run(query_code)
 
     def parse_and_serialize(self, input, schema, graph_components, result_type):
@@ -220,29 +220,6 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         metta+= f" ) {output}))"
         return metta
 
-    def recurssive_seralize(self, metta_expression, result):
-        for node in metta_expression:
-            if isinstance(node, SymbolAtom):
-             result.append(node.get_name())
-            elif isinstance(node, GroundedAtom):
-                result.append(str(node))
-            else:
-                self.recurssive_seralize(node.get_children(), result)
-        return result
-
-    def metta_seralizer(self, metta_result):
-        result = []
-
-        for node in metta_result:
-            node = node.get_children()
-            for metta_symbol in node:
-                if isinstance(metta_symbol, SymbolAtom) and  metta_symbol.get_name() == ",":
-                    continue
-                if isinstance(metta_symbol, ExpressionAtom):
-                    res = self.recurssive_seralize(metta_symbol.get_children(), [])
-                    result.append(tuple(res))
-        return result
-
     def convert_to_dict(self, results, schema=None):
         result = self.prepare_query_input(results, schema)
         (_, node_dict, edge_dict) = self.process_result(result[0], True)
@@ -284,7 +261,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         edge_to_dict = {}
         node_type = set()
         edge_type = set()
-        tuples = self.metta_seralizer(results)
+        tuples = metta_seralizer(results)
         named_types = ['gene_name', 'transcript_name', 'protein_name',
                        'pathway_name', 'term_name']
         
@@ -382,7 +359,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
     def prepare_query_input(self, input, schema):
         result = []
 
-        tuples = self.metta_seralizer(input[0])
+        tuples = metta_seralizer(input[0])
         for tuple in tuples:
             if len(tuple) == 2:
                 src_type, src_id = tuple
