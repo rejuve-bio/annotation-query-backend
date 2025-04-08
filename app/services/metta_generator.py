@@ -99,6 +99,15 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
                 "match_preds": match_preds,
                 "return_preds": return_preds 
             }
+            
+            if node_only:
+                queries = []
+                for i, match_query in enumerate(match_preds):
+                    queries.append(f'{match_clause} {match_query}) ({return_preds[i]}))')
+                    
+                queries = ' '.join(queries)
+                return [queries, None, None]
+
             count_query = self.count_query_generator(query_clause, node_only=True)
             match_clause += ' '.join(match_preds)
             return_clause += ' '.join(return_preds)
@@ -181,7 +190,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         if result_type == 'graph':
             result = self.prepare_query_input(input, schema)
             
-            result = self.parse_and_serialize_properties(result[0], graph_components, result_type)
+            result = self.parse_and_serialize_properties(result, graph_components, result_type)
             return result
         else:
             (_,_,_,_, meta_data) = self.process_result(input, graph_components, result_type)
@@ -243,30 +252,29 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
 
     # Won't work because of we don't try to parse node count and count by labels
     def process_result(self, results, graph_components, result_type):
-        match_result = results
         node_and_edge_count = {}
         count_by_label = {}
         nodes = []
         edges = []
-        node_to_dict = {}
-        edge_to_dict = {}
+        node_to_dicts = {}
+        edge_to_dicts = {}
         meta_data = {}
 
-        if len(results) > 0:
-            node_and_edge_count = results[0]
-
-        if len(results) > 1:
-            count_by_label = results[1]
-
         if result_type == 'graph':
-            nodes, edges, node_to_dict, edge_to_dict = self.process_result_graph(
-                match_result, graph_components)
+            nodes, edges, node_to_dicts, edge_to_dicts = self.process_result_graph(
+                    results[0], graph_components)
 
         if result_type == 'count':
+            if len(results) > 0:
+                node_and_edge_count = results[0]
+
+            if len(results) > 1:
+                count_by_label = results[1]
+
             meta_data = self.process_result_count(
                 node_and_edge_count, count_by_label, graph_components)
 
-        return (nodes, edges, node_to_dict, edge_to_dict, meta_data)
+        return (nodes, edges, node_to_dicts, edge_to_dicts, meta_data)
         
     def process_result_graph(self, results, graph_components):
         nodes = {}
@@ -280,7 +288,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         tuples = metta_seralizer(results)
         named_types = ['gene_name', 'transcript_name', 'protein_name',
                        'pathway_name', 'term_name']
-        
+
         for match in tuples:
             graph_attribute = match[0]
             match = match[1:]
@@ -372,23 +380,26 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         
         return meta_data
 
-    def prepare_query_input(self, input, schema):
+    def prepare_query_input(self, inputs, schema):
         result = []
 
-        tuples = metta_seralizer(input[0])
-        for tuple in tuples:
-            if len(tuple) == 2:
-                src_type, src_id = tuple
-                result.append({
-                    "source": f"{src_type} {src_id}"
-                })
-            else:
-                predicate, src_type, src_id, tgt_type, tgt_id = tuple
-                result.append({
-                "predicate": predicate,
-                "source": f"{src_type} {src_id}",
-                "target": f"{tgt_type} {tgt_id}"
-                })
+        for input in inputs:
+            if len(input) == 0:
+                continue
+            tuples = metta_seralizer(input)
+            for tuple in tuples:
+                if len(tuple) == 2:
+                    src_type, src_id = tuple
+                    result.append({
+                        "source": f"{src_type} {src_id}"
+                    })
+                else:
+                    predicate, src_type, src_id, tgt_type, tgt_id = tuple
+                    result.append({
+                    "predicate": predicate,
+                    "source": f"{src_type} {src_id}",
+                    "target": f"{tgt_type} {tgt_id}"
+                    })
         query = self.get_node_properties(result, schema)
         result = self.run_query(query)
         return result
