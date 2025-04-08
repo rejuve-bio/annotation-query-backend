@@ -61,22 +61,24 @@ def update_task(annotation_id, graph=None):
 
 
 def get_status(annotation_id):
-    cache = redis_client.get(str(annotation_id))
-    if cache is not None:
-        cache = json.loads(cache)
-        status = cache['status']
-        return status
-    else:
-        return TaskStatus.PENDING.value
+    with app.config['annotation_lock']:
+        cache = redis_client.get(str(annotation_id))
+        if cache is not None:
+            cache = json.loads(cache)
+            status = cache['status']
+            return status
+        else:
+            return TaskStatus.PENDING.value
     
 def set_status(annotation_id, status):
-    cache = redis_client.get(str(annotation_id))
-    if cache is not None:
-        cache = json.loads(cache)
-        cache['status'] = status
-        redis_client.set(str(annotation_id), json.dumps(cache))
-    else:
-        redis_client.set(str(annotation_id), json.dumps({'graph': None, 'status': status}))
+    with app.config['annotation_lock']:
+        cache = redis_client.get(str(annotation_id))
+        if cache is not None:
+            cache = json.loads(cache)
+            cache['status'] = status
+            redis_client.set(str(annotation_id), json.dumps(cache))
+        else:
+            redis_client.set(str(annotation_id), json.dumps({'graph': None, 'status': status}))
 
 def reset_status(annotation_id):
     redis_client.delete(f"{annotation_id}_tasks")
