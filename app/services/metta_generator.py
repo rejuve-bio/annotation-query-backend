@@ -256,12 +256,12 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         count_by_label = {}
         nodes = []
         edges = []
-        node_to_dicts = {}
-        edge_to_dicts = {}
+        node_to_dict = {}
+        edge_to_dict = {}
         meta_data = {}
 
         if result_type == 'graph':
-            nodes, edges, node_to_dicts, edge_to_dicts = self.process_result_graph(
+            nodes, edges, node_to_dict, edge_to_dict = self.process_result_graph(
                     results[0], graph_components)
 
         if result_type == 'count':
@@ -274,7 +274,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
             meta_data = self.process_result_count(
                 node_and_edge_count, count_by_label, graph_components)
 
-        return (nodes, edges, node_to_dicts, edge_to_dicts, meta_data)
+        return (nodes, edges, node_to_dict, edge_to_dict, meta_data)
         
     def process_result_graph(self, results, graph_components):
         nodes = {}
