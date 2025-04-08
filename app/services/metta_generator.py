@@ -158,10 +158,10 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
 
         for returns in query_clauses['return_preds']:
             if node_only:
-                return_clause.append(f'(Node {returns})')
+                return_clause.append(f'(node {returns})')
             else:
                 predicate_type, source, target = returns
-                return_clause.append(f'((Edge {predicate_type}) (Node {source}) (Node {target}))')
+                return_clause.append(f'((edge {predicate_type}) (node {source}) (node {target}))')
                 
             
         output += ' '.join(return_clause)

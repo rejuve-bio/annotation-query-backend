@@ -1,5 +1,5 @@
 from hyperon import OperationAtom, SymbolAtom, ExpressionAtom, GroundedAtom, ValueAtom
-from .metta_seralizer import recurssive_seralize
+from .metta_seralizer import recurssive_seralize, metta_seralizer
 class Metta_Ground:
     def __init__(self, metta):
         self.metta = metta
@@ -20,9 +20,9 @@ class Metta_Ground:
         edges = []
         
         for i in range(len(result_list)): 
-            if result_list[i] == 'Node' and i + 2 < len(result_list):
+            if result_list[i] == 'node' and i + 2 < len(result_list):
                 nodes.add(f'{result_list[i + 1]} {result_list[i + 2]}')
-            elif result_list[i] == 'Edge' and i + 1 < len(result_list):
+            elif result_list[i] == 'edge' and i + 1 < len(result_list):
                 edges.append(result_list[i + 1])
                 
         return nodes, edges
