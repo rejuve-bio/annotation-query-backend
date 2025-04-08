@@ -3,7 +3,11 @@ from abc import ABC, abstractmethod
 
 class QueryGeneratorInterface(ABC):
     @abstractmethod
-    def query_Generator(self, data, schema) -> str:
+    def load_dataset(self, path: str)-> None:
+        pass
+
+    @abstractmethod
+    def query_Generator(self, requests, node_map, limit, node_only) -> str:
         pass
 
     @abstractmethod
