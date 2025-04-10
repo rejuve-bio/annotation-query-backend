@@ -12,12 +12,16 @@ def recurssive_seralize(metta_expression, result):
 
 def metta_seralizer(metta_result):
     result = []
+
+    if len(metta_result) == 0:
+        return []
+
     for node in metta_result:
         node = node.get_children()
         for metta_symbol in node:
             if isinstance(metta_symbol, SymbolAtom) and  metta_symbol.get_name() == ",":
                 continue
-            if isinstance(metta_symbol, ExpressionAtom):
+            elif isinstance(metta_symbol, ExpressionAtom):
                 res = recurssive_seralize(metta_symbol.get_children(), [])
                 result.append(tuple(res))
     return result
