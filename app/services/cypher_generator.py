@@ -8,6 +8,7 @@ import glob
 import os
 from neo4j.graph import Node, Relationship
 from app.error import ThreadStopException
+import json
 
 load_dotenv()
 
@@ -102,6 +103,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return_no_preds = []
         where_no_preds = []
         node_ids = set()
+        clause_list = []
 
         if not predicates:
             list_of_node_ids = []
@@ -131,7 +133,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 query_clauses, node_map, predicate_map)
             cypher_queries.extend(count)
         else:
-            for predicate in predicates:
+            for i, predicate in enumerate(predicates):
                 predicate_id = predicate['predicate_id']
                 predicate_type = predicate['type'].replace(" ", "_").lower()
                 source_node = node_map[predicate['source']]
@@ -141,28 +143,48 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
                 source_match = self.match_node(source_node, source_var)
                 target_match = self.match_node(target_node, target_var)
-
+                
+                tmp_where_preds = []
                 if source_var not in node_ids:
+                    tmp_where_preds.extend(self.where_construct(source_node, source_var))
                     where_preds.extend(
                         self.where_construct(source_node, source_var))
                 if target_var not in node_ids:
+                    tmp_where_preds.extend(self.where_construct(target_node, target_var))
                     where_preds.extend(
                         self.where_construct(target_node, target_var))
-
-                match_preds.append(
-                    f"{source_match}-[{predicate_id}:{predicate_type}]->{target_match}")
+                
                 return_preds.append(predicate_id)
-
                 node_ids.add(source_var)
                 node_ids.add(target_var)
+                
+                match_preds.append(
+                    f"{source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
+                )
+                
+                # Construct the MATCH clause
+                match_clause = f"MATCH {source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
+                    
+                # Construct the WHERE clause if there are conditions
+                where_clause = f"WHERE {' AND '.join(tmp_where_preds)}" if len(tmp_where_preds) >= 1 else ''
+                
+                if i == len(predicates) - 1:
+                    # Construct the RETURN clause
+                    return_clause = f"RETURN {', '.join(return_preds)}, {', '.join(node_ids)}"
+                    
+                    # Combine all clauses into a single query
+                    clause_list.append(f"{match_clause} {where_clause} {return_clause}")
+                else:
+                    with_clause = f"WITH {', '.join(return_preds)}, {', '.join(node_ids)}"
+                    
+                    clause_list.append(f"{match_clause} {where_clause} {with_clause}")      
 
             list_of_node_ids = list(node_ids)
             list_of_node_ids.sort()
             full_return_preds = return_preds + list_of_node_ids
 
             
-            cypher_query = self.construct_clause(
-                match_preds, full_return_preds, where_preds, limit)
+            cypher_query = ' '.join(clause_list)
             cypher_queries.append(cypher_query)
             query_clauses = {
                 "match_preds": match_preds,

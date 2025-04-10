@@ -14,7 +14,7 @@ from app.lib.email import init_mail, send_email
 from dotenv import load_dotenv
 from distutils.util import strtobool
 import datetime
-from app.lib import Graph
+from app.lib import Graph, heuristic_sort
 from app.annotation_controller import handle_client_request, process_full_data, requery
 from app.constants import TaskStatus
 from app.workers.task_handler import get_annotation_redis
@@ -143,6 +143,9 @@ def process_query(current_user_id):
 
         # convert id to appropriate format
         requests = db_instance.parse_id(requests)
+
+        # sort the predicate based on the the edge count
+        requests = heuristic_sort(requests, node_map)
 
         node_only = True if source == 'hypothesis' else False
 

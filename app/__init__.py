@@ -14,7 +14,8 @@ import yaml
 from flask_redis import FlaskRedis
 from app.error import ThreadStopException
 import threading
-from app.constants import TaskStatus
+from app.constants import TaskStatus, GRAPH_INFO_PATH
+import json
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*',
@@ -71,6 +72,9 @@ app.config['annotation_lock'] = threading.Lock()
 
 schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
                                biocypher_config_path='./config/biocypher_config.yaml')
+
+#load the json that holds the count for the edges
+graph_info = json.load(open(GRAPH_INFO_PATH))
 
 # Import routes at the end to avoid circular imports
 from app import routes
