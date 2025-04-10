@@ -318,7 +318,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         if node['id']:
             return f"({var_name}:{node['type']} {{id: '{node['id']}'}})"
         else:
-            return f" ({var_name}:{node['type']})"
+            return f"({var_name}:{node['type']})"
 
     def where_construct(self, node, var_name):
         properties = []
