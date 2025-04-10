@@ -1,0 +1,126 @@
+{
+    "closest_gene":  {
+        "count": 23396247,
+        "name": "closest_gene"
+      },
+    "gene_expressed_in_clo":  {
+        "count": 7148324,
+        "name": "expressed_in"
+      },
+    "gene_expressed_in_uberon": {
+        "count": 7148324,
+        "name": "expressed_in"
+    },
+    "gene_expressed_in_cl": {
+        "count": 290396,
+        "name": "expressed_in"
+    },
+    "gene_expressed_in_efo": {
+        "count": 7183413,
+        "name": "expressed_in"
+    },
+    "interacts_with": { 
+        "count": 13227418,
+        "name": "interacts_with"
+    },
+    "eqtl_association":{
+        "count": 12416149,
+        "name": "eqtl_association"
+    },
+    "binds_to":  {
+        "count": 10489064,
+        "name": "binds_to"
+    },
+    "actvitiy_by_contact": {
+        "count": 8335665,
+        "name": "activity_by_contact"
+      },
+    "chromatin_state": {
+        "count": 7865471,
+        "name": "chromatin_state"
+      },
+    "regulates": {
+        "count": 6394480,
+        "name": "regulates"
+      },
+    "includes":{
+        "count": 1649476,
+        "name": "includes"
+      },
+    "histone_modification": {
+        "count": 1384607,
+        "name": "histone_modification"
+      },
+    "super_enhancer_associated_with_gene": {
+        "count": 62271,
+        "name": "associated_with"
+    },
+    "enhancer_associated_with_gene": {
+        "count": 1275904,
+        "name": "associated_with"
+    },
+    "promoter_associated_with_gene": {
+        "count": 28132,
+        "name": "associated_with"
+    },
+    "subclass": {
+        "count": 512110,
+        "name": "subclass_of"
+    },
+    "go_gene_product":{
+        "count": 288343,
+        "name": "go_gene_product"
+    },
+    "transcribed_from": {
+        "count": 252835,
+        "name": "transcribed_from"
+    },
+    "transcribed_to":  {
+        "count": 252835,
+        "name": "transcribed_to"
+    },
+    "genes_pathways":  {
+        "count": 129912,
+        "name": "genes_pathways"
+    },
+    "tfbs_snps": {
+        "count": 96374,
+        "name": "tfbs_snp"
+    },
+    "in_dnase_i_hotspot": { 
+        "count": 76938,
+        "name": "in_dnase_i_hotspot"
+    },
+    "translates_to":  {
+        "count": 45652,
+        "name": "translates_to"
+    },
+    "translation_of":  {
+        "count": 45652,
+        "name": "translation_of"
+      },
+    "belongs_to": {
+        "count": 43711,
+        "name": "belongs_to"
+      },
+    "in_tad_region": {
+        "count": 18931,
+        "name": "in_tad_region"
+      },
+    "child_pathway_of": {
+        "count": 2691,
+        "name": "child_pathway_of"
+      },
+    "parent_pathway_of": {
+        "count": 2691,
+        "name": "parent_pathway_of"
+      },
+    "part_of": {
+        "count": 860,
+        "name": "part_of"
+      },
+    "capable_of": {
+        "count": 304,
+        "name": "capable_of"
+      }
+}
