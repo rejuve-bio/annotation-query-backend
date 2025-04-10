@@ -74,50 +74,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     raise ThreadStopException('Query runner is stopped')
                 results.append(record)
         return results
-    
-    def sort_by_huristic(self, predicates, connection_map):
-        for i, predicate in enumerate(predicates):
-            predicate_type = predicate['type']
-            predicate_type = predicate_type.replace(" ", "_").lower()
-            
-            count = connection_map[predicate_type]
-            
-            for j in range(i+1, len(predicates)):
-                next_predicate = predicates[j]
-                next_predicate_type = next_predicate['type']
-                next_predicate_type = next_predicate_type.replace(" ", "_").lower()
-                
-                next_count = connection_map[next_predicate_type]
-                
-                if count < next_count:
-                    predicates[i], predicates[j] = predicates[j], predicates[i]
-                    count = next_count
-                    
-        return predicates
-            
-    def huristic_sort(self, requests):
-        graph_info = json.load(open('Data/graph_info.json'))
-        
-        connections = graph_info['top_connections']
-        
-        connection_map = {}
-        
-        for connection in connections:
-            connection_map[connection['name']] = connection['count']
-            
-        predicates = requests['predicates']
-        
-        sorted_predicates = self.sort_by_huristic(predicates, connection_map)
-        
-        requests['predicates'] = sorted_predicates
-        
-        return requests
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
         nodes = requests['nodes']
         predicate_map = {}
-        
-        requests = self.huristic_sort(requests)
 
         if "predicates" in requests and len(requests["predicates"]) > 0:
             predicates = requests["predicates"]
