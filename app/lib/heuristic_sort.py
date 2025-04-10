@@ -1,15 +1,11 @@
 import json
 import os
-
-# Define the absolute path to the JSON file
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-GRAPH_INFO_PATH = os.path.join(BASE_DIR, '../../Data/count_info.json')
+from app import graph_info
 
 def heuristic_sort(requests, node_map):
     """
     Sorts the predicates based on their properties and counts.
     """
-    graph_info = json.load(open(GRAPH_INFO_PATH))
     predicates = requests['predicates']
 
     not_unique = {'associated_with', 'expressed_in'}
