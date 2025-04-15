@@ -71,7 +71,8 @@ app.config['annotation_threads'] = {} # holding the stop event for each annotati
 app.config['annotation_lock'] = threading.Lock()
 
 schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
-                               biocypher_config_path='./config/biocypher_config.yaml')
+                               biocypher_config_path='./config/biocypher_config.yaml',
+                               config_path='./config/schema')
 
 #load the json that holds the count for the edges
 graph_info = json.load(open(GRAPH_INFO_PATH))

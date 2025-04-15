@@ -73,6 +73,46 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
         schema_manager.get_relations_for_node(node_label), indent=4)
     return Response(relations, mimetype='application/json')
 
+@app.route('/schema-list', methods=['GET'])
+@token_required
+def get_schema_list(current_user_id):
+    schema_list = schema_manager.schema_list
+    response = {
+        "schemas": schema_list,
+    }
+    return Response(json.dumps(response, indent=4), mimetype='application/json')
+
+@app.route('/schema', methods=['GET'])
+@token_required
+def get_schema_by_source(current_user_id):
+    schema = schema_manager.schmea_representation
+    
+    response = {'nodes': [], 'edges': []}
+    
+    query_string = request.args.getlist("source")
+    
+    for schema_type in query_string:
+        source = schema_type.upper()
+        sub_schema = schema.get(source, None)
+
+        if sub_schema is None:
+            return jsonify({"error": "Invalid schema source"}), 400
+
+        for key, _ in sub_schema['edges'].items():
+            edge = sub_schema['edges'][key]
+            edge_data = {
+                "label": schema['edges'][key]['output_label'],
+                **edge
+            }
+            response['edges'].append(edge_data)
+            response['nodes'].append(schema['nodes'][edge['source']])
+            response['nodes'].append(schema['nodes'][edge['target']])
+            
+        if len(response['edges']) == 0:
+            for node in sub_schema['nodes']:
+                response['nodes'].append(schema['nodes'][node])
+
+    return Response(json.dumps(response, indent=4), mimetype='application/json')
 
 @socketio.on('connect')
 @socket_token_required
