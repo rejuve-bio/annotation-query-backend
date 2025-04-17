@@ -24,7 +24,6 @@ def update_task(annotation_id, graph=None):
         status = cache['status']
         # Merge graph updates
         graph = graph if graph else cache['graph']
-        
         if status == TaskStatus.COMPLETE.value:
             redis_client.setex(str(annotation_id), EXP, json.dumps({
                 'graph': graph, 'status': TaskStatus.COMPLETE.value
@@ -183,8 +182,7 @@ def generate_result(query_code, annotation_id, requests, result_status, status=N
         if len(response['edges']) == 0 and len(response['nodes']) > 0:
             grouped_graph = graph.group_node_only(response, requests)
         else:
-            grouped_graph = graph.group_graph(response)
-            
+            grouped_graph = graph.group_graph(response) 
         if status:
             set_status(annotation_id, status)
         status = update_task(annotation_id, {
@@ -416,8 +414,7 @@ def start_thread(annotation_id, args):
     request = args['request']
     summary = args['summary']
     meta_data = args['meta_data']
-    
-    #TODO: make it trhead safe by locking the resources 
+
     annotation_threads = app.config['annotation_threads']
     annotation_threads[str(annotation_id)] = threading.Event()
 

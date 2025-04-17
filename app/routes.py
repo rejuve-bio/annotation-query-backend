@@ -417,12 +417,7 @@ def get_by_id(current_user_id, id):
             if graph is not None:
                 response_data['nodes'] = graph['nodes']
                 response_data['edges'] = graph['edges']
-                
-            if 'nodes' in response_data and len(response_data['nodes']) == 0:
-                response = jsonify({"error": "No data found for the query"})
-                response = Response(response.response, status=404)
-                response.status = "404 No matching results for the query"
-                return response
+
             return Response(json.dumps(response_data, indent=4), mimetype='application/json')
 
         if status in [TaskStatus.PENDING.value, TaskStatus.COMPLETE.value] and source is None:
