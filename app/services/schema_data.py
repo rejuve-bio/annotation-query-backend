@@ -2,19 +2,78 @@ import json
 from biocypher import BioCypher
 import logging
 import yaml
+import os
+from pathlib import Path
 
 # Setup basic logging
 logging.basicConfig(level=logging.DEBUG)
 
 class SchemaManager:
-    def __init__(self, schema_config_path: str, biocypher_config_path: str):
+    def __init__(self, schema_config_path: str, biocypher_config_path: str, config_path: str):
         self.bcy = BioCypher(schema_config_path=schema_config_path, biocypher_config_path=biocypher_config_path)
         self.schema = self.process_schema(self.bcy._get_ontology_mapping()._extend_schema())
         self.parent_nodes =self.parent_nodes()
         self.parent_edges =self.parent_edges()
         self.graph_info = self.get_graph_info()
         self.filter_schema = self.filter_schema(self.schema)
+        self.config_path = config_path
+        self.schema_list = self.get_schema_list()
+        self.biocypher_config_path = biocypher_config_path
+        self.schmea_representation = self.get_schema_representation(self.schema_list)
     
+    def get_schema_list(self):
+        schema_list = []
+        
+        for file in os.listdir(self.config_path):
+            file_name = os.path.splitext(file)[0]
+            schema_list.append(file_name)
+            
+        return schema_list
+    
+    def get_schema_representation(self, schema_list: list):
+        schema_representation = {"nodes": {}, "edges": {}}
+        schema_dir = Path(__file__).parent /".."/ ".."/ "config" / "schema"
+        
+        for schema in schema_list:
+            schema_abs_path = str((schema_dir / f"{schema}.yaml").resolve())
+            with open(schema_abs_path, 'r') as file:
+                file_output = yaml.safe_load(file)
+                nodes = file_output.get('nodes', {})
+                edges = file_output.get('relationships', {})
+                name = file_output.get('name', None).upper()
+                
+                if name:
+                    if name not in schema_representation:
+                        schema_representation[name]= {'nodes': set(), 'edges': {}}
+
+                    for key, value in nodes.items():
+                        key = key.replace(' ', '_')
+                        schema_representation[name]['nodes'].add(key)
+                        if key not in schema_representation['nodes']:
+                            schema_representation['nodes'][key] = {}
+                        node_props = {
+                            "label": value.get("input_label", ''),
+                            "properties": value.get("properties", {}),
+                        }
+                        schema_representation['nodes'][key].update(node_props)
+
+                    for key, value in edges.items():
+
+                        # Global edge definition (accumulated across all schemas)
+                        if key not in schema_representation['edges']:
+                            schema_representation['edges'][key] = {}
+
+                        # Schema-specific edge definition (per schema name)
+                        if key not in schema_representation[name]['edges']:
+                            schema_representation[name]['edges'][key] = {'source': '', 'target': ''}
+
+                        schema_representation['edges'][key].update(value)
+                        schema_representation[name]['edges'][key]['source'] = value.get('source', '')
+                        schema_representation[name]['edges'][key]['target'] = value.get('target', '')
+
+        return schema_representation
+        
+
     def process_schema(self, schema):
         process_schema = {}
 

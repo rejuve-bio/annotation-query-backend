@@ -18,6 +18,7 @@ from app.lib import Graph, heuristic_sort
 from app.annotation_controller import handle_client_request, process_full_data, requery
 from app.constants import TaskStatus
 from app.workers.task_handler import get_annotation_redis
+from app.persistence import AnnotationStorageService, UserStorageService
 
 # Load environmental variables
 load_dotenv()
@@ -40,7 +41,6 @@ app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER')
 
 llm = app.config['llm_handler']
-storage_service = app.config['storage_service']
 EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
 
 # Initialize Flask-Mail
@@ -73,6 +73,63 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
         schema_manager.get_relations_for_node(node_label), indent=4)
     return Response(relations, mimetype='application/json')
 
+@app.route('/schema-list', methods=['GET'])
+@token_required
+def get_schema_list(current_user_id):
+    schema_list = schema_manager.schema_list
+    response = {
+        "schemas": schema_list,
+    }
+    return Response(json.dumps(response, indent=4), mimetype='application/json')
+
+@app.route('/schema', methods=['GET'])
+@token_required
+def get_schema_by_source(current_user_id):
+    try:
+        schema = schema_manager.schmea_representation
+
+        response = {'nodes': [], 'edges': []}
+
+        query_string = request.args.getlist("source")
+
+        user = UserStorageService.get(current_user_id)
+        
+        if not user:
+            query_string = 'all'
+        else:
+            query_string = user.data_source
+
+        if query_string == 'all':
+            response['nodes'] = schema['nodes']
+            response['edges'] = schema['edges']
+
+            return Response(json.dumps(response, indent=4), mimetype='application/json')
+
+        for schema_type in query_string:
+            source = schema_type.upper()
+            sub_schema = schema.get(source, None)
+
+            if sub_schema is None:
+                return jsonify({"error": "Invalid schema source"}), 400
+
+            for key, _ in sub_schema['edges'].items():
+                edge = sub_schema['edges'][key]
+                edge_data = {
+                    "label": schema['edges'][key]['output_label'],
+                    **edge
+                }
+                response['edges'].append(edge_data)
+                response['nodes'].append(schema['nodes'][edge['source']])
+                response['nodes'].append(schema['nodes'][edge['target']])
+
+            if len(response['edges']) == 0:
+                for node in sub_schema['nodes']:
+                    response['nodes'].append(schema['nodes'][node])
+
+        return Response(json.dumps(response, indent=4), mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error fetching schema: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @socketio.on('connect')
 @socket_token_required
@@ -224,7 +281,7 @@ def process_query(current_user_id):
                       "status": TaskStatus.COMPLETE.value
                       }
 
-        annotation_id = storage_service.save(annotation)
+        annotation_id = AnnotationStorageService.save(annotation)
         redis_client.setex(str(annotation_id), EXP, json.dumps({'task': 4, 
                                 'graph': {'nodes': response['nodes'], 'edges': response['edges']}}))
         response = {"annotation_id": str(
@@ -273,7 +330,7 @@ def process_user_history(current_user_id):
     else:
         page_number = 1
     return_value = []
-    cursor = storage_service.get_all(str(current_user_id), page_number)
+    cursor = AnnotationStorageService.get_all(str(current_user_id), page_number)
 
     if cursor is None:
         return jsonify('No value Found'), 200
@@ -298,7 +355,7 @@ def process_user_history(current_user_id):
 @token_required
 def get_by_id(current_user_id, id):
     response_data = {}
-    cursor = storage_service.get_user_annotation(id, current_user_id)
+    cursor = AnnotationStorageService.get_user_annotation(id, current_user_id)
     
     if cursor is None:
         return jsonify('No value Found'), 404
@@ -377,12 +434,7 @@ def get_by_id(current_user_id, id):
             if graph is not None:
                 response_data['nodes'] = graph['nodes']
                 response_data['edges'] = graph['edges']
-                
-            if 'nodes' in response_data and len(response_data['nodes']) == 0:
-                response = jsonify({"error": "No data found for the query"})
-                response = Response(response.response, status=404)
-                response.status = "404 No matching results for the query"
-                return response
+
             return Response(json.dumps(response_data, indent=4), mimetype='application/json')
 
         if status in [TaskStatus.PENDING.value, TaskStatus.COMPLETE.value] and source is None:
@@ -441,7 +493,7 @@ def process_by_id(current_user_id, id):
 
     question = data['requests']['question']
     response_data = {}
-    cursor = storage_service.get_user_annotation(id, current_user_id)
+    cursor = AnnotationStorageService.get_user_annotation(id, current_user_id)
 
     limit = request.args.get('limit')
     properties = request.args.get('properties')
@@ -495,7 +547,7 @@ def process_by_id(current_user_id, id):
         answer = llm.generate_summary(
             response_data, json_request, question, False, summary) if question else None
 
-        storage_service.update(
+        AnnotationStorageService.update(
             id, {"answer": answer, "updated_at": datetime.datetime.now()})
 
         response = {"annotation_id": str(
@@ -537,7 +589,7 @@ def serve_file(file_name):
 def delete_by_id(current_user_id, id):
     try:
         # check if the user have access to delete the resource
-        annotation = storage_service.get_user_annotation(id, current_user_id)
+        annotation = AnnotationStorageService.get_user_annotation(id, current_user_id)
         
         if annotation is None:
             return jsonify('No value Found'), 404
@@ -559,13 +611,12 @@ def delete_by_id(current_user_id, id):
                 return Response(formatted_response, mimetype='application/json')
         
         # else delete the annotation from the db
-        existing_record = storage_service.get_by_id(id)
+        existing_record = AnnotationStorageService.get_by_id(id)
 
         if existing_record is None:
             return jsonify('No value Found'), 404
 
-
-        deleted_record = storage_service.delete(id)
+        deleted_record = AnnotationStorageService.delete(id)
 
         if deleted_record is None:
             return jsonify('Failed to delete the annotation'), 500
@@ -593,12 +644,12 @@ def update_title(current_user_id, id):
     title = data['title']
 
     try:
-        existing_record = storage_service.get_by_id(id)
+        existing_record = AnnotationStorageService.get_by_id(id)
 
         if existing_record is None:
             return jsonify('No value Found'), 404
 
-        storage_service.update(id, {'title': title})
+        AnnotationStorageService.update(id, {'title': title})
 
         response_data = {
             'message': 'title updated successfully',
@@ -632,7 +683,7 @@ def delete_many(current_user_id):
     
     #check if user have access to delete the resource
     for annotation_id in annotation_ids:
-        annotation = storage_service.get_user_annotation(annotation_id, current_user_id)
+        annotation = AnnotationStorageService.get_user_annotation(annotation_id, current_user_id)
         if annotation is None:
             return jsonify('No value Found'), 404
     
@@ -643,7 +694,7 @@ def delete_many(current_user_id):
         return jsonify({"error": "Annotation ids must not be empty"}), 400
     
     try:
-        delete_count = storage_service.delete_many_by_id(annotation_ids)
+        delete_count = AnnotationStorageService.delete_many_by_id(annotation_ids)
         
         response_data = {
             'message': f'Out of {len(annotation_ids)}, {delete_count} were successfully deleted.'
@@ -653,4 +704,48 @@ def delete_many(current_user_id):
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error deleting annotations: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/settings/data-source', methods=['POST'])
+@token_required
+def update_settings(current_user_id):
+    data = request.get_json()
+    
+    data_source = data.get('data_source', None)
+    
+    if data_source is None:
+        return jsonify({"error": "Missing data source"}), 400
+    
+    if isinstance(data_source, str):
+        if data_source.lower() == 'all':
+            UserStorageService.upsert_by_user_id(current_user_id, 
+                                             {'data_source': 'all'})
+
+            response_data = {
+                'message': 'Data source updated successfully',
+                'data_source': 'all'
+            }
+            formatted_response = json.dumps(response_data, indent=4)
+            return Response(formatted_response, mimetype='application/json')
+        else:
+            return jsonify({"error": "Invalid data source format"}), 400
+    
+    # check if the data source is valid
+    for ds in data_source:
+        if ds.upper() not in schema_manager.schmea_representation:
+            return jsonify({"error": f"Invalid data source: {ds}"}), 400
+    
+    try:
+        UserStorageService.upsert_by_user_id(current_user_id, 
+                                         {'data_source': data_source})
+        
+        response_data = {
+            'message': 'Data source updated successfully',
+            'data_source': data_source
+        }
+        
+        formatted_response = json.dumps(response_data, indent=4)
+        return Response(formatted_response, mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error updating data source: {e}")
         return jsonify({"error": str(e)}), 500

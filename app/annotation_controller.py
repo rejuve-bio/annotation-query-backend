@@ -10,9 +10,9 @@ from app.lib import convert_to_csv, generate_file_path, \
     adjust_file_path
 import time
 from app.constants import TaskStatus
+from app.persistence import AnnotationStorageService
 
 llm = app.config['llm_handler']
-storage_service = app.config['storage_service']
 EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
 
 def handle_client_request(query, request, current_user_id, node_types):
@@ -20,7 +20,7 @@ def handle_client_request(query, request, current_user_id, node_types):
     # check if annotation exist
 
     if annotation_id:
-        existing_query = storage_service.get_user_query(
+        existing_query = AnnotationStorageService.get_user_query(
             annotation_id, str(current_user_id), query[0])
     else:
         existing_query = None
@@ -40,7 +40,7 @@ def handle_client_request(query, request, current_user_id, node_types):
             "node_count_by_label": existing_query.node_count_by_label,
             "edge_count_by_label": existing_query.edge_count_by_label,
         }
-        storage_service.update(
+        AnnotationStorageService.update(
             annotation_id, {"status": TaskStatus.PENDING.value, "updated_at": datetime.datetime.now()})
         reset_status(annotation_id)
         
@@ -59,7 +59,7 @@ def handle_client_request(query, request, current_user_id, node_types):
                       "title": title, "node_types": node_types,
                       "status": TaskStatus.PENDING.value}
 
-        annotation_id = storage_service.save(annotation)
+        annotation_id = AnnotationStorageService.save(annotation)
 
         args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
                                'label_count_done': label_count_done}, 'query': query, 'request': request,
@@ -79,7 +79,7 @@ def handle_client_request(query, request, current_user_id, node_types):
                       'edge_count': None, 'node_count_by_label': None,
                       'edge_count_by_label': None}
 
-        storage_service.update(annotation_id, annotation)
+        AnnotationStorageService.update(annotation_id, annotation)
         reset_task(annotation_id)
 
         args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
@@ -94,7 +94,7 @@ def handle_client_request(query, request, current_user_id, node_types):
         )
 
 def process_full_data(current_user_id, annotation_id):
-    cursor = storage_service.get_by_id(annotation_id)
+    cursor = AnnotationStorageService.get_by_id(annotation_id)
 
     if cursor is None:
         return None
@@ -133,7 +133,7 @@ def process_full_data(current_user_id, annotation_id):
 def requery(annotation_id, query, request):
     #Event to track tasks
     result_done = threading.Event()
-    storage_service.update(
+    AnnotationStorageService.update(
         annotation_id, {"status": TaskStatus.PENDING.value})
     
     app.config['annotation_threads'][str(annotation_id)] = threading.Event()

@@ -1,12 +1,13 @@
-from app.models.storage import Storage
+from app.models.annotation import Annotation
 
 
-class StorageService():
+class AnnotationStorageService():
     def __init__(self):
         pass
-
-    def save(self, annotation):
-        data = Storage(
+    
+    @staticmethod
+    def save(annotation):
+        data = Annotation(
             user_id=annotation["current_user_id"],
             request=annotation["request"],
             query=annotation["query"],
@@ -25,40 +26,48 @@ class StorageService():
         id = data.save()
         return id
 
-    def get(self, user_id):
-        data = Storage.find({"user_id": user_id}, one=True)
+    @staticmethod
+    def get(user_id):
+        data = Annotation.find({"user_id": user_id}, one=True)
         return data
 
-    def get_all(self, user_id, page_number):
-        data = Storage.find({"user_id": user_id}).sort(
+    @staticmethod
+    def get_all(user_id, page_number):
+        data = Annotation.find({"user_id": user_id}).sort(
             '_id', -1).skip((page_number - 1) * 10).limit(10)
         return data
 
-    def get_by_id(self, id):
-        data = Storage.find_by_id(id)
+    @staticmethod
+    def get_by_id(id):
+        data = Annotation.find_by_id(id)
         return data
 
-    def get_user_query(self, annotation_id, user_id, query):
-        data = Storage.find_one(
+    @staticmethod
+    def get_user_query(annotation_id, user_id, query):
+        data = Annotation.find_one(
             {"_id": annotation_id, "user_id": user_id, "query": query})
         return data
     
-    def get_user_annotation(self, annotation_id, user_id):
-        data = Storage.find_one({"_id": annotation_id, "user_id": user_id})
+    @staticmethod
+    def get_user_annotation(annotation_id, user_id):
+        data = Annotation.find_one({"_id": annotation_id, "user_id": user_id})
         return data
 
-    def update(self, id, data):
-        data = Storage.update({"_id": id}, {"$set": data}, many=False)
+    @staticmethod
+    def update(id, data):
+        data = Annotation.update({"_id": id}, {"$set": data}, many=False)
 
-    def delete(self, id):
-        data = Storage.delete({"_id": id})
+    @staticmethod
+    def delete(id):
+        data = Annotation.delete({"_id": id})
         return data
     
-    def delete_many_by_id(self, ids):
+    @staticmethod
+    def delete_many_by_id(ids):
         delete_count = 0
-        
+
         for id in ids:
-            self.delete(id)
+            AnnotationStorageService.delete(id)
             delete_count += 1
         
         return delete_count

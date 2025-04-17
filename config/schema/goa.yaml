@@ -1,0 +1,51 @@
+name: GOA
+description: Gene Ontology Annotations
+website: http://geneontology.org/
+relationships:
+  biological process gene product:
+    url: http://geneontology.org/gene-associations/goa_human.gaf.gz
+    description: Association between proteins and biological processes
+    input_label: biological_process_gene_product
+    output_label: involved_in
+    source: protein
+    target: biological_process
+    properties:
+      qualifier: obj
+      db_reference: obj
+      evidence: str
+
+  molucular function gene product:
+    url: http://geneontology.org/gene-associations/goa_human.gaf.gz
+    description: Association between proteins and molecular functions
+    input_label: molecular_function_gene_product
+    output_label: enables
+    source: protein
+    target: molecular_function
+    properties:
+      qualifier: obj
+      db_reference: obj
+      evidence: str
+
+  cellular component gene product part of:
+    url: http://geneontology.org/gene-associations/goa_human.gaf.gz
+    description: Part-of relationship between proteins and cellular components
+    input_label: cellular_component_gene_product_part_of
+    output_label: part_of
+    source: protein
+    target: cellular_component
+    properties:
+      qualifier: obj
+      db_reference: obj
+      evidence: str
+
+  cellular component gene product located in:
+    url: http://geneontology.org/gene-associations/goa_human.gaf.gz
+    description: Location relationship between proteins and cellular components
+    input_label: cellular_component_gene_product_located_in
+    output_label: located_in
+    source: protein
+    target: cellular_component
+    properties:
+      qualifier: obj
+      db_reference: obj
+      evidence: str
