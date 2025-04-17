@@ -7,10 +7,9 @@ import threading
 import time
 from app.lib import Graph
 from app.constants import TaskStatus
-import traceback
+from app.persistence import AnnotationStorageService
 
 llm = app.config['llm_handler']
-storage_service = app.config['storage_service']
 EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
 
 def update_task(annotation_id, graph=None):
@@ -28,7 +27,7 @@ def update_task(annotation_id, graph=None):
             redis_client.setex(str(annotation_id), EXP, json.dumps({
                 'graph': graph, 'status': TaskStatus.COMPLETE.value
             }))
-            storage_service.update(annotation_id, {'status': status})
+            AnnotationStorageService.update(annotation_id, {'status': status})
             redis_client.delete(f"{annotation_id}_tasks")
             return TaskStatus.COMPLETE.value
         
@@ -37,7 +36,7 @@ def update_task(annotation_id, graph=None):
     
         if status in [TaskStatus.FAILED.value, TaskStatus.CANCELLED.value]:
             if task_num >= 4 and cache['status'] == TaskStatus.CANCELLED.value:
-                storage_service.delete(annotation_id)
+                AnnotationStorageService.delete(annotation_id)
                 redis_client.delete(f"{annotation_id}_tasks")
                 redis_client.delete(str(annotation_id))
                 with app.config['annotation_lock']:
@@ -49,7 +48,7 @@ def update_task(annotation_id, graph=None):
             redis_client.setex(str(annotation_id), EXP, json.dumps({
                 'graph': graph, 'status': status
             }))
-            storage_service.update(annotation_id, {'status': status})
+            AnnotationStorageService.update(annotation_id, {'status': status})
             redis_client.delete(f"{annotation_id}_tasks")
         elif status == TaskStatus.PENDING.value:
             redis_client.set(str(annotation_id), json.dumps({
@@ -117,7 +116,7 @@ def generate_summary(annotation_id, request, all_status, summary=None):
 
         return
     
-    meta_data = storage_service.get_by_id(annotation_id)
+    meta_data = AnnotationStorageService.get_by_id(annotation_id)
     cache = redis_client.get(str(annotation_id))
 
     if cache is not None:
@@ -139,7 +138,7 @@ def generate_summary(annotation_id, request, all_status, summary=None):
         else:
             summary = llm.generate_summary(response, request) 
             summary = summary if summary else 'Graph too big, could not summarize'
-        storage_service.update(annotation_id, {"summary": summary})
+        AnnotationStorageService.update(annotation_id, {"summary": summary})
 
         status = update_task(annotation_id)
         socketio.emit('update', {'status': status, 'update': {'summary': summary}},
@@ -209,7 +208,7 @@ def generate_result(query_code, annotation_id, requests, result_status, status=N
     except Exception as e:
         set_status(annotation_id, TaskStatus.FAILED.value)
         socketio.emit('update', {'status': TaskStatus.FAILED.value, 'update': {'graph': False}})
-        storage_service.update(annotation_id, {'status': TaskStatus.FAILED.value})
+        AnnotationStorageService.update(annotation_id, {'status': TaskStatus.FAILED.value})
         result_status.set()
         logging.error("Error generating result graph %s", e)
 
@@ -255,7 +254,7 @@ def generate_total_count(count_query, annotation_id, requests, total_count_statu
 
         if len(total_count) == 0:
             status = update_task(annotation_id)
-            storage_service.update(annotation_id, {'status': status, 'node_count': 0, 'edge_count': 0})
+            AnnotationStorageService.update(annotation_id, {'status': status, 'node_count': 0, 'edge_count': 0})
             socketio.emit('update', {'status': status, 'update': {'node_count': 0, 'edge_count': 0}})
             total_count_status.set()
             return
@@ -269,7 +268,7 @@ def generate_total_count(count_query, annotation_id, requests, total_count_statu
 
         status = update_task(annotation_id)
 
-        storage_service.update(annotation_id,
+        AnnotationStorageService.update(annotation_id,
                                {'node_count': response['node_count'],
                                 'edge_count': response['edge_count'],
                                 'status': status
@@ -293,7 +292,7 @@ def generate_total_count(count_query, annotation_id, requests, total_count_statu
     except Exception as e:
         set_status(annotation_id, TaskStatus.FAILED.value)
         update_task(annotation_id)
-        storage_service.update(annotation_id, {'status': TaskStatus.FAILED.value, 
+        AnnotationStorageService.update(annotation_id, {'status': TaskStatus.FAILED.value, 
                                                'node_count': 0, 
                                                'edge_count': 0
                                             })
@@ -367,7 +366,7 @@ def generate_label_count(count_query, annotation_id, requests, count_label_statu
                             "properties": False}
         response = db_instance.parse_and_serialize(
             count_result, schema_manager.schema, graph_components, 'count')
-        storage_service.update(annotation_id,
+        AnnotationStorageService.update(annotation_id,
                                {'node_count_by_label': response['node_count_by_label'],
                                 'edge_count_by_label': response['edge_count_by_label'],
                                 })
@@ -398,7 +397,7 @@ def generate_label_count(count_query, annotation_id, requests, count_label_statu
         update_task(annotation_id)
 
         update = generate_empty_lable_count(requests)
-        storage_service.update(annotation_id, {'status': TaskStatus.FAILED.value, 
+        AnnotationStorageService.update(annotation_id, {'status': TaskStatus.FAILED.value, 
                                                'node_count_by_label': update['node_count_by_label'],
                                                'edge_count_by_label': update['edge_count_by_label']
                                                })

@@ -1,12 +1,9 @@
-from pymongoose import methods
-from pymongoose.mongo_types import Types, Schema, MongoException, MongoError
-from bson import json_util
-from bson.objectid import ObjectId
+from pymongoose.mongo_types import Types, Schema
 import datetime
 
 
-class Storage(Schema):
-    schema_name = 'storage'
+class Annotation(Schema):
+    schema_name = 'annotation'
 
     # Attributes
     id = None
