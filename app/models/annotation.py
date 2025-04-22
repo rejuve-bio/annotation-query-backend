@@ -61,6 +61,7 @@ class Annotation(Schema):
                 "type": Types.String,
                 "required": True
             },
+            "path_url": Types.String,
             "created_at": {
                 "type": Types.Date,
                 "required": True,
