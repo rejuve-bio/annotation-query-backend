@@ -325,7 +325,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         if node['id']:
             return properties
         for key, property in node['properties'].items():
-            properties.append(f"{var_name}.{key} =~ '(?i){property}'")
+            if key == "start":
+                properties.append(f"{var_name}.{key} >= {property}")
+            elif key == "end":
+                properties.append(f"{var_name}.{key} <= {property}")
+            else:
+                properties.append(f"{var_name}.{key} =~ '(?i){property}'")
         return properties
 
     def parse_neo4j_results(self, results, graph_components, result_type):

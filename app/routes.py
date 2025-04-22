@@ -391,6 +391,7 @@ def get_by_id(current_user_id, id):
     node_count_by_label = cursor.node_count_by_label
     edge_count_by_label = cursor.edge_count_by_label
     status = cursor.status
+    file_path = cursor.path_url
 
     # Extract node types
     nodes = json_request['nodes']
@@ -439,8 +440,16 @@ def get_by_id(current_user_id, id):
 
         if status in [TaskStatus.PENDING.value, TaskStatus.COMPLETE.value] and source is None:
             if status == TaskStatus.COMPLETE.value:
-                response_data['status'] = TaskStatus.PENDING.value
-                requery(annotation_id, query, json_request)
+                if os.path.exists(file_path):
+                    # open the file and read the graph
+                    with open(file_path, 'r') as file:
+                        graph = json.load(file)
+
+                    response_data['nodes'] = graph['nodes']
+                    response_data['edges'] = graph['edges']
+                else:
+                    response_data['status'] = TaskStatus.PENDING.value
+                    requery(annotation_id, query, json_request)
             formatted_response = json.dumps(response_data, indent=4)
             return Response(formatted_response, mimetype='application/json')
         

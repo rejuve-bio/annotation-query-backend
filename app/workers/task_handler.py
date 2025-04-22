@@ -8,6 +8,7 @@ import time
 from app.lib import Graph
 from app.constants import TaskStatus
 from app.persistence import AnnotationStorageService
+from pathlib import Path
 
 llm = app.config['llm_handler']
 EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
@@ -181,9 +182,18 @@ def generate_result(query_code, annotation_id, requests, result_status, status=N
         if len(response['edges']) == 0 and len(response['nodes']) > 0:
             grouped_graph = graph.group_node_only(response, requests)
         else:
-            grouped_graph = graph.group_graph(response) 
+            grouped_graph = graph.group_graph(response);
+
+        file_path = Path(__file__).parent /".."/ ".."/ "public" / "graph" / f"{annotation_id}.json"
+        
+        with open(file_path, 'w') as file:
+            json.dump(grouped_graph, file)
+
+        AnnotationStorageService.update(annotation_id, {"path_url": str(file_path.resolve())})
+
         if status:
-            set_status(annotation_id, status)
+            set_status(annotation_id, status);
+            
         status = update_task(annotation_id, {
             'nodes': grouped_graph['nodes'],
             'edges': grouped_graph['edges']
@@ -192,7 +202,7 @@ def generate_result(query_code, annotation_id, requests, result_status, status=N
                                  'update': {'graph': True}
                                  },
                       to=str(annotation_id))
-        
+
         result_status.set()
 
         return grouped_graph
