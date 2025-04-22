@@ -3,7 +3,8 @@ import traceback
 import logging
 from pymongo import MongoClient
 from pymongoose.methods import set_schemas
-from app.models.storage import Storage
+from app.models.annotation import Annotation
+from app.models.user import User
 
 MONGO_URI = os.environ.get("MONGO_URI")
 
@@ -19,7 +20,8 @@ def mongo_init():
         # Define the shcemas
 
         schemas = {
-            "storage": Storage(empty=True).schema
+            "annotation": Annotation(empty=True).schema,
+            "user": User(empty=True).schema,
         }
 
         set_schemas(db, schemas)

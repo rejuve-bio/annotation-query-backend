@@ -7,7 +7,7 @@ from app.services.cypher_generator import CypherQueryGenerator
 from app.services.metta_generator import MeTTa_Query_Generator
 from db import mongo_init
 from app.services.llm_handler import LLMHandler
-from app.persistence.storage_service import StorageService
+from app.persistence import AnnotationStorageService, UserStorageService
 import os
 import logging
 import yaml
@@ -63,15 +63,14 @@ database_type = config['database']['type']
 db_instance = databases[database_type]()
 
 llm = LLMHandler()  # Initialize the LLMHandler
-storage_service = StorageService()  # Initialize the storage service
 
 app.config['llm_handler'] = llm
-app.config['storage_service'] = storage_service
 app.config['annotation_threads'] = {} # holding the stop event for each annotation task
 app.config['annotation_lock'] = threading.Lock()
 
 schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
-                               biocypher_config_path='./config/biocypher_config.yaml')
+                               biocypher_config_path='./config/biocypher_config.yaml',
+                               config_path='./config/schema')
 
 #load the json that holds the count for the edges
 graph_info = json.load(open(GRAPH_INFO_PATH))
