@@ -1,4 +1,4 @@
-from flask import request, Response
+from flask import request, Response, g
 from app import app, schema_manager, db_instance, socketio, redis_client, ThreadStopException
 import logging
 import json
@@ -157,8 +157,8 @@ def generate_summary(annotation_id, request, all_status, summary=None):
                         'update': {'summary': 'Graph too big, could not summarize'}},
                       to=str(annotation_id))
 
-
-def generate_result(query_code, annotation_id, requests, result_status, status=None):
+def generate_result(query_code, annotation_id, requests, result_status, species, status=None,):
+    
     try:
         annotation_threads = app.config['annotation_threads']
         stop_event = annotation_threads[str(annotation_id)]
@@ -170,8 +170,10 @@ def generate_result(query_code, annotation_id, requests, result_status, status=N
             status = update_task(annotation_id)
             result_status.set()
             return
+        
+        print("After thread; ", species)
 
-        response_data = db_instance.run_query(query_code, stop_event)
+        response_data = db_instance.run_query(query_code, stop_event, species)
         graph_components = {"nodes": requests['nodes'], "predicates":
                             requests['predicates'], "properties": True}
         response = db_instance.parse_and_serialize(
@@ -223,7 +225,7 @@ def generate_result(query_code, annotation_id, requests, result_status, status=N
         logging.error("Error generating result graph %s", e)
 
 
-def generate_total_count(count_query, annotation_id, requests, total_count_status, meta_data=None):
+def generate_total_count(count_query, annotation_id, requests, total_count_status, species, meta_data=None):
     if get_status(annotation_id) == TaskStatus.FAILED.value:
         socketio.emit('update', {'status': TaskStatus.FAILED.value, 
                                  'update': {'node_count': 0, 'edge_count': 0}
@@ -260,7 +262,7 @@ def generate_total_count(count_query, annotation_id, requests, total_count_statu
         
     try:
 
-        total_count = db_instance.run_query(count_query, stop_event)
+        total_count = db_instance.run_query(count_query, stop_event, species)
 
         if len(total_count) == 0:
             status = update_task(annotation_id)
@@ -331,7 +333,7 @@ def generate_empty_lable_count(requests):
 
     return update
 
-def generate_label_count(count_query, annotation_id, requests, count_label_status, meta_data=None):
+def generate_label_count(count_query, annotation_id, requests, count_label_status, species, meta_data=None):
     if get_status(annotation_id) == TaskStatus.FAILED.value:
         update = generate_empty_lable_count(requests)
         status = update_task(annotation_id)
@@ -423,13 +425,16 @@ def start_thread(annotation_id, args):
     request = args['request']
     summary = args['summary']
     meta_data = args['meta_data']
+    species = args['species']
+    
+    print("Before actually starting the therads", species, flush=True)
 
     annotation_threads = app.config['annotation_threads']
     annotation_threads[str(annotation_id)] = threading.Event()
 
     def send_annotation():
         try:
-            generate_result(find_query, annotation_id, request, all_status['result_done'])
+            generate_result(find_query, annotation_id, request, all_status['result_done'], species)
         except Exception as e:
                 logging.error("Error generating result graph %s", e)
       
@@ -443,13 +448,13 @@ def start_thread(annotation_id, args):
     def send_total_count():
         try:
             generate_total_count(
-                total_count_query, annotation_id, request, all_status['total_count_done'], meta_data)
+                total_count_query, annotation_id, request, all_status['total_count_done'], species, meta_data)
         except Exception as e:
             logging.error("Error generating total count %s", e)
 
     def send_label_count():
         try:
-            generate_label_count(label_count_query, annotation_id, request, all_status['label_count_done'], meta_data)
+            generate_label_count(label_count_query, annotation_id, request, all_status['label_count_done'], species, meta_data)
         except Exception as e:
             logging.error("Error generating count by label %s", e)
 

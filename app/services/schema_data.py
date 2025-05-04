@@ -9,9 +9,16 @@ from pathlib import Path
 logging.basicConfig(level=logging.DEBUG)
 
 class SchemaManager:
-    def __init__(self, schema_config_path: str, biocypher_config_path: str, config_path: str):
-        self.bcy = BioCypher(schema_config_path=schema_config_path, biocypher_config_path=biocypher_config_path)
-        self.schema = self.process_schema(self.bcy._get_ontology_mapping()._extend_schema())
+    def __init__(self, schema_config_path: str, 
+                 biocypher_config_path: str, 
+                 config_path: str,
+                 fly_schema_config_path: str):
+        self.human_bcy = BioCypher(schema_config_path=schema_config_path, biocypher_config_path=biocypher_config_path)
+        self.fly_bcy = BioCypher(schema_config_path=fly_schema_config_path, biocypher_config_path=biocypher_config_path)
+        self.human_schema = self.process_schema(self.human_bcy._get_ontology_mapping()._extend_schema())
+        self.fly_schema = self.process_schema(self.fly_bcy._get_ontology_mapping()._extend_schema())
+        self.fly_schema_represetnation = self.get_fly_schema_representation(fly_schema_config_path)
+        self.schema = self.merge_schema(self.human_schema, self.fly_schema)
         self.parent_nodes =self.parent_nodes()
         self.parent_edges =self.parent_edges()
         self.graph_info = self.get_graph_info()
@@ -20,6 +27,14 @@ class SchemaManager:
         self.schema_list = self.get_schema_list()
         self.biocypher_config_path = biocypher_config_path
         self.schmea_representation = self.get_schema_representation(self.schema_list)
+        
+    def merge_schema(self, human_schema, fly_schema):
+        merged_schema = {"fly": {}, "human": {}}
+        
+        merged_schema["human"] = human_schema
+        merged_schema["fly"] = fly_schema
+        
+        return merged_schema
     
     def get_schema_list(self):
         schema_list = []
@@ -72,7 +87,33 @@ class SchemaManager:
                         schema_representation[name]['edges'][key]['target'] = value.get('target', '')
 
         return schema_representation
+    
+    def get_fly_schema_representation(self, fly_schema_path):
+        with open(fly_schema_path, 'r') as file:
+            prime_service = yaml.safe_load(file)
         
+        fly_schema = {'nodes': {}, 'edges': {}}
+        
+        for value in prime_service.values():
+            if value.get('is_a') == 'biological entity' or value.get('is_a') == 'position entity':
+                continue
+            
+            if value.get('represented_as') == 'node':
+                label = value.get('input_label') if value.get('input_label') else value.get('output_label')
+                fly_schema['nodes'][label] = {
+                    'label': label,
+                    'properties': value.get('properties', {}),
+                }
+            elif value.get('represented_as') == 'edge':
+                if value.get('source') is not None and value.get('target') is not None:
+                    label = value.get('input_label') if value.get('input_label') else value.get('output_label')
+                    fly_schema['edges'][label] = {
+                        'source': value.get('source'),
+                        'target': value.get('target'),
+                        'properties': value.get('properties', {}),
+                    }
+                    
+        return fly_schema
 
     def process_schema(self, schema):
         process_schema = {}
@@ -90,15 +131,26 @@ class SchemaManager:
 
             for i_label in labels:
                 for s in sources:
+                    if s is None:
+                        continue
                     for t in targets:
+                        s = s.replace(' ', '_')
+                        t = t.replace(' ', '_')
                         key_label = f'{s}_{i_label}_{t}' if s and t else i_label
                         process_schema[key_label] = {**value, "key": key_label}
 
         return process_schema
     
     def filter_schema(self, schema):
-        filtered_schema = {}
+        filtered_schema = {'human': {}, 'fly': {}}
+            
+        filtered_schema['human'] = self.filter_schema_by_species(self.human_schema)
+        filtered_schema['fly'] = self.filter_schema_by_species(self.fly_schema)
+        
+        return filtered_schema
 
+    def filter_schema_by_species(self, schema):
+        filtered_schema = {}
         for key, value in schema.items():
             label_list = key.split('_')
             label = ' '.join(label_list)
@@ -128,30 +180,52 @@ class SchemaManager:
                                     'label': labels, 
                                     'id': key
                                     }
+            
         return filtered_schema
-
     
     def parent_nodes(self):
+        human_parent_node = self.get_parent_nodes(self.human_schema)
+        fly_parent_node = self.get_parent_nodes(self.fly_schema)
+        return {"human": human_parent_node, "fly": fly_parent_node}
+
+    def get_parent_nodes(self, schema):
         parent_nodes = set()
-        for _, attributes in self.schema.items():
+        for _, attributes in schema.items():
             if 'represented_as' in attributes and attributes['represented_as'] == 'node' \
                     and 'is_a' in attributes and attributes['is_a'] not in parent_nodes:
                 parent_nodes.add(attributes['is_a'])
         return list(parent_nodes)
 
     def parent_edges(self):
+        human_parent_edge = self.get_parent_edges(self.human_schema)
+        fly_parent_edge = self.get_parent_edges(self.fly_schema)
+        return {"human": human_parent_edge, "fly": fly_parent_edge}
+
+    def get_parent_edges(self, schema):
         parent_edges = set()
-        for _, attributes in self.schema.items():
+        for _, attributes in schema.items():
+            is_a_attribute = attributes.get('is_a')
+            
+            if isinstance(is_a_attribute, list):
+                is_a_attribute = is_a_attribute[0]
+
             if 'represented_as' in attributes and attributes['represented_as'] == 'edge' \
-                    and 'is_a' in attributes and attributes['is_a'] not in parent_edges:
-                parent_edges.add(attributes['is_a'])
+                    and 'is_a' in attributes and is_a_attribute not in parent_edges:
+                parent_edges.add(is_a_attribute)
         return list(parent_edges)
-    
+ 
     def get_nodes(self):
+        nodes = {"human": {}, "fly": {}}
+        nodes["human"] = self.get_node_specied(self.human_schema, self.parent_nodes['human'])
+        nodes["fly"] = self.get_node_specied(self.fly_schema, self.parent_nodes['fly'])
+        
+        return nodes     
+    
+    def get_node_specied(self, schema, parent_nodes):
         nodes = {}
-        for key, value in self.schema.items():
+        for key, value in schema.items():
             if value['represented_as'] == 'node':
-                if key in self.parent_nodes:
+                if key in parent_nodes:
                     continue
                 parent = value['is_a']
                 currNode = {
@@ -165,12 +239,21 @@ class SchemaManager:
                 nodes[parent].append(currNode)
 
         return [{'child_nodes': nodes[key], 'parent_node': key} for key in nodes]
+        
 
     def get_edges(self):
+        edges = {"human": {}, "fly": {}}
+
+        edges["human"] = self.get_edges_specied(self.human_schema, self.parent_edges['human'])
+        edges["fly"] = self.get_edges_specied(self.fly_schema, self.parent_edges['fly'])
+        
+        return edges
+
+    def get_edges_specied(self, schema, parent_edges):
         edges = {}
-        for key, value in self.schema.items():
+        for key, value in schema.items():
             if value['represented_as'] == 'edge':
-                if key in self.parent_edges:
+                if key in parent_edges:
                     continue
                 label = value.get('output_lable', value['input_label'])
                 edge = {
@@ -181,16 +264,29 @@ class SchemaManager:
                     'target': value.get('target', ''),
                     'properties': value.get('properties', {})
                 }
-                parent = value['is_a']
+                if isinstance(value['is_a'], list):
+                    parent = value['is_a'][0]
+                else:
+                    parent = value['is_a']
                 if parent not in edges:
                     edges[parent] = []
                 edges[parent].append(edge)
         return [{'child_edges': edges[key], 'parent_edge': key} for key in edges]
+        
+    def get_relations_for_node(self, node, specieds='human'):
+        if specieds == 'human':
+            schema = self.human_schema
+        elif specieds == 'fly':
+            schema = self.fly_schema
+        else:
+            raise ValueError("Invalid species specified. Use 'human' or 'fly'.")
+            
+        return self.get_relations_for_nodes_specied(node, schema)
 
-    def get_relations_for_node(self, node):
+    def get_relations_for_nodes_specied(self, node, schema):
         relations = []
         node_label = node.replace('_', ' ')
-        for key, value in self.schema.items():
+        for key, value in schema.items():
             if value['represented_as'] == 'edge':
                 if 'source' in value and 'target' in value:
                     if value['source'] == node_label or value['target'] == node_label:
@@ -203,7 +299,7 @@ class SchemaManager:
                         }
                         relations.append(relation)
         return relations
-
+        
     def get_schema():
         with open('schema_config.yaml', 'r') as file:
             prime_service = yaml.safe_load(file)

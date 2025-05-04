@@ -10,6 +10,7 @@ class UserStorageService():
         data = User(
             user_id=user["current_user_id"],
             data_source=user["data_source"],
+            species=user["species"],
         )
 
         id = data.save()

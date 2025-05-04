@@ -15,7 +15,7 @@ from app.persistence import AnnotationStorageService
 llm = app.config['llm_handler']
 EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
 
-def handle_client_request(query, request, current_user_id, node_types):
+def handle_client_request(query, request, current_user_id, node_types, species):
     annotation_id = request.get('annotation_id', None)
     # check if annotation exist
 
@@ -46,7 +46,7 @@ def handle_client_request(query, request, current_user_id, node_types):
         
         args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
                                'label_count_done': label_count_done}, 'query': query, 'request': request,
-                'summary': summary, 'meta_data': meta_data}
+                'summary': summary, 'meta_data': meta_data, 'species': species}
         
         start_thread(annotation_id, args)
         return Response(
@@ -63,7 +63,7 @@ def handle_client_request(query, request, current_user_id, node_types):
 
         args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
                                'label_count_done': label_count_done}, 'query': query, 'request': request,
-                'summary': None, 'meta_data': None}
+                'summary': None, 'meta_data': None, 'species': species}
         start_thread(annotation_id, args)
 
         return Response(
@@ -84,7 +84,7 @@ def handle_client_request(query, request, current_user_id, node_types):
 
         args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
                                'label_count_done': label_count_done}, 'query': query, 'request': request,
-                'summary': None, 'meta_data': None}
+                'summary': None, 'meta_data': None, 'species': species}
         
         start_thread(annotation_id, args)
 
@@ -100,7 +100,11 @@ def process_full_data(current_user_id, annotation_id):
         return None
 
 
-    query, title = cursor.query, cursor.title
+    query, title, requests = cursor.query, cursor.title, cursor.request
+    
+    graph_components = {
+            "nodes": requests['nodes'], "predicates": requests['predicates'],
+            'properties': True}
 
 
     try:
@@ -118,7 +122,7 @@ def process_full_data(current_user_id, annotation_id):
         # Run the query and parse the results
         result = db_instance.run_query(query)
         parsed_result = db_instance.convert_to_dict(
-            result, schema_manager.schema)
+            result, schema_manager.schema, graph_components)
 
         file_path = convert_to_csv(
             parsed_result, user_id=current_user_id, file_name=title)

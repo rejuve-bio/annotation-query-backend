@@ -1,5 +1,5 @@
 from flask import copy_current_request_context, request, jsonify, \
-    Response, send_from_directory
+    Response, send_from_directory, send_file, after_this_request
 import logging
 import json
 import os
@@ -11,6 +11,7 @@ from flask_socketio import disconnect, join_room, send
 # from app.lib import limit_graph
 from app.lib.auth import token_required, socket_token_required
 from app.lib.email import init_mail, send_email
+from app.lib.utils import convert_to_csv
 from dotenv import load_dotenv
 from distutils.util import strtobool
 import datetime
@@ -57,20 +58,30 @@ def get_graph_info(current_user_id):
 @app.route('/nodes', methods=['GET'])
 @token_required
 def get_nodes_endpoint(current_user_id):
-    nodes = json.dumps(schema_manager.get_nodes(), indent=4)
+    user = UserStorageService.get(current_user_id)
+    species = user.species if user else 'human'
+    nodes = schema_manager.get_nodes()
+    nodes = nodes[species]
+    nodes = json.dumps(nodes, indent=4)
     return Response(nodes, mimetype='application/json')
 
 @app.route('/edges', methods=['GET'])
 @token_required
 def get_edges_endpoint(current_user_id):
-    edges = json.dumps(schema_manager.get_edges(), indent=4)
+    user = UserStorageService.get(current_user_id)
+    species = user.species if user else 'human'
+    edges = schema_manager.get_edges()
+    edges = edges[species]
+    edges = json.dumps(edges, indent=4)
     return Response(edges, mimetype='application/json')
 
 @app.route('/relations/<node_label>', methods=['GET'])
 @token_required
 def get_relations_for_node_endpoint(current_user_id, node_label):
+    user = UserStorageService.get(current_user_id)
+    species = user.species if user else 'human'
     relations = json.dumps(
-        schema_manager.get_relations_for_node(node_label), indent=4)
+        schema_manager.get_relations_for_node(node_label, species), indent=4)
     return Response(relations, mimetype='application/json')
 
 @app.route('/schema-list', methods=['GET'])
@@ -86,14 +97,18 @@ def get_schema_list(current_user_id):
 @token_required
 def get_schema_by_source(current_user_id):
     try:
-        schema = schema_manager.schmea_representation
-
         response = {'nodes': [], 'edges': []}
 
         query_string = request.args.getlist("source")
 
         user = UserStorageService.get(current_user_id)
         
+        species = user.species
+        
+        if species == 'human':
+            schema = schema_manager.schmea_representation
+        else:
+            schema = schema_manager.fly_schema_represetnation
         if not user:
             query_string = 'all'
         else:
@@ -192,7 +207,9 @@ def process_query(current_user_id):
         question = requests.get('question', None)
         answer = None
         # Validate the request data before processing
-        node_map = validate_request(requests, schema_manager.schema, source)
+        user = UserStorageService.get(current_user_id)
+        species = user.species if user else 'human'
+        node_map = validate_request(requests, schema_manager.schema[species], source)
         if node_map is None:
             return jsonify(
                 {"error": "Invalid node_map returned by validate_request"}
@@ -225,7 +242,7 @@ def process_query(current_user_id):
 
         if source is None:
             return handle_client_request(query, requests,
-                                         current_user_id, node_types)
+                                         current_user_id, node_types, species)
         result = db_instance.run_query(result_query)
 
         graph_components = {
@@ -721,14 +738,18 @@ def update_settings(current_user_id):
     data = request.get_json()
     
     data_source = data.get('data_source', None)
+    species = data.get('species', None)
     
     if data_source is None:
         return jsonify({"error": "Missing data source"}), 400
     
+    if species is None:
+        species = 'human'
+    
     if isinstance(data_source, str):
         if data_source.lower() == 'all':
             UserStorageService.upsert_by_user_id(current_user_id, 
-                                             {'data_source': 'all'})
+                                             {'data_source': 'all', 'species': species})
 
             response_data = {
                 'message': 'Data source updated successfully',
@@ -746,7 +767,7 @@ def update_settings(current_user_id):
     
     try:
         UserStorageService.upsert_by_user_id(current_user_id, 
-                                         {'data_source': data_source})
+                                         {'data_source': data_source, 'species': species})
         
         response_data = {
             'message': 'Data source updated successfully',

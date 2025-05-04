@@ -89,9 +89,11 @@ def validate_request(request, schema, source):
 
             source_type = node_map[predicate['source']]['type']
             target_type = node_map[predicate['target']]['type']
-
-            predicate_type = f'{source_type}_{predicate_type}_{target_type}'
-            if predicate_type not in schema:
+            
+            # TODO: to be removed
+            predicate_type_one = f'{source_type}_{predicate_type}_{target_type}'
+            predicate_type_two = f'{source_type}_{source_type}_{predicate_type}_{target_type}'
+            if predicate_type_one not in schema and predicate_type_two not in schema:
                 raise Exception(
                     f"Invalid source and target for\
                     the predicate {predicate['type']}")

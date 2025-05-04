@@ -15,7 +15,7 @@ def mongo_init():
     global mongo_db
 
     client = MongoClient(MONGO_URI)
-    db = client.test
+    db = client.annotations_query_backend
     try:
         # Define the shcemas
 
