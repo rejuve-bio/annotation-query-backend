@@ -758,3 +758,44 @@ def update_settings(current_user_id):
     except Exception as e:
         logging.error(f"Error updating data source: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route("/search", methods=["POST"])
+@token_required
+def search(current_user_id):
+    data = request.get_json()
+    
+    node_type = data.get('node_type', None)
+    search_text = data.get('search_text', None)
+    
+    if not node_type or not search_text:
+        return jsonify({"error": "Missing node type or search text"}), 400
+    
+    try:
+        node_property, property_value = next(iter(search_text.items()))
+
+        search_payload = {
+            'suggest': {
+                'text-suggest': {
+                    'prefix': property_value,
+                    'completion': {
+                        'field': node_property
+                    }
+                }
+            }
+        }
+
+        es_client = app.config['es_db']
+
+        response = es_client.search(index=node_type, body=search_payload)
+
+        suggested_response = []
+
+        suggestions = response.get('suggest', {}).get('text-suggest', [])[0]
+
+        for suggestion in suggestions.get('options', []):
+            suggested_response.append(suggestion['text'])
+
+        return Response(json.dumps(suggested_response, indent=4), mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error processing search: {e}")
+        return jsonify({"error": str(e)}), 500
