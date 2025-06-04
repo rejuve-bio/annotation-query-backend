@@ -804,7 +804,10 @@ def search(current_user_id):
 @app.route('/annotation/<id>/download', methods=['GET'])
 @token_required
 def download_annotation(current_user_id, id):
-    response_data = {'nodes': [], 'edges': []}
+    # response_data = {'nodes': [], 'edges': []}
+    # get the query string from the request
+    group_id = request.args.get('node_group_id')
+    print(group_id)
     cursor = AnnotationStorageService.get_user_annotation(id, current_user_id)
 
     if cursor is None:
@@ -816,14 +819,31 @@ def download_annotation(current_user_id, id):
     try:
         graphs = json.load(open(file_path))
 
+        # add this after the subgraph data extraction have been merged
         # for graph in graphs:
         #     response_data['nodes'].append(graph['nodes'])
         #     response_data['edges'].append(graph['edges'])
 
+        if group_id:
+            nodes = graphs['nodes']
+
+            for node in nodes:
+                if node['data']['id'] == group_id:
+                    graphs = {'nodes': [], 'edges': []}
+                    nodes_data = node['data']['nodes']
+
+                    for node_data in nodes_data:
+                        data = {
+                            'data': {
+                                **node_data
+                            }
+                        }
+
+                        graphs['nodes'].append(data)
+
         file_obj = convert_to_excel(graphs)
 
         if file_obj:
-            print("Returning data")
             return send_file(
                 file_obj,
                 mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
