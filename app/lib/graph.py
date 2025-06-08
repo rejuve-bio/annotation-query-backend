@@ -2,6 +2,7 @@ from nanoid import generate
 import json
 import hashlib
 from app.lib.utils import extract_middle
+import networkx as nx
 
 class Graph:
     def __init__(self):
@@ -15,18 +16,18 @@ class Graph:
     def group_node_only(self, graph, request):
         nodes = graph['nodes']
         new_graph = {'nodes': [], 'edges': []}
-        
+
         node_map_by_label = {}
-        
+
         request_nodes = request['nodes']
-        
+
         for node in request_nodes:
             node_map_by_label[node['type']] = []
-            
+
         for node in nodes:
             if node['data']['type'] in node_map_by_label:
                 node_map_by_label[node['data']['type']].append(node)
-        
+
         for node_type, nodes in node_map_by_label.items():
             name = f"{len(nodes)} {node_type} nodes"
             new_node = {
@@ -282,3 +283,55 @@ class Graph:
             new_edges.append(new_edge)
         graph["edges"] = new_edges
         return graph
+
+    def build_graph_nx(self, graph):
+        G = nx.MultiDiGraph()
+
+        # Create nodes
+        nodes = graph['nodes']
+        for node in nodes:
+            G.add_node(node['data']['id'], **node)
+
+        # Create edges
+        edges = graph['edges']
+        for edge in edges:
+            G.add_edge(edge['data']['source'], edge['data']['target'], edge_id=edge['data']['edge_id'], label=edge['data']['label'], id=generate())
+
+        return G
+
+    def build_subgraph_nx(self, graph):
+        # Identify connected components
+        connected_components = list(nx.weakly_connected_components(graph))
+
+        # Create subgraph objects
+        subgraphs = []
+        for component in connected_components:
+            subgraph = graph.subgraph(component).copy()
+            subgraphs.append(subgraph)
+
+        return subgraphs
+
+    def convert_to_graph_json(self, graph):
+        graph_json = {"nodes": [], "edges": []}
+
+        # build the nodes
+        for node in graph.nodes():
+            data = {
+                "data": graph.nodes[node]  # Get the node's attributes here
+            }
+            graph_json['nodes'].append(data)
+
+        # build the edges
+        for u, v, data in graph.edges(data=True):
+            edge = {
+                "data": {
+                    "source": u,
+                    "target": v,
+                    "id": data['id'], # Any edge attributes
+                    "label": data['label'],
+                    "edge_id": data['edge_id']
+                }
+            }
+            graph_json['edges'].append(edge)
+
+        return graph_json
