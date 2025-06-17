@@ -95,6 +95,7 @@ def get_schema_by_source(current_user_id):
 
         user = UserStorageService.get(current_user_id)
 
+
         if not user:
             query_string = 'all'
         else:
@@ -428,14 +429,24 @@ def get_by_id(current_user_id, id):
             response_data["edge_count_by_label"] = edge_count_by_label
         response_data["status"] = status
 
+        graph = Graph()
+
         cache = redis_client.get(str(annotation_id))
 
         if cache is not None:
             cache = json.loads(cache)
-            graph = cache['graph']
-            if graph is not None:
-                response_data['nodes'] = graph['nodes']
-                response_data['edges'] = graph['edges']
+            graph_data = cache['graph']
+            if graph_data is not None:
+                nx_graph = graph.build_graph_nx(graph_data)
+
+                graph_result = []
+
+                sub_graph = graph.build_subgraph_nx(nx_graph)
+
+                for single_graph in sub_graph:
+                    graph_result.append(graph.convert_to_graph_json(single_graph))
+
+                response_data["graph"] = graph_result
 
             return Response(json.dumps(response_data, indent=4), mimetype='application/json')
 
@@ -446,8 +457,7 @@ def get_by_id(current_user_id, id):
                     with open(file_path, 'r') as file:
                         graph = json.load(file)
 
-                    response_data['nodes'] = graph['nodes']
-                    response_data['edges'] = graph['edges']
+                    response_data['graph'] = graph
                 else:
                     response_data['status'] = TaskStatus.PENDING.value
                     requery(annotation_id, query, json_request)
@@ -460,9 +470,8 @@ def get_by_id(current_user_id, id):
         response_data = db_instance.parse_and_serialize(
             result, schema_manager.schema,
             graph_components, result_type='graph')
-        graph = Graph()
         if (len(response_data['edges']) == 0):
-            response_data = graph.group_node_only(response_data)
+            grouped_graph = graph.group_node_only(response_data, json_request)
         else:
             grouped_graph = graph.group_graph(response_data)
         response_data['nodes'] = grouped_graph['nodes']
@@ -481,9 +490,22 @@ def get_by_id(current_user_id, id):
             response = Response(response.response, status=404)
             response.status = "404 No matching results for the query"
             return response
-        # if limit:
-        # response_data = limit_graph(response_data, limit)
 
+        graph_data = {}
+        graph_data['nodes'] = response_data['nodes']
+        graph_data['edges'] = response_data['edges']
+        nx_graph = graph.build_graph_nx(graph_data)
+
+        graph_result = []
+
+        sub_graph = graph.build_subgraph_nx(nx_graph)
+
+        for single_graph in sub_graph:
+            graph_result.append(graph.convert_to_graph_json(single_graph))
+
+        del response_data['nodes']
+        del response_data['edges']
+        response_data["graph"] = graph_result
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
@@ -626,6 +648,10 @@ def delete_by_id(current_user_id, id):
         if existing_record is None:
             return jsonify('No value Found'), 404
 
+        # deleted the stored file
+        graph_file_path = existing_record.path_url
+        os.remove(graph_file_path)
+
         deleted_record = AnnotationStorageService.delete(id)
 
         if deleted_record is None:
@@ -704,6 +730,10 @@ def delete_many(current_user_id):
         return jsonify({"error": "Annotation ids must not be empty"}), 400
 
     try:
+        for annotation_id in annotation_ids:
+            annotation = AnnotationStorageService.get_by_id(annotation_id)
+            os.remove(annotation.path_url)
+
         delete_count = AnnotationStorageService.delete_many_by_id(annotation_ids)
 
         response_data = {
