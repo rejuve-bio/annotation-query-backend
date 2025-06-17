@@ -4,6 +4,7 @@ import logging
 import json
 import os
 import threading
+from pathlib import Path
 from app import app, schema_manager, db_instance, socketio, redis_client
 from app.lib import validate_request
 from flask_cors import CORS
@@ -16,7 +17,7 @@ from distutils.util import strtobool
 import datetime
 from app.lib import Graph, heuristic_sort
 from app.annotation_controller import handle_client_request, process_full_data, requery
-from app.constants import TaskStatus
+from app.constants import TaskStatus, CELL_STRUCTURE
 from app.workers.task_handler import get_annotation_redis
 from app.persistence import AnnotationStorageService, UserStorageService
 
@@ -801,24 +802,35 @@ def search(current_user_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/cell-component", methods=["POST"])
+@app.route("/localized-graph", methods=["GET"])
 @token_required
 def cell_component(current_user_id):
-    data = request.get_json()
+    # get annotation id and get go term id
+    annotation_id = request.args.get('id')
+    locations = request.args.get('locations')
 
-    if not data:
-        return jsonify({"error": "Missing data"}), 400
-
-    proteins = data.get('protein', None)
-
-    if not proteins or not isinstance(proteins, list):
-        return jsonify({"error": "Missing protein or invalid protein format"}), 400
+    # parse the location
+    locations = locations.split(',')
 
     try:
-        # convert the protein list into a json request
-        json_request = {'nodes': [], 'predicates': []}
+        # get the graph and filter out the protein
+        file_name = f'{annotation_id}.json'
+        path = Path(__file__).parent /".."/ "public" / "graph" / f"{file_name}"
 
-        source_array = []
+        with open(path, 'r') as f:
+            graph = json.load(f)
+
+        nodes = graph['nodes']
+
+        proteins = []
+
+        for node in nodes:
+            if node['data']['type'] == 'protein':
+                for single_node in node['data']['nodes']:
+                    id = single_node['id'].split(' ')[1]
+                    proteins.append(id)
+
+        json_request = {'nodes': [], 'predicates': []}
 
         # build the node part
         for i, protein in enumerate(proteins):
@@ -862,24 +874,97 @@ def cell_component(current_user_id):
         graph_component = {"nodes": json_request['nodes'], "predicates":
                             json_request['predicates'], "properties": True}
 
+        first_result = db_instance.parse_and_serialize(result,  schema_manager.schema, graph_component, 'graph')
+
+        first_result_node_map = {node['data']['id']: {**node['data']} for node in first_result['nodes']}
+
+        # get the subcomponents of go parents
+        json_request_subcomponent = {'nodes': [], 'predicates': []}
+
+        for i, location in enumerate(locations):
+            go_id = location.lower()
+            go_id = go_id.replace(':', '_')
+
+            json_request_subcomponent['nodes'].append({
+                "node_id": f"go{i}",
+                "id": go_id,
+                "type": "go",
+                "properties": {
+                }
+            })
+
+            json_request_subcomponent['nodes'].append({
+                "node_id": f"gosub{i}",
+                "id": "",
+                "type": "go",
+                "properties": {
+                    "subontology": "cellular_component"
+                }
+            })
+
+            json_request_subcomponent['predicates'].append({
+                    "predicate_id": f"p{i}",
+                    "source": f"gosub{i}",
+                    "target": f"go{i}",
+                    "type": "subclass_of"
+            })
+
+        subcomponent_node_map = {}
+        for node in json_request_subcomponent['nodes']:
+            subcomponent_node_map[node['node_id']] = node
+
+        # Generate the query code
+        subcompoennt_query = db_instance.query_Generator(
+            json_request_subcomponent, subcomponent_node_map)
+
+        result = db_instance.run_query(subcompoennt_query[0])
+
+        graph_component = {"nodes": json_request_subcomponent['nodes'], "predicates":
+                            json_request_subcomponent['predicates'], "properties": True}
+
         parsed_result = db_instance.parse_and_serialize(result,  schema_manager.schema, graph_component, 'graph')
 
-        result_node_map = {node['data']['id']: {**node['data']} for node in parsed_result['nodes']}
+        map_subcomponent = {}
 
-        cell_component = {'cellular_component': []}
+        go_node_map = {node['data']['id']: node['data'] for node in parsed_result['nodes']}
 
-        for edge in parsed_result['edges']:
-            go = edge['data']['source']
-            protein = edge['data']['target']
+        for go_subcomponent in parsed_result['edges']:
+            main = go_subcomponent['data']['target']
+            if main not in map_subcomponent:
+                map_subcomponent[main] = {'subcomponent': []}
+            map_subcomponent[main]['subcomponent'].append(go_subcomponent['data']['source'])
 
-            cell_component['cellular_component'].append(
-                {
-                    "protein": result_node_map[protein]['id'],
-                    "location": result_node_map[go]['term_name']
-                }
-            )
-        # build the edge part
-        return Response(json.dumps(cell_component, indent=4), mimetype='application/json')
+        response = {}
+
+        for result_edge in first_result['edges']:
+            target_id = result_edge['data']['target']
+            for sub_comp in map_subcomponent.keys():
+                sub_formatted = sub_comp.split(' ')[1].replace('_', ':').upper()
+                if result_edge['data']['source'] == sub_comp:
+                    if target_id not in response:
+                        response[target_id] = {'location': []}
+                    response[target_id]['location'].append(sub_formatted)
+                elif result_edge['data']['source'] in map_subcomponent[sub_comp]['subcomponent']:
+                    if target_id not in response:
+                        response[target_id] = {'location': []}
+                    response[target_id]['location'].append(sub_formatted)
+
+        res = {'nodes': [], 'edges': []}
+        # format the new response
+        for node in nodes:
+            if node['data']['type'] == 'protein':
+                for single_node in node['data']['nodes']:
+                    if single_node['id'] not in response:
+                        continue
+                    new_node = {
+                        'data': {
+                            **single_node
+                        }
+                    }
+
+                    new_node['data']['location'] = ','.join(response[single_node['id']]['location'])
+                    res['nodes'].append(new_node)
+        return Response(json.dumps(res, indent=4), mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing search: {e}")
         return jsonify({"error": str(e)}), 500
