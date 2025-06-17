@@ -837,7 +837,7 @@ def download_annotation(current_user_id, id):
     # response_data = {'nodes': [], 'edges': []}
     # get the query string from the request
     group_id = request.args.get('node_group_id')
-    print(group_id)
+
     cursor = AnnotationStorageService.get_user_annotation(id, current_user_id)
 
     if cursor is None:
@@ -850,16 +850,17 @@ def download_annotation(current_user_id, id):
         graphs = json.load(open(file_path))
 
         # add this after the subgraph data extraction have been merged
-        # for graph in graphs:
-        #     response_data['nodes'].append(graph['nodes'])
-        #     response_data['edges'].append(graph['edges'])
+        response_data = {'nodes': [], 'edges': []}
+        for graph in graphs:
+            response_data['nodes'].extend(graph['nodes'])
+            response_data['edges'].extend(graph['edges'])
 
         if group_id:
-            nodes = graphs['nodes']
+            nodes = response_data['nodes']
 
             for node in nodes:
                 if node['data']['id'] == group_id:
-                    graphs = {'nodes': [], 'edges': []}
+                    response_data = {'nodes': [], 'edges': []}
                     nodes_data = node['data']['nodes']
 
                     for node_data in nodes_data:
@@ -869,9 +870,9 @@ def download_annotation(current_user_id, id):
                             }
                         }
 
-                        graphs['nodes'].append(data)
+                        response_data['nodes'].append(data)
 
-        file_obj = convert_to_excel(graphs)
+        file_obj = convert_to_excel(response_data)
 
         if file_obj:
             return send_file(
