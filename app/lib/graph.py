@@ -290,7 +290,7 @@ class Graph:
         # Create nodes
         nodes = graph['nodes']
         for node in nodes:
-            G.add_node(node['data']['id'], **node)
+            G.add_node(node['data']['id'], **node['data'])
 
         # Create edges
         edges = graph['edges']

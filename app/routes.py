@@ -1,5 +1,5 @@
 from flask import copy_current_request_context, request, jsonify, \
-    Response, send_from_directory
+    Response, send_from_directory, send_file
 import logging
 import json
 import os
@@ -19,6 +19,7 @@ from app.annotation_controller import handle_client_request, process_full_data, 
 from app.constants import TaskStatus
 from app.workers.task_handler import get_annotation_redis
 from app.persistence import AnnotationStorageService, UserStorageService
+from app.lib import convert_to_excel
 
 # Load environmental variables
 load_dotenv()
@@ -93,6 +94,7 @@ def get_schema_by_source(current_user_id):
         query_string = request.args.getlist("source")
 
         user = UserStorageService.get(current_user_id)
+
 
         if not user:
             query_string = 'all'
@@ -827,4 +829,60 @@ def search(current_user_id):
         return Response(json.dumps(suggested_response, indent=4), mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing search: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/annotation/<id>/download', methods=['GET'])
+@token_required
+def download_annotation(current_user_id, id):
+    # response_data = {'nodes': [], 'edges': []}
+    # get the query string from the request
+    group_id = request.args.get('node_group_id')
+
+    cursor = AnnotationStorageService.get_user_annotation(id, current_user_id)
+
+    if cursor is None:
+        return jsonify('No value Found'), 404
+
+    file_path = cursor.path_url
+
+
+    try:
+        graphs = json.load(open(file_path))
+
+        # add this after the subgraph data extraction have been merged
+        response_data = {'nodes': [], 'edges': []}
+        for graph in graphs:
+            response_data['nodes'].extend(graph['nodes'])
+            response_data['edges'].extend(graph['edges'])
+
+        if group_id:
+            nodes = response_data['nodes']
+
+            for node in nodes:
+                if node['data']['id'] == group_id:
+                    response_data = {'nodes': [], 'edges': []}
+                    nodes_data = node['data']['nodes']
+
+                    for node_data in nodes_data:
+                        data = {
+                            'data': {
+                                **node_data
+                            }
+                        }
+
+                        response_data['nodes'].append(data)
+
+        file_obj = convert_to_excel(response_data)
+
+        if file_obj:
+            return send_file(
+                file_obj,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name='graph_export.xlsx'
+            )
+        else:
+            return jsonify('Error generating the file'), 500
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
