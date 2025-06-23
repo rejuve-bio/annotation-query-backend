@@ -9,7 +9,7 @@ class Graph:
         pass
 
     def group_graph(self, graph):
-        graph = self.collapse_nodes(graph)
+        graph = self.collapse_node_nx(graph)
         graph = self.group_into_parents(graph)
         return graph
 
@@ -91,7 +91,8 @@ class Graph:
                 })
             # Sort the connections array using its JSON representation.
             connections_array_sorted = sorted(
-                connections_array, key=lambda x: json.dumps(x, sort_keys=True))
+                connections_array, key=lambda x: (x["is_source"], x["edge_id"], x["nodes"])
+            )
             json_str = json.dumps(connections_array_sorted, sort_keys=True)
             connections_hash = hashlib.sha256(
                 json_str.encode("utf-8")).hexdigest()
@@ -159,16 +160,151 @@ class Graph:
             new_graph["edges"].extend(new_edges)
         return new_graph
 
+    def collapse_node_nx(self, graph):
+        G = self.build_graph_nx(graph)
+        node_to_id_map = {node["data"]["id"]: node["data"] for node in graph.get("nodes", [])}
+        signatures = {}
+
+        # Graph traversal for in/out edges
+        for node in G.nodes():
+            if isinstance(G, nx.DiGraph):
+                in_edges = [(u, data['edge_id']) for u, _, data in G.in_edges(node, data=True)]
+                out_edges = [(v, data['edge_id']) for _, v, data in G.out_edges(node, data=True)]
+                signature = (tuple(sorted(in_edges)), tuple(sorted(out_edges)))
+            else:
+                edges = [(nbr, data['edge_id']) for _, nbr, data in G.edges(node, data=True)]
+                signature = tuple(sorted(edges))
+                
+            signatures.setdefault(signature, []).append(node)
+        
+        # print("Signuature finished: ", signatures)
+        # Merge nodes based on their signatures
+        for nodes in signatures.values():
+            first_node = nodes[0]
+            base_label = first_node.split(" ")[0]
+            merged_id = generate()  # Generate a new unique ID for the merged node
+
+            if len(nodes) == 1:
+                name = first_node
+            else:
+                name = f'{len(nodes)} {base_label} nodes'
+            
+            other_nodes = []
+            
+            for single_node in nodes:
+                nd = node_to_id_map[single_node]
+                data = {
+                    **nd
+                }
+                other_nodes.append(data)
+
+            merged_attrs = {
+                "type": base_label,
+                "name": name,
+                "nodes": other_nodes,
+                "id": merged_id,
+            }
+
+            G.add_node(merged_id, **merged_attrs)
+            
+            #track collapsed nodes to connect 
+            connected_nodes = set()
+            # Redirect all connections to/from merged nodes
+            for node in nodes:
+                for u, _, data in G.in_edges(node, data=True):
+                    if u not in nodes and u not in connected_nodes:
+                        G.add_edge(u, merged_id, **data)
+                        connected_nodes.add(u)
+                for _, v, data in G.out_edges(node, data=True):
+                    if v not in nodes and v not in connected_nodes:
+                        G.add_edge(merged_id, v, **data)
+                        connected_nodes.add(v)
+                G.remove_node(node)
+        graph = self.convert_to_graph_json(G)
+        return graph
+
+    def build_graph_nx(self, graph):
+        G = nx.MultiDiGraph()
+        
+        # Create nodes
+        nodes = graph['nodes']
+        for node in nodes:
+            G.add_node(node['data']['id'], **node)
+            
+        # Create edges
+        edges = graph['edges']
+        for edge in edges:
+            G.add_edge(edge['data']['source'], edge['data']['target'], edge_id=edge['data']['edge_id'], label=edge['data']['label'], id=generate())
+
+        return G
+    
+    def convert_to_graph_json(self, graph):
+        graph_json = {"nodes": [], "edges": []}
+
+        # build the nodes
+        for node in graph.nodes():
+            data = {
+                "data": graph.nodes[node]  # Get the node's attributes here
+            }
+            graph_json['nodes'].append(data)
+
+        # build the edges
+        for u, v, data in graph.edges(data=True):
+            edge = {
+                "data": {
+                    "source": u,
+                    "target": v,
+                    "id": data['id'], # Any edge attributes
+                    "label": data['label'],
+                    "edge_id": data['edge_id']
+                }
+            }
+            graph_json['edges'].append(edge)
+
+        return graph_json
+
     def group_into_parents(self, graph):
         """
         Group nodes into parents based on common incoming/outgoing edges.
         This creates compound (parent) nodes for groups of nodes
         that share identical edges.
         """
-        node_mapping, _ = self.get_node_to_connections_map(graph)
+        # Create directed graph to capture edge relationships
+        G = nx.DiGraph()
+        
+        # Add nodes with their data
+        for node in graph.get("nodes", []):
+            node_id = node["data"]["id"]
+            G.add_node(node_id, **node["data"])
+        
+        # Add edges with their data
+        for edge in graph.get("edges", []):
+            edge_data = edge["data"]
+            G.add_edge(edge_data["source"], edge_data["target"], **edge_data)
+        
+        # Build node_mapping: dict[node_id] = {edge_id: {is_source: bool, nodes: set}}
+        node_mapping = {}
+        for node in G.nodes:
+            connections = {}
+            # Process outgoing edges (node as source)
+            for _, neighbor, data in G.out_edges(node, data=True):
+                edge_id = data['edge_id']
+                if edge_id not in connections:
+                    connections[edge_id] = {"is_source": True, "nodes": set()}
+                connections[edge_id]['nodes'].add(neighbor)
+            
+            # Process incoming edges (node as target)
+            for predecessor, _, data in G.in_edges(node, data=True):
+                edge_id = data['edge_id']
+                if edge_id not in connections:
+                    connections[edge_id] = {"is_source": False, "nodes": set()}
+                connections[edge_id]['nodes'].add(predecessor)
+            
+            node_mapping[node] = connections
+    
         # Maps a sorted, comma‐joined string of node IDs to parent info.
         parent_map = {}
-
+    
         # Build an initial parent_map for connection records that involve two or more nodes.
         for node_id, connections in node_mapping.items():
             for edge_id, record in connections.items():
@@ -186,7 +322,7 @@ class Graph:
                         "count": len(record["nodes"]),
                         "is_source": record["is_source"]
                     }
-
+    
         # Remove invalid groups.
         keys = list(parent_map.keys())
         invalid_groups = []
@@ -204,7 +340,7 @@ class Graph:
                         break
         for k in invalid_groups:
             parent_map.pop(k, None)
-
+    
         # Assign each node to a parent group if applicable.
         parents = set()
         grouped_nodes = {}  # Maps parent id to list of nodes
@@ -219,7 +355,7 @@ class Graph:
             if parent_id:
                 parents.add(parent_id)
                 grouped_nodes.setdefault(parent_id, []).append(n)
-
+    
         # Remove groups that contain only one node.
         for parent_id, nodes in list(grouped_nodes.items()):
             if len(nodes) < 2:
@@ -227,7 +363,7 @@ class Graph:
                 for n in nodes:
                     n["data"]["parent"] = ""
                 grouped_nodes.pop(parent_id, None)
-
+    
         # Add new parent nodes to the annotation.
         for p in parents:
             graph["nodes"].append({
@@ -237,7 +373,7 @@ class Graph:
                     "name": p
                 }
             })
-
+    
         # Remove edges that point to nodes that have just been assigned a parent.
         new_edges = []
         for e in graph["edges"]:
@@ -252,7 +388,7 @@ class Graph:
                 else:
                     edge_key = e["data"]["source"]
                     parent_node = e["data"]["target"]
-
+    
                 if (edge_key in key.split(",") and
                     parent["node"] == parent_node and
                         parent["edge_id"] == e["data"]["edge_id"]):
@@ -260,7 +396,7 @@ class Graph:
                     break
             if keep_edge:
                 new_edges.append(e)
-
+    
         # Add new edges that point to the newly created parent nodes.
         for key, parent in parent_map.items():
             if parent["id"] not in parents:

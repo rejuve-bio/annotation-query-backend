@@ -260,10 +260,13 @@ def process_query(current_user_id):
         answer = llm.generate_summary(result_graph, requests, question, False, summary)
 
         graph = Graph()
-        if len(result_graph['edges']) == 0:
+        if len(result_graph['edges']) == 0 and len(result_graph['nodes']) > 1:
             response = graph.group_node_only(result_graph)
         else:
-            response = graph.group_graph(result_graph)
+            if len(result_graph['nodes']) > 1:
+                response = graph.group_graph(result_graph)
+            else:
+                response = result_graph
         response['node_count'] = meta_data['node_count']
         response['edge_count'] = meta_data['edge_count']
         response['node_count_by_label'] = meta_data['node_count_by_label']
@@ -470,10 +473,15 @@ def get_by_id(current_user_id, id):
         response_data = db_instance.parse_and_serialize(
             result, schema_manager.schema,
             graph_components, result_type='graph')
-        if (len(response_data['edges']) == 0):
-            grouped_graph = graph.group_node_only(response_data, json_request)
+
+        graph = Graph()
+        if (len(response_data['edges']) == 0) and len(response_data['nodes']) > 1:
+            response_data = graph.group_node_only(response_data)
         else:
-            grouped_graph = graph.group_graph(response_data)
+            if len(response['nodes']) > 1:
+                grouped_graph = graph.group_graph(response_data)
+            else:
+                grouped_graph = response_data
         response_data['nodes'] = grouped_graph['nodes']
         response_data['edges'] = grouped_graph['edges']
 
