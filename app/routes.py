@@ -1,5 +1,5 @@
 from flask import copy_current_request_context, request, jsonify, \
-    Response, send_from_directory
+    Response, send_from_directory, send_file
 import logging
 import json
 import os
@@ -19,6 +19,7 @@ from app.annotation_controller import handle_client_request, process_full_data, 
 from app.constants import TaskStatus
 from app.workers.task_handler import get_annotation_redis
 from app.persistence import AnnotationStorageService, UserStorageService
+from app.lib import convert_to_excel
 
 # Load environmental variables
 load_dotenv()
@@ -93,7 +94,8 @@ def get_schema_by_source(current_user_id):
         query_string = request.args.getlist("source")
 
         user = UserStorageService.get(current_user_id)
-        
+
+
         if not user:
             query_string = 'all'
         else:
@@ -150,12 +152,12 @@ def on_join(data):
     logging.info(f"user join a room with {room}")
         # send(f'connected to {room}', to=room)
     cache = get_annotation_redis(room)
-    
+
     if cache != None:
         status = cache['status']
         graph = cache['graph']
         graph_status = True if graph is not None else False
-        
+
         if status == TaskStatus.COMPLETE.value:
             socketio.emit('update', {'status': status, 'update': {'graph': graph_status}},
                   to=str(room))
@@ -285,7 +287,7 @@ def process_query(current_user_id):
                       }
 
         annotation_id = AnnotationStorageService.save(annotation)
-        redis_client.setex(str(annotation_id), EXP, json.dumps({'task': 4, 
+        redis_client.setex(str(annotation_id), EXP, json.dumps({'task': 4,
                                 'graph': {'nodes': response['nodes'], 'edges': response['edges']}}))
         response = {"annotation_id": str(
             annotation_id), "question": question, "answer": answer}
@@ -359,7 +361,7 @@ def process_user_history(current_user_id):
 def get_by_id(current_user_id, id):
     response_data = {}
     cursor = AnnotationStorageService.get_user_annotation(id, current_user_id)
-    
+
     if cursor is None:
         return jsonify('No value Found'), 404
 
@@ -415,11 +417,11 @@ def get_by_id(current_user_id, id):
                 annotation_id), "question": question, "answer": answer}
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
-        
+
         response_data["annotation_id"] = str(annotation_id)
         response_data["request"] = json_request
         response_data["title"] = title
-        
+
         if summary is not None:
             response_data["summary"] = summary
         if node_count is not None:
@@ -429,15 +431,25 @@ def get_by_id(current_user_id, id):
             response_data["node_count_by_label"] = node_count_by_label
             response_data["edge_count_by_label"] = edge_count_by_label
         response_data["status"] = status
-        
+
+        graph = Graph()
+
         cache = redis_client.get(str(annotation_id))
 
         if cache is not None:
             cache = json.loads(cache)
-            graph = cache['graph']
-            if graph is not None:
-                response_data['nodes'] = graph['nodes']
-                response_data['edges'] = graph['edges']
+            graph_data = cache['graph']
+            if graph_data is not None:
+                nx_graph = graph.build_graph_nx(graph_data)
+
+                graph_result = []
+
+                sub_graph = graph.build_subgraph_nx(nx_graph)
+
+                for single_graph in sub_graph:
+                    graph_result.append(graph.convert_to_graph_json(single_graph))
+
+                response_data["graph"] = graph_result
 
             return Response(json.dumps(response_data, indent=4), mimetype='application/json')
 
@@ -448,20 +460,20 @@ def get_by_id(current_user_id, id):
                     with open(file_path, 'r') as file:
                         graph = json.load(file)
 
-                    response_data['nodes'] = graph['nodes']
-                    response_data['edges'] = graph['edges']
+                    response_data['graph'] = graph
                 else:
                     response_data['status'] = TaskStatus.PENDING.value
                     requery(annotation_id, query, json_request)
             formatted_response = json.dumps(response_data, indent=4)
             return Response(formatted_response, mimetype='application/json')
-        
+
         # Run the query and parse the results
         result = db_instance.run_query(query)
         graph_components = {"properties": properties}
         response_data = db_instance.parse_and_serialize(
             result, schema_manager.schema,
             graph_components, result_type='graph')
+
         graph = Graph()
         if (len(response_data['edges']) == 0) and len(response_data['nodes']) > 1:
             response_data = graph.group_node_only(response_data)
@@ -472,7 +484,7 @@ def get_by_id(current_user_id, id):
                 grouped_graph = response_data
         response_data['nodes'] = grouped_graph['nodes']
         response_data['edges'] = grouped_graph['edges']
-        
+
         if source == 'hypothesis':
             response = {
                 "nodes": response_data['nodes'],
@@ -480,15 +492,28 @@ def get_by_id(current_user_id, id):
             }
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
-        
+
         if 'nodes' in response_data and len(response_data['nodes']) == 0:
             response = jsonify({"error": "No data found for the query"})
             response = Response(response.response, status=404)
             response.status = "404 No matching results for the query"
             return response
-        # if limit:
-        # response_data = limit_graph(response_data, limit)
 
+        graph_data = {}
+        graph_data['nodes'] = response_data['nodes']
+        graph_data['edges'] = response_data['edges']
+        nx_graph = graph.build_graph_nx(graph_data)
+
+        graph_result = []
+
+        sub_graph = graph.build_subgraph_nx(nx_graph)
+
+        for single_graph in sub_graph:
+            graph_result.append(graph.convert_to_graph_json(single_graph))
+
+        del response_data['nodes']
+        del response_data['edges']
+        response_data["graph"] = graph_result
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
@@ -540,9 +565,9 @@ def process_by_id(current_user_id, id):
     try:
         if question:
             response_data["question"] = question
-            
+
         cache = redis_client.get(str(id))
-        
+
         if cache is not None:
             cache = json.loads(cache)
             graph = cache['graph']
@@ -558,7 +583,7 @@ def process_by_id(current_user_id, id):
 
         response_data['node_count_by_label'] = node_count_by_label
         response_data['edge_count_by_label'] = edge_count_by_label
- 
+
         answer = llm.generate_summary(
             response_data, json_request, question, False, summary) if question else None
 
@@ -605,7 +630,7 @@ def delete_by_id(current_user_id, id):
     try:
         # check if the user have access to delete the resource
         annotation = AnnotationStorageService.get_user_annotation(id, current_user_id)
-        
+
         if annotation is None:
             return jsonify('No value Found'), 404
 
@@ -613,7 +638,7 @@ def delete_by_id(current_user_id, id):
         with app.config['annotation_lock']:
             thread_event = app.config['annotation_threads']
             stop_event = thread_event.get(id, None)
-        
+
             # if there is stop the running annoation
             if stop_event is not None:
                 stop_event.set()
@@ -624,12 +649,16 @@ def delete_by_id(current_user_id, id):
 
                 formatted_response = json.dumps(response_data, indent=4)
                 return Response(formatted_response, mimetype='application/json')
-        
+
         # else delete the annotation from the db
         existing_record = AnnotationStorageService.get_by_id(id)
 
         if existing_record is None:
             return jsonify('No value Found'), 404
+
+        # deleted the stored file
+        graph_file_path = existing_record.path_url
+        os.remove(graph_file_path)
 
         deleted_record = AnnotationStorageService.delete(id)
 
@@ -676,7 +705,7 @@ def update_title(current_user_id, id):
     except Exception as e:
         logging.error(f"Error updating title: {e}")
         return jsonify({"error": str(e)}), 500
-    
+
 @app.route('/annotation/delete', methods=['POST'])
 @token_required
 def delete_many(current_user_id):
@@ -690,31 +719,35 @@ def delete_many(current_user_id):
         data = json.loads(data)  # Now parse the cleaned string
     except json.JSONDecodeError:
         return {"error": "Invalid JSON"}, 400  # Return 400 if the JSON is invalid
-    
+
     if 'annotation_ids' not in data:
         return jsonify({"error": "Missing annotation ids"}), 400
-        
+
     annotation_ids = data['annotation_ids']
-    
+
     #check if user have access to delete the resource
     for annotation_id in annotation_ids:
         annotation = AnnotationStorageService.get_user_annotation(annotation_id, current_user_id)
         if annotation is None:
             return jsonify('No value Found'), 404
-    
+
     if not isinstance(annotation_ids, list):
         return jsonify({"error": "Annotation ids must be a list"}), 400
-    
+
     if len(annotation_ids) == 0:
         return jsonify({"error": "Annotation ids must not be empty"}), 400
-    
+
     try:
+        for annotation_id in annotation_ids:
+            annotation = AnnotationStorageService.get_by_id(annotation_id)
+            os.remove(annotation.path_url)
+
         delete_count = AnnotationStorageService.delete_many_by_id(annotation_ids)
-        
+
         response_data = {
             'message': f'Out of {len(annotation_ids)}, {delete_count} were successfully deleted.'
         }
-        
+
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
@@ -725,15 +758,15 @@ def delete_many(current_user_id):
 @token_required
 def update_settings(current_user_id):
     data = request.get_json()
-    
+
     data_source = data.get('data_source', None)
-    
+
     if data_source is None:
         return jsonify({"error": "Missing data source"}), 400
-    
+
     if isinstance(data_source, str):
         if data_source.lower() == 'all':
-            UserStorageService.upsert_by_user_id(current_user_id, 
+            UserStorageService.upsert_by_user_id(current_user_id,
                                              {'data_source': 'all'})
 
             response_data = {
@@ -744,21 +777,21 @@ def update_settings(current_user_id):
             return Response(formatted_response, mimetype='application/json')
         else:
             return jsonify({"error": "Invalid data source format"}), 400
-    
+
     # check if the data source is valid
     for ds in data_source:
         if ds.upper() not in schema_manager.schmea_representation:
             return jsonify({"error": f"Invalid data source: {ds}"}), 400
-    
+
     try:
-        UserStorageService.upsert_by_user_id(current_user_id, 
+        UserStorageService.upsert_by_user_id(current_user_id,
                                          {'data_source': data_source})
-        
+
         response_data = {
             'message': 'Data source updated successfully',
             'data_source': data_source
         }
-        
+
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
@@ -769,13 +802,13 @@ def update_settings(current_user_id):
 @token_required
 def search(current_user_id):
     data = request.get_json()
-    
+
     node_type = data.get('node_type', None)
     search_text = data.get('search_text', None)
-    
+
     if not node_type or not search_text:
         return jsonify({"error": "Missing node type or search text"}), 400
-    
+
     try:
         node_property, property_value = next(iter(search_text.items()))
 
@@ -804,4 +837,60 @@ def search(current_user_id):
         return Response(json.dumps(suggested_response, indent=4), mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing search: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/annotation/<id>/download', methods=['GET'])
+@token_required
+def download_annotation(current_user_id, id):
+    # response_data = {'nodes': [], 'edges': []}
+    # get the query string from the request
+    group_id = request.args.get('node_group_id')
+
+    cursor = AnnotationStorageService.get_user_annotation(id, current_user_id)
+
+    if cursor is None:
+        return jsonify('No value Found'), 404
+
+    file_path = cursor.path_url
+
+
+    try:
+        graphs = json.load(open(file_path))
+
+        # add this after the subgraph data extraction have been merged
+        response_data = {'nodes': [], 'edges': []}
+        for graph in graphs:
+            response_data['nodes'].extend(graph['nodes'])
+            response_data['edges'].extend(graph['edges'])
+
+        if group_id:
+            nodes = response_data['nodes']
+
+            for node in nodes:
+                if node['data']['id'] == group_id:
+                    response_data = {'nodes': [], 'edges': []}
+                    nodes_data = node['data']['nodes']
+
+                    for node_data in nodes_data:
+                        data = {
+                            'data': {
+                                **node_data
+                            }
+                        }
+
+                        response_data['nodes'].append(data)
+
+        file_obj = convert_to_excel(response_data)
+
+        if file_obj:
+            return send_file(
+                file_obj,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name='graph_export.xlsx'
+            )
+        else:
+            return jsonify('Error generating the file'), 500
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
