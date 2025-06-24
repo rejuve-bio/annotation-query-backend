@@ -821,6 +821,50 @@ def cell_component(current_user_id):
             graph = json.load(f)
 
         nodes = graph['nodes']
+        edges = graph['edges']
+        
+        node_to_edge_relationship = {}
+        
+        inital_node_map = {}
+        
+        for node in nodes:
+            if node['data']['type'] == 'protein':
+                if node['data']['id'] not in inital_node_map:
+                    inital_node_map[node['data']['id']] = node
+        
+        for edge in edges: 
+            source = edge['data']['source']
+            target = edge['data']['target']
+            label = edge['data']['label']
+            
+            if source in inital_node_map and target in inital_node_map:
+                source_nodes = []
+                target_nodes = []
+                for single_node in inital_node_map[source]['data']['nodes']:
+                    source_nodes.append(single_node['id'])
+                    if single_node not in node_to_edge_relationship:
+                        node_to_edge_relationship[single_node] = {}
+                    node_to_edge_relationship[single_node['id']] = {
+                        'is_source': True,
+                    }
+                for single_node in inital_node_map[target]['data']['nodes']:
+                    target_nodes.append(single_node['id'])
+                    if single_node not in node_to_edge_relationship:
+                        node_to_edge_relationship[single_node['id']] = {}
+                    node_to_edge_relationship[single_node['id']] = {
+                        'is_source': False,
+                    }
+                
+                for source_node in source_nodes:
+                    for target_node in target_nodes:
+                        node_to_edge_relationship[source_node]['source'] = source_node
+                        node_to_edge_relationship[target_node]['target'] = target_node
+                        node_to_edge_relationship[source_node]['label'] = label
+                        
+                for target_node in target_nodes:
+                    for source_node in source_nodes:
+                        node_to_edge_relationship[target_node]['target'] = target_node
+                        node_to_edge_relationship[source_node]['source'] = source_node
 
         proteins = []
 
@@ -865,6 +909,8 @@ def cell_component(current_user_id):
         node_map = {}
         for node in json_request['nodes']:
             node_map[node['node_id']] = node
+            
+        
         # Generate the query code
         query = db_instance.query_Generator(
             json_request, node_map)
