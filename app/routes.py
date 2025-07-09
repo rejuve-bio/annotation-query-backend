@@ -20,7 +20,8 @@ from app.annotation_controller import handle_client_request, process_full_data, 
 from app.constants import TaskStatus, CELL_STRUCTURE
 from app.workers.task_handler import get_annotation_redis
 from app.persistence import AnnotationStorageService, UserStorageService
-
+from nanoid import generate
+import traceback
 # Load environmental variables
 load_dotenv()
 
@@ -801,7 +802,6 @@ def search(current_user_id):
         logging.error(f"Error processing search: {e}")
         return jsonify({"error": str(e)}), 500
 
-
 @app.route("/localized-graph", methods=["GET"])
 @token_required
 def cell_component(current_user_id):
@@ -811,6 +811,8 @@ def cell_component(current_user_id):
 
     # parse the location
     locations = locations.split(',')
+
+    proteins = []
 
     try:
         # get the graph and filter out the protein
@@ -822,195 +824,177 @@ def cell_component(current_user_id):
 
         nodes = graph['nodes']
         edges = graph['edges']
-        
+
+
+        # filter out the parents
+        parent_edges = {}
+
+        for node in nodes:
+            if node['data']['type'] == 'parent':
+                parent_edges[node['data']['id']] = []
+
+        for node in nodes:
+            if 'parent' in node['data'] and node['data']['type'] == 'protein':
+                parent_edges[node['data']['parent']].append(node['data']['id'])
+
+        new_edge = []
+
+        for i, edge in enumerate(edges):
+            if edge['data']['source'] in parent_edges:
+                for child in parent_edges[edge['data']['source']]:
+                    new_edge.append({
+                        "data": {
+                            "source": child,
+                            "target": edge['data']['target'],
+                            "label": edge['data']['label'],
+                            "edge_id": edge['data']['edge_id'],
+                            "id": generate()
+                        }
+                    })
+            elif edge['data']['target'] in parent_edges:
+                for child in parent_edges[edge['data']['target']]:
+                    new_edge.append({
+                        "data": {
+                            "source": edge['data']['source'],
+                            "target": child,
+                            "label": edge['data']['label'],
+                            "edge_id": edge['data']['edge_id'],
+                            "id": generate()
+                        }
+                    })
+            else:
+                pass
+
         node_to_edge_relationship = {}
-        
+
         inital_node_map = {}
-        
+
         for node in nodes:
             if node['data']['type'] == 'protein':
                 if node['data']['id'] not in inital_node_map:
                     inital_node_map[node['data']['id']] = node
-        
-        for edge in edges: 
+
+        for edge in new_edge:
             source = edge['data']['source']
             target = edge['data']['target']
             label = edge['data']['label']
-            
+
             if source in inital_node_map and target in inital_node_map:
                 source_nodes = []
                 target_nodes = []
-                for single_node in inital_node_map[source]['data']['nodes']:
-                    source_nodes.append(single_node['id'])
-                    if single_node not in node_to_edge_relationship:
-                        node_to_edge_relationship[single_node] = {}
-                    node_to_edge_relationship[single_node['id']] = {
-                        'is_source': True,
-                    }
-                for single_node in inital_node_map[target]['data']['nodes']:
-                    target_nodes.append(single_node['id'])
-                    if single_node not in node_to_edge_relationship:
-                        node_to_edge_relationship[single_node['id']] = {}
-                    node_to_edge_relationship[single_node['id']] = {
-                        'is_source': False,
-                    }
-                
+
+                if inital_node_map[source]['data']['type'] != 'parent':
+                    for single_node in inital_node_map[source]['data']['nodes']:
+                        source_nodes.append(single_node['id'])
+
+                if inital_node_map[target]['data']['type'] != 'parent':
+                    for single_node in inital_node_map[target]['data']['nodes']:
+                        target_nodes.append(single_node['id'])
+
                 for source_node in source_nodes:
                     for target_node in target_nodes:
-                        node_to_edge_relationship[source_node]['source'] = source_node
-                        node_to_edge_relationship[target_node]['target'] = target_node
-                        node_to_edge_relationship[source_node]['label'] = label
-                        
-                for target_node in target_nodes:
-                    for source_node in source_nodes:
-                        node_to_edge_relationship[target_node]['target'] = target_node
-                        node_to_edge_relationship[source_node]['source'] = source_node
+                        key = f"{source_node}_{label}_{target_node}"
+                        node_to_edge_relationship[key] = {
+                            'source': source_node,
+                            'label': label,
+                            'target': target_node
+                        }
 
-        proteins = []
+        response = {"nodes": [], "edges": []}
+
+        for key, value in node_to_edge_relationship.items():
+            edge_id_arr = key.split(' ')
+            middle_arr = edge_id_arr[1].split('_')
+            middle = '_'.join(middle_arr[1:len(middle_arr)])
+            edge_id = f'{edge_id_arr[0]}_{middle}'
+            response['edges'].append({
+                'data': {
+                    'id': generate(),
+                    'source': value['source'],
+                    'target': value['target'],
+                    'label': value['label'],
+                    'edge_id': edge_id
+                }
+            })
+
+
+        go_ids = []
+        protein_node_map = {}
 
         for node in nodes:
             if node['data']['type'] == 'protein':
                 for single_node in node['data']['nodes']:
                     id = single_node['id'].split(' ')[1]
                     proteins.append(id)
+                    if id not in protein_node_map:
+                        protein_node_map[id] = {}
+                    protein_node_map[id]["data"] = { **single_node, "location": "" }
 
-        json_request = {'nodes': [], 'predicates': []}
+        go_subcomponents = {
+            "type": "go",
+            "id": "",
+            "properties": {
+                "subontology": "cellular_component"
+            }
+        }
 
-        # build the node part
-        for i, protein in enumerate(proteins):
-            json_request['nodes'].append({
-                "node_id": f"protein{i}",
-                "id": f"{protein}",
-                "type": "protein",
-                "properties": {}
-            },
-            )
+        go_parent = {
+            "type": "go",
+            "id": "",
+            "properties": {}
+        }
 
-            json_request['nodes'].append({
-                "node_id": f"go{i}",
-                "id": "",
-                "type": "go",
-                "properties": {
-                    "subontology": "cellular_component"
-                }
-            })
-
-        # build the edges
-        for i in range(len(json_request['nodes'])):
-            if json_request['nodes'][i]['type'] == 'go':
-                continue
-            json_request['predicates'].append({
-                "predicate_id": f"p{i}",
-                "type": "go_gene_product",
-                "source": json_request['nodes'][i+1]['node_id'],
-                "target": json_request['nodes'][i]['node_id']
-            })
-
-        node_map = {}
-        for node in json_request['nodes']:
-            node_map[node['node_id']] = node
-            
-        
-        # Generate the query code
-        query = db_instance.query_Generator(
-            json_request, node_map)
-
-        result = db_instance.run_query(query[0])
-
-        graph_component = {"nodes": json_request['nodes'], "predicates":
-                            json_request['predicates'], "properties": True}
-
-        first_result = db_instance.parse_and_serialize(result,  schema_manager.schema, graph_component, 'graph')
-
-        first_result_node_map = {node['data']['id']: {**node['data']} for node in first_result['nodes']}
-
-        # get the subcomponents of go parents
-        json_request_subcomponent = {'nodes': [], 'predicates': []}
-
-        for i, location in enumerate(locations):
+        for location in locations:
             go_id = location.lower()
             go_id = go_id.replace(':', '_')
+            go_ids.append(go_id)
 
-            json_request_subcomponent['nodes'].append({
-                "node_id": f"go{i}",
-                "id": go_id,
-                "type": "go",
-                "properties": {
-                }
-            })
+        query = db_instance.list_query_generator_source_target(go_subcomponents, go_parent, go_ids, "subclass_of")
 
-            json_request_subcomponent['nodes'].append({
-                "node_id": f"gosub{i}",
-                "id": "",
-                "type": "go",
-                "properties": {
-                    "subontology": "cellular_component"
-                }
-            })
+        result = db_instance.run_query(query)
+        parsed_result_go = db_instance.parse_list_query(result)
 
-            json_request_subcomponent['predicates'].append({
-                    "predicate_id": f"p{i}",
-                    "source": f"gosub{i}",
-                    "target": f"go{i}",
-                    "type": "subclass_of"
-            })
+        go_ids = []
 
-        subcomponent_node_map = {}
-        for node in json_request_subcomponent['nodes']:
-            subcomponent_node_map[node['node_id']] = node
+        for key in parsed_result_go.keys():
+            go_ids.append(key)
+            go_ids.extend(parsed_result_go[key]['node_ids'])
 
-        # Generate the query code
-        subcompoennt_query = db_instance.query_Generator(
-            json_request_subcomponent, subcomponent_node_map)
+        source = {
+            "type": "go",
+            "id": "",
+            "properties": {}
+        }
 
-        result = db_instance.run_query(subcompoennt_query[0])
+        target = {
+            "type": "protein",
+            "id": "",
+            "properties": {}
+        }
 
-        graph_component = {"nodes": json_request_subcomponent['nodes'], "predicates":
-                            json_request_subcomponent['predicates'], "properties": True}
+        query = db_instance.list_query_generator_both(source, target, go_ids, proteins, "go_gene_product")
 
-        parsed_result = db_instance.parse_and_serialize(result,  schema_manager.schema, graph_component, 'graph')
+        result = db_instance.run_query(query)
+        parsed_result = db_instance.parse_list_query(result)
 
-        map_subcomponent = {}
+        for key in parsed_result.keys():
+            normalized_id = []
+            location = parsed_result[key]['node_ids']
+            for i, _ in enumerate(location):
+                for parent_id in parsed_result_go.keys():
+                    if location[i] == parent_id or location[i] in parsed_result_go[parent_id]['node_ids']:
+                        normalized_id.append(parent_id.replace('_', ':').upper())
+            protein_node_map[key]['data']['location'] =  ','.join(normalized_id)
 
-        go_node_map = {node['data']['id']: node['data'] for node in parsed_result['nodes']}
+        for values in protein_node_map.values():
+            response["nodes"].append(values)
 
-        for go_subcomponent in parsed_result['edges']:
-            main = go_subcomponent['data']['target']
-            if main not in map_subcomponent:
-                map_subcomponent[main] = {'subcomponent': []}
-            map_subcomponent[main]['subcomponent'].append(go_subcomponent['data']['source'])
 
-        response = {}
+        graph = Graph()
+        graph_response = graph.collapse_node_nx_location(response)
 
-        for result_edge in first_result['edges']:
-            target_id = result_edge['data']['target']
-            for sub_comp in map_subcomponent.keys():
-                sub_formatted = sub_comp.split(' ')[1].replace('_', ':').upper()
-                if result_edge['data']['source'] == sub_comp:
-                    if target_id not in response:
-                        response[target_id] = {'location': []}
-                    response[target_id]['location'].append(sub_formatted)
-                elif result_edge['data']['source'] in map_subcomponent[sub_comp]['subcomponent']:
-                    if target_id not in response:
-                        response[target_id] = {'location': []}
-                    response[target_id]['location'].append(sub_formatted)
 
-        res = {'nodes': [], 'edges': []}
-        # format the new response
-        for node in nodes:
-            if node['data']['type'] == 'protein':
-                for single_node in node['data']['nodes']:
-                    if single_node['id'] not in response:
-                        continue
-                    new_node = {
-                        'data': {
-                            **single_node
-                        }
-                    }
-
-                    new_node['data']['location'] = ','.join(response[single_node['id']]['location'])
-                    res['nodes'].append(new_node)
-        return Response(json.dumps(res, indent=4), mimetype='application/json')
+        return Response(json.dumps(graph_response, indent=4), mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing search: {e}")
         return jsonify({"error": str(e)}), 500

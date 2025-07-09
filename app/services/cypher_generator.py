@@ -143,7 +143,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
                 source_match = self.match_node(source_node, source_var)
                 target_match = self.match_node(target_node, target_var)
-                
+
                 tmp_where_preds = []
                 if source_var not in node_ids:
                     tmp_where_preds.extend(self.where_construct(source_node, source_var))
@@ -153,37 +153,37 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     tmp_where_preds.extend(self.where_construct(target_node, target_var))
                     where_preds.extend(
                         self.where_construct(target_node, target_var))
-                
+
                 return_preds.append(predicate_id)
                 node_ids.add(source_var)
                 node_ids.add(target_var)
-                
+
                 match_preds.append(
                     f"{source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
                 )
-                
+
                 # Construct the MATCH clause
                 match_clause = f"MATCH {source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
-                    
+
                 # Construct the WHERE clause if there are conditions
                 where_clause = f"WHERE {' AND '.join(tmp_where_preds)}" if len(tmp_where_preds) >= 1 else ''
-                
+
                 if i == len(predicates) - 1:
                     # Construct the RETURN clause
                     return_clause = f"RETURN {', '.join(return_preds)}, {', '.join(node_ids)}"
-                    
+
                     # Combine all clauses into a single query
                     clause_list.append(f"{match_clause} {where_clause} {return_clause}")
                 else:
                     with_clause = f"WITH {', '.join(return_preds)}, {', '.join(node_ids)}"
-                    
-                    clause_list.append(f"{match_clause} {where_clause} {with_clause}")      
+
+                    clause_list.append(f"{match_clause} {where_clause} {with_clause}")
 
             list_of_node_ids = list(node_ids)
             list_of_node_ids.sort()
             full_return_preds = return_preds + list_of_node_ids
 
-            
+
             cypher_query = ' '.join(clause_list)
             cypher_queries.append(cypher_query)
             query_clauses = {
@@ -303,7 +303,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def limit_query(self, limit):
         '''
-        for now remove the limit from the backend 
+        for now remove the limit from the backend
         and handle it from the client side
         '''
         # if limit:
@@ -524,3 +524,64 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 node['id'] = ''
             node["id"] = node["id"].lower()
         return request
+
+    def list_query_generator_source_target(self, source, target, target_ids, relationship):
+        source_node = self.match_node(source, "source")
+        target_node = self.match_node(target, "target")
+
+        where_clause = ""
+        for key, properties in source['properties'].items():
+            where_clause += f"source.{key} = '{properties}' AND "
+
+        where_clause += f"target.id IN target_ids"
+
+        where_clause = f"WHERE {where_clause}"
+
+        with_clause = f"WITH {str(target_ids)} AS target_ids"
+
+        match_clause = f"MATCH {source_node}-[{relationship}]->{target_node}"
+
+        return_clause = f"RETURN COLLECT(DISTINCT source.id) AS source_ids, target.id AS target_ids"
+
+        query= f"""
+        {with_clause}
+        {match_clause}
+        {where_clause}
+        {return_clause}
+        """
+
+        return query
+
+    def list_query_generator_both(self, source, target, source_ids, target_ids, relationship):
+        source_node = self.match_node(source, "source")
+        target_node = self.match_node(target, "target")
+
+        where_clause = f"source.id IN source_ids AND "
+        where_clause += f"target.id IN target_ids"
+        where_clause = f"WHERE {where_clause}"
+
+        with_clause = f"WITH {str(source_ids)} AS source_ids, {str(target_ids)} AS target_ids"
+
+        match_clause = f"MATCH {source_node}-[{relationship}]->{target_node}"
+
+        return_clause = "RETURN target.id AS target_ids, COLLECT(DISTINCT source.id) AS source_ids"
+
+        query= f"""
+        {with_clause}
+        {match_clause}
+        {where_clause}
+        {return_clause}
+        """
+
+        return query
+
+    def parse_list_query(self, results):
+        paresed_result = {}
+        for result in results:
+            source_ids = result['source_ids']
+            target_ids = result['target_ids']
+
+            paresed_result[target_ids] = {'node_ids': []}
+            paresed_result[target_ids]['node_ids'] = source_ids
+
+        return paresed_result
