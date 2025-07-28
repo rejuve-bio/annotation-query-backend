@@ -10,3 +10,14 @@ relationships:
     target: gene
     properties:
       score: float
+
+nodes:
+  snp:
+    url: https://asntech.org/dbsuper/download.php
+    description: A cluster of enhancers that regulate cell identity genes
+    input_label: snp
+    properties:
+      se_id: str
+      chr: str
+      start: int
+      end: int
