@@ -15,7 +15,7 @@ from app.persistence import AnnotationStorageService
 llm = app.config['llm_handler']
 EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
 
-def handle_client_request(query, request, current_user_id, node_types, species):
+def handle_client_request(query, request, current_user_id, node_types, species, data_source):
     annotation_id = request.get('annotation_id', None)
     # check if annotation exist
 
@@ -24,7 +24,7 @@ def handle_client_request(query, request, current_user_id, node_types, species):
             annotation_id, str(current_user_id), query[0])
     else:
         existing_query = None
-        
+
     #Event to track tasks
     result_done = threading.Event()
     total_count_done = threading.Event()
@@ -43,11 +43,11 @@ def handle_client_request(query, request, current_user_id, node_types, species):
         AnnotationStorageService.update(
             annotation_id, {"status": TaskStatus.PENDING.value, "updated_at": datetime.datetime.now()})
         reset_status(annotation_id)
-        
+
         args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
                                'label_count_done': label_count_done}, 'query': query, 'request': request,
-                'summary': summary, 'meta_data': meta_data, 'species': species}
-        
+                'summary': summary, 'meta_data': meta_data, 'data_source': data_source, 'species': species}
+
         start_thread(annotation_id, args)
         return Response(
             json.dumps({"annotation_id": str(annotation_id)}),
@@ -57,13 +57,14 @@ def handle_client_request(query, request, current_user_id, node_types, species):
         annotation = {"current_user_id": str(current_user_id),
                       "query": query[0], "request": request,
                       "title": title, "node_types": node_types,
-                      "status": TaskStatus.PENDING.value}
+                      "status": TaskStatus.PENDING.value,
+                      "data_source": data_source, "species": species}
 
         annotation_id = AnnotationStorageService.save(annotation)
 
         args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
                                'label_count_done': label_count_done}, 'query': query, 'request': request,
-                'summary': None, 'meta_data': None, 'species': species}
+                'summary': None, 'meta_data': None, 'data_source': data_source, 'species': species}
         start_thread(annotation_id, args)
 
         return Response(
@@ -75,9 +76,9 @@ def handle_client_request(query, request, current_user_id, node_types, species):
         # save the query and return the annotation
         annotation = {"query": query[0], "request": request,
                       "title": title, "node_types": node_types,
-                      'status': TaskStatus.PENDING.value, 'node_count': None, 
+                      'status': TaskStatus.PENDING.value, 'node_count': None,
                       'edge_count': None, 'node_count_by_label': None,
-                      'edge_count_by_label': None}
+                      'edge_count_by_label': None, 'species': species, 'data_source': data_source}
 
         AnnotationStorageService.update(annotation_id, annotation)
         reset_task(annotation_id)
@@ -85,7 +86,7 @@ def handle_client_request(query, request, current_user_id, node_types, species):
         args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
                                'label_count_done': label_count_done}, 'query': query, 'request': request,
                 'summary': None, 'meta_data': None, 'species': species}
-        
+
         start_thread(annotation_id, args)
 
         return Response(
@@ -101,7 +102,7 @@ def process_full_data(current_user_id, annotation_id):
 
 
     query, title, requests = cursor.query, cursor.title, cursor.request
-    
+
     graph_components = {
             "nodes": requests['nodes'], "predicates": requests['predicates'],
             'properties': True}
@@ -139,7 +140,7 @@ def requery(annotation_id, query, request):
     result_done = threading.Event()
     AnnotationStorageService.update(
         annotation_id, {"status": TaskStatus.PENDING.value})
-    
+
     app.config['annotation_threads'][str(annotation_id)] = threading.Event()
 
     reset_status(annotation_id)
@@ -153,8 +154,8 @@ def requery(annotation_id, query, request):
             generate_result(query, annotation_id, request, result_done, status=TaskStatus.COMPLETE.value)
         except Exception as e:
                 logging.error("Error generating result graph %s", e)
-      
-    
+
+
     result_generator = threading.Thread(
         name='result_generator', target=send_annotation)
     result_generator.start()
