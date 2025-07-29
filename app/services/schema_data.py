@@ -47,7 +47,7 @@ class SchemaManager:
             name = file_output.get('name', None)
             file_name = os.path.splitext(file)[0]
             data = {
-                'id': file_name.lower(),
+                'id': name,
                 'url': url,
                 'name': name,
                 'file_name': file_name
@@ -105,7 +105,6 @@ class SchemaManager:
                     }
 
         return schema_representation
-
 
     def get_schema_represnetion_per_source(self, schema_list: list):
         schema_representation = {}

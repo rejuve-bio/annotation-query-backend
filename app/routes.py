@@ -17,9 +17,10 @@ from distutils.util import strtobool
 import datetime
 from app.lib import Graph, heuristic_sort
 from app.annotation_controller import handle_client_request, process_full_data, requery
-from app.constants import TaskStatus, Species
+from app.constants import TaskStatus, Species, form_fields
 from app.workers.task_handler import get_annotation_redis
 from app.persistence import AnnotationStorageService, UserStorageService
+from nanoid import generate
 
 # Load environmental variables
 load_dotenv()
@@ -212,6 +213,44 @@ def get_preference_option(current_user_id):
             }
             response['sources']['human'].append(data)
     response['sources']['fly'].append(schema_by_source('fly', 'all'))
+    return Response(json.dumps(response, indent=4), mimetype='application/json')
+
+@app.route('/schema', methods=['GET'])
+def get_schema_by_data_source():
+    species = request.args.get('species', 'human')
+    data_source =request.args.getlist('data_source')
+    schemas = schema_by_source(species, data_source)
+
+    response = {'nodes': [], 'edges': []}
+
+    nodes = schemas['schema']['nodes']
+    edges = schemas['schema']['edges']
+
+    for node in nodes:
+        label = node['data']['name']
+
+        if label in form_fields:
+            node_data = form_fields[label]
+        else:
+            node_data = []
+
+        response['nodes'].append({
+            'id': label,
+            'name': label,
+            'inputs': node_data
+        })
+
+    for edge in edges:
+        source = edge['data']['source']
+        target = edge['data']['target']
+        possible_connections = edge['data']['possible_connection']
+        for possible_connection in possible_connections:
+            response['edges'].append({
+                'id': generate(),
+                'source': source,
+                'target': target,
+                'label': possible_connection
+            })
     return Response(json.dumps(response, indent=4), mimetype='application/json')
 
 @socketio.on('connect')
