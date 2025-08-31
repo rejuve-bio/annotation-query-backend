@@ -19,9 +19,13 @@ logger = logging.getLogger(__name__)
 
 class CypherQueryGenerator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
-        self.driver = GraphDatabase.driver(
-            os.getenv('NEO4J_URI'),
-            auth=(os.getenv('NEO4J_USERNAME'), os.getenv('NEO4J_PASSWORD'))
+        self.human_driver = GraphDatabase.driver(
+            os.getenv('HUMAN_NEO4J_URI'),
+            auth=(os.getenv('HUMAN_NEO4J_USERNAME'), os.getenv('HUMAN_NEO4J_PASSWORD'))
+        )
+        self.fly_driver = GraphDatabase.driver(
+            os.getenv('FLY_NEO4J_URI'),
+            auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD'))
         )
         # self.dataset_path = dataset_path
         # self.load_dataset(self.dataset_path)
@@ -63,11 +67,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         logger.info(
             f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code, stop_event=None):
+    def run_query(self, query_code, stop_event=None,  species="human"):
         results = []
-
+        driver = self.human_driver if species == "human" else self.fly_driver
         # use lazy loading for improved performance
-        with self.driver.session() as session:
+        with driver.session() as session:
             result = session.run(query_code)
             for record in result:
                 if stop_event is not None and stop_event.is_set():
@@ -143,7 +147,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
                 source_match = self.match_node(source_node, source_var)
                 target_match = self.match_node(target_node, target_var)
-                
+
                 tmp_where_preds = []
                 if source_var not in node_ids:
                     tmp_where_preds.extend(self.where_construct(source_node, source_var))
@@ -153,37 +157,37 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     tmp_where_preds.extend(self.where_construct(target_node, target_var))
                     where_preds.extend(
                         self.where_construct(target_node, target_var))
-                
+
                 return_preds.append(predicate_id)
                 node_ids.add(source_var)
                 node_ids.add(target_var)
-                
+
                 match_preds.append(
                     f"{source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
                 )
-                
+
                 # Construct the MATCH clause
                 match_clause = f"MATCH {source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
-                    
+
                 # Construct the WHERE clause if there are conditions
                 where_clause = f"WHERE {' AND '.join(tmp_where_preds)}" if len(tmp_where_preds) >= 1 else ''
-                
+
                 if i == len(predicates) - 1:
                     # Construct the RETURN clause
                     return_clause = f"RETURN {', '.join(return_preds)}, {', '.join(node_ids)}"
-                    
+
                     # Combine all clauses into a single query
                     clause_list.append(f"{match_clause} {where_clause} {return_clause}")
                 else:
                     with_clause = f"WITH {', '.join(return_preds)}, {', '.join(node_ids)}"
-                    
-                    clause_list.append(f"{match_clause} {where_clause} {with_clause}")      
+
+                    clause_list.append(f"{match_clause} {where_clause} {with_clause}")
 
             list_of_node_ids = list(node_ids)
             list_of_node_ids.sort()
             full_return_preds = return_preds + list_of_node_ids
 
-            
+
             cypher_query = ' '.join(clause_list)
             cypher_queries.append(cypher_query)
             query_clauses = {
@@ -303,7 +307,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def limit_query(self, limit):
         '''
-        for now remove the limit from the backend 
+        for now remove the limit from the backend
         and handle it from the client side
         '''
         # if limit:

@@ -368,7 +368,7 @@ def generate_label_count(count_query, annotation_id, requests, count_label_statu
             count_label_status.set()
             return
 
-        label_count = db_instance.run_query(count_query, stop_event)
+        label_count = db_instance.run_query(count_query, stop_event, species)
 
         count_result = [{}, label_count[0]]
         graph_components = {"nodes": requests['nodes'],
