@@ -4,12 +4,13 @@ from app.models.user import User
 class UserStorageService():
     def __init__(self):
         pass
-    
+
     @staticmethod
     def save(user):
         data = User(
             user_id=user["current_user_id"],
             data_source=user["data_source"],
+            species=user["species"],
         )
 
         id = data.save()

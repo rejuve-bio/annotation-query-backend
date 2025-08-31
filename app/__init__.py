@@ -70,7 +70,8 @@ app.config['annotation_lock'] = threading.Lock()
 
 schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
                                biocypher_config_path='./config/biocypher_config.yaml',
-                               config_path='./config/schema')
+                               config_path='./config/schema',
+                               fly_schema_config_path='./config/fly_base_schema/net_act_essential_schema_config.yaml')
 
 #load the json that holds the count for the edges
 graph_info = json.load(open(GRAPH_INFO_PATH))

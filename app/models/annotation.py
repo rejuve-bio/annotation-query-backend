@@ -20,6 +20,9 @@ class Annotation(Schema):
     node_count_by_label = None
     edge_count_by_label = None
     status = None
+    data_source = None
+    species = None
+    path_url = None
 
     def __init__(self, **kwargs):
         self.schema = {
@@ -62,6 +65,12 @@ class Annotation(Schema):
                 "required": True
             },
             "path_url": Types.String,
+            "species": {
+                "type": Types.String,
+                "required": True,
+                "default": "human"
+            },
+            "data_source": any,
             "created_at": {
                 "type": Types.Date,
                 "required": True,
@@ -77,12 +86,13 @@ class Annotation(Schema):
         super().__init__(self.schema_name, self.schema, kwargs)
 
     def __str__(self):
-        return f"""user_id: {self.user_id}, request: {self.request}, 
+        return f"""user_id: {self.user_id}, request: {self.request},
         query: {self.query},
         title: {self.title}, summary: {self.summary},
         question: {self.question}, answer: {self.answer},
         node_count: {self.node_count}, edge_count: {self.edge_count},
         node_count_by_label: {self.node_count_by_label},
         edge_count_by_label: {self.edge_count_by_label},
-        status: {self.status}
+        status: {self.status}, species: {self.species}, data_source: {self.data_source}
+        path_url: {self.path_url},
         """
