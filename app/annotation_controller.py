@@ -6,7 +6,7 @@ import os
 import threading
 import datetime
 from app.workers.task_handler import generate_result, start_thread, reset_task, reset_status
-from app.lib import convert_to_csv, generate_file_path, \
+from app.lib import convert_to_excel, generate_file_path, \
     adjust_file_path
 import time
 from app.constants import TaskStatus
@@ -24,7 +24,7 @@ def handle_client_request(query, request, current_user_id, node_types):
             annotation_id, str(current_user_id), query[0])
     else:
         existing_query = None
-        
+
     #Event to track tasks
     result_done = threading.Event()
     total_count_done = threading.Event()
@@ -43,11 +43,11 @@ def handle_client_request(query, request, current_user_id, node_types):
         AnnotationStorageService.update(
             annotation_id, {"status": TaskStatus.PENDING.value, "updated_at": datetime.datetime.now()})
         reset_status(annotation_id)
-        
+
         args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
                                'label_count_done': label_count_done}, 'query': query, 'request': request,
                 'summary': summary, 'meta_data': meta_data}
-        
+
         start_thread(annotation_id, args)
         return Response(
             json.dumps({"annotation_id": str(annotation_id)}),
@@ -75,7 +75,7 @@ def handle_client_request(query, request, current_user_id, node_types):
         # save the query and return the annotation
         annotation = {"query": query[0], "request": request,
                       "title": title, "node_types": node_types,
-                      'status': TaskStatus.PENDING.value, 'node_count': None, 
+                      'status': TaskStatus.PENDING.value, 'node_count': None,
                       'edge_count': None, 'node_count_by_label': None,
                       'edge_count_by_label': None}
 
@@ -85,7 +85,7 @@ def handle_client_request(query, request, current_user_id, node_types):
         args = {'all_status': {'result_done': result_done, 'total_count_done': total_count_done,
                                'label_count_done': label_count_done}, 'query': query, 'request': request,
                 'summary': None, 'meta_data': None}
-        
+
         start_thread(annotation_id, args)
 
         return Response(
@@ -102,7 +102,6 @@ def process_full_data(current_user_id, annotation_id):
 
     query, title = cursor.query, cursor.title
 
-
     try:
         file_path = generate_file_path(
             file_name=title, user_id=current_user_id, extension='xls')
@@ -116,9 +115,6 @@ def process_full_data(current_user_id, annotation_id):
 
 
         # Run the query and parse the results
-        result = db_instance.run_query(query)
-        parsed_result = db_instance.convert_to_dict(
-            result, schema_manager.schema)
 
         file_path = convert_to_csv(
             parsed_result, user_id=current_user_id, file_name=title)
@@ -135,7 +131,7 @@ def requery(annotation_id, query, request):
     result_done = threading.Event()
     AnnotationStorageService.update(
         annotation_id, {"status": TaskStatus.PENDING.value})
-    
+
     app.config['annotation_threads'][str(annotation_id)] = threading.Event()
 
     reset_status(annotation_id)
@@ -149,8 +145,8 @@ def requery(annotation_id, query, request):
             generate_result(query, annotation_id, request, result_done, status=TaskStatus.COMPLETE.value)
         except Exception as e:
                 logging.error("Error generating result graph %s", e)
-      
-    
+
+
     result_generator = threading.Thread(
         name='result_generator', target=send_annotation)
     result_generator.start()
