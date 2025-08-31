@@ -21,6 +21,7 @@ from app.workers.task_handler import get_annotation_redis
 from app.persistence import AnnotationStorageService, UserStorageService
 from nanoid import generate
 from app.lib.utils import convert_to_tsv
+from app.lib import convert_to_excel
 
 # Load environmental variables
 load_dotenv()
@@ -385,10 +386,15 @@ def process_query(current_user_id):
         answer = llm.generate_summary(result_graph, requests, question, False, summary)
 
         graph = Graph()
-        if len(result_graph['edges']) == 0:
+
+        if len(result_graph['edges']) == 0 and len(result_graph['nodes']) > 1:
             response = graph.group_node_only(result_graph, requests)
+
         else:
-            response = graph.group_graph(result_graph)
+            if len(result_graph['nodes']) > 1:
+                response = graph.group_graph(result_graph)
+            else:
+                response = result_graph
         response['node_count'] = meta_data['node_count']
         response['edge_count'] = meta_data['edge_count']
         response['node_count_by_label'] = meta_data['node_count_by_label']
@@ -571,14 +577,24 @@ def get_by_id(current_user_id, id):
             response_data["edge_count_by_label"] = edge_count_by_label
         response_data["status"] = status
 
+        graph = Graph()
+
         cache = redis_client.get(str(annotation_id))
 
         if cache is not None:
             cache = json.loads(cache)
-            graph = cache['graph']
-            if graph is not None:
-                response_data['nodes'] = graph['nodes']
-                response_data['edges'] = graph['edges']
+            graph_data = cache['graph']
+            if graph_data is not None:
+                nx_graph = graph.build_graph_nx(graph_data)
+
+                graph_result = []
+
+                sub_graph = graph.build_subgraph_nx(nx_graph)
+
+                for single_graph in sub_graph:
+                    graph_result.append(graph.convert_to_graph_json(single_graph))
+
+                response_data["graph"] = graph_result
 
             return Response(json.dumps(response_data, indent=4), mimetype='application/json')
 
@@ -589,8 +605,7 @@ def get_by_id(current_user_id, id):
                     with open(file_path, 'r') as file:
                         graph = json.load(file)
 
-                    response_data['nodes'] = graph['nodes']
-                    response_data['edges'] = graph['edges']
+                    response_data['graph'] = graph
                 else:
                     response_data['status'] = TaskStatus.PENDING.value
                     requery(annotation_id, query, json_request)
@@ -603,11 +618,16 @@ def get_by_id(current_user_id, id):
         response_data = db_instance.parse_and_serialize(
             result, schema_manager.schema,
             graph_components, result_type='graph')
+
         graph = Graph()
-        if (len(response_data['edges']) == 0):
-            grouped_graph = graph.group_node_only(response_data, json_request)
+
+        if (len(response_data['edges']) == 0) and len(response_data['nodes']) > 1:
+            response_data = graph.group_node_only(response_data, json_request)
         else:
-            grouped_graph = graph.group_graph(response_data)
+            if len(response['nodes']) > 1:
+                grouped_graph = graph.group_graph(response_data)
+            else:
+                grouped_graph = response_data
         response_data['nodes'] = grouped_graph['nodes']
         response_data['edges'] = grouped_graph['edges']
 
@@ -618,9 +638,22 @@ def get_by_id(current_user_id, id):
             }
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
-        # if limit:
-        # response_data = limit_graph(response_data, limit)
 
+        graph_data = {}
+        graph_data['nodes'] = response_data['nodes']
+        graph_data['edges'] = response_data['edges']
+        nx_graph = graph.build_graph_nx(graph_data)
+
+        graph_result = []
+
+        sub_graph = graph.build_subgraph_nx(nx_graph)
+
+        for single_graph in sub_graph:
+            graph_result.append(graph.convert_to_graph_json(single_graph))
+
+        del response_data['nodes']
+        del response_data['edges']
+        response_data["graph"] = graph_result
         formatted_response = json.dumps(response_data, indent=4)
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
@@ -756,6 +789,10 @@ def delete_by_id(current_user_id, id):
         if existing_record is None:
             return jsonify('No value Found'), 404
 
+        # deleted the stored file
+        graph_file_path = existing_record.path_url
+        os.remove(graph_file_path)
+
         deleted_record = AnnotationStorageService.delete(id)
 
         if deleted_record is None:
@@ -833,6 +870,10 @@ def delete_many(current_user_id):
         return jsonify({"error": "Annotation ids must not be empty"}), 400
 
     try:
+        for annotation_id in annotation_ids:
+            annotation = AnnotationStorageService.get_by_id(annotation_id)
+            os.remove(annotation.path_url)
+
         delete_count = AnnotationStorageService.delete_many_by_id(annotation_ids)
 
         response_data = {
@@ -849,7 +890,6 @@ def delete_many(current_user_id):
 @token_required
 def update_settings(current_user_id):
     data = request.get_json()
-
     data_source = data.get('sources', None)
     species = data.get('species', None)
 
@@ -964,6 +1004,101 @@ def download_csv(current_user_id, id):
         else:
             return jsonify('Error generating the file'), 500
 
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/search", methods=["POST"])
+@token_required
+def search(current_user_id):
+    data = request.get_json()
+
+    node_type = data.get('node_type', None)
+    search_text = data.get('search_text', None)
+
+    if not node_type or not search_text:
+        return jsonify({"error": "Missing node type or search text"}), 400
+
+    try:
+        node_property, property_value = next(iter(search_text.items()))
+
+        search_payload = {
+            'suggest': {
+                'text-suggest': {
+                    'prefix': property_value,
+                    'completion': {
+                        'field': node_property
+                    }
+                }
+            }
+        }
+
+        es_client = app.config['es_db']
+
+        response = es_client.search(index=node_type, body=search_payload)
+
+        suggested_response = []
+
+        suggestions = response.get('suggest', {}).get('text-suggest', [])[0]
+
+        for suggestion in suggestions.get('options', []):
+            suggested_response.append(suggestion['text'])
+
+        return Response(json.dumps(suggested_response, indent=4), mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error processing search: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/annotation/<id>/download', methods=['GET'])
+@token_required
+def download_annotation(current_user_id, id):
+    # response_data = {'nodes': [], 'edges': []}
+    # get the query string from the request
+    group_id = request.args.get('node_group_id')
+
+    cursor = AnnotationStorageService.get_user_annotation(id, current_user_id)
+
+    if cursor is None:
+        return jsonify('No value Found'), 404
+
+    file_path = cursor.path_url
+    try:
+        graphs = json.load(open(file_path))
+
+        # add this after the subgraph data extraction have been merged
+        response_data = {'nodes': [], 'edges': []}
+        for graph in graphs:
+            response_data['nodes'].extend(graph['nodes'])
+            response_data['edges'].extend(graph['edges'])
+
+        if group_id:
+            nodes = response_data['nodes']
+
+            for node in nodes:
+                if node['data']['id'] == group_id:
+                    response_data = {'nodes': [], 'edges': []}
+                    nodes_data = node['data']['nodes']
+
+                    for node_data in nodes_data:
+                        data = {
+                            'data': {
+                                **node_data
+                            }
+                        }
+
+                        response_data['nodes'].append(data)
+
+        file_obj = convert_to_excel(response_data)
+
+        if file_obj:
+            return send_file(
+                file_obj,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name='graph_export.xlsx'
+            )
+        else:
+            return jsonify('Error generating the file'), 500
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500

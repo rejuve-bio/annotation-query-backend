@@ -14,8 +14,9 @@ import yaml
 from flask_redis import FlaskRedis
 from app.error import ThreadStopException
 import threading
-from app.constants import TaskStatus, GRAPH_INFO_PATH
+from app.constants import TaskStatus, GRAPH_INFO_PATH, ES_API_KEY, ES_URL
 import json
+from elasticsearch import Elasticsearch
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins='*',
@@ -51,6 +52,8 @@ limiter = Limiter(
 )
 
 mongo_init()
+print(ES_URL, ES_API_KEY)
+es_db = Elasticsearch(ES_URL, api_key=ES_API_KEY)
 
 databases = {
     "metta": lambda: MeTTa_Query_Generator("./Data"),
@@ -67,6 +70,9 @@ llm = LLMHandler()  # Initialize the LLMHandler
 app.config['llm_handler'] = llm
 app.config['annotation_threads'] = {} # holding the stop event for each annotation task
 app.config['annotation_lock'] = threading.Lock()
+app.config['es_db'] = es_db
+
+print(es_db.info())
 
 schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
                                biocypher_config_path='./config/biocypher_config.yaml',

@@ -6,7 +6,7 @@ import os
 import threading
 import datetime
 from app.workers.task_handler import generate_result, start_thread, reset_task, reset_status
-from app.lib import convert_to_csv, generate_file_path, \
+from app.lib import convert_to_excel, generate_file_path, \
     adjust_file_path
 import time
 from app.constants import TaskStatus
@@ -106,7 +106,6 @@ def process_full_data(current_user_id, annotation_id):
     graph_components = {
             "nodes": requests['nodes'], "predicates": requests['predicates'],
             'properties': True}
-
 
     try:
         file_path = generate_file_path(

@@ -184,10 +184,22 @@ def generate_result(query_code, annotation_id, requests, result_status, species,
         else:
             grouped_graph = graph.group_graph(response);
 
+        #TODO: use connected components to list out independent graphs
+        nx_graph = graph.build_graph_nx(grouped_graph)
+
+        graph_result = []
+
+        sub_graph = graph.build_subgraph_nx(nx_graph)
+
+        print("sub_graph", sub_graph)
+
+        for single_graph in sub_graph:
+            graph_result.append(graph.convert_to_graph_json(single_graph))
+
         file_path = Path(__file__).parent /".."/ ".."/ "public" / "graph" / f"{annotation_id}.json"
 
         with open(file_path, 'w') as file:
-            json.dump(grouped_graph, file)
+            json.dump(graph_result, file)
 
         AnnotationStorageService.update(annotation_id, {"path_url": str(file_path.resolve())})
 
