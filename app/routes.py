@@ -17,7 +17,7 @@ from distutils.util import strtobool
 import datetime
 from app.lib import Graph, heuristic_sort
 from app.annotation_controller import handle_client_request, process_full_data, requery
-from app.constants import TaskStatus, CELL_STRUCTURE
+from app.constants import TaskStatus
 from app.workers.task_handler import get_annotation_redis
 from app.persistence import AnnotationStorageService, UserStorageService
 from nanoid import generate
@@ -863,7 +863,15 @@ def cell_component(current_user_id):
                         }
                     })
             else:
-                pass
+               new_edge.append({
+                   "data": {
+                       "source": edge['data']['source'],
+                       "target": edge['data']['target'],
+                       "label": edge['data']['label'],
+                       "edge_id": edge['data']['edge_id'],
+                       "id": generate()
+                   }
+               })
 
         node_to_edge_relationship = {}
 
@@ -990,11 +998,10 @@ def cell_component(current_user_id):
             response["nodes"].append(values)
 
 
-        graph = Graph()
-        graph_response = graph.collapse_node_nx_location(response)
+        # graph = Graph()
+        # graph_response = graph.collapse_node_nx_location(response)
 
-
-        return Response(json.dumps(graph_response, indent=4), mimetype='application/json')
+        return Response(json.dumps(response, indent=4), mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing search: {e}")
         return jsonify({"error": str(e)}), 500
