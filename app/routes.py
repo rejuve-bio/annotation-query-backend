@@ -95,7 +95,6 @@ def get_schema_by_source(current_user_id):
 
         user = UserStorageService.get(current_user_id)
 
-
         if not user:
             query_string = 'all'
         else:
@@ -135,7 +134,7 @@ def get_schema_by_source(current_user_id):
 
 @socketio.on('connect')
 @socket_token_required
-def on_connect(current_user_id, args):
+def on_connect(current_user_id, *args, **kwargs):
     logging.info("User connected")
     send('User is connected')
 
@@ -433,7 +432,6 @@ def get_by_id(current_user_id, id):
         response_data["status"] = status
 
         graph = Graph()
-
         cache = redis_client.get(str(annotation_id))
 
         if cache is not None:
@@ -894,3 +892,4 @@ def download_annotation(current_user_id, id):
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
+  
