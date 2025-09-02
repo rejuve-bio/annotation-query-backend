@@ -578,7 +578,6 @@ def get_by_id(current_user_id, id):
         response_data["status"] = status
 
         graph = Graph()
-
         cache = redis_client.get(str(annotation_id))
 
         if cache is not None:
@@ -1102,3 +1101,4 @@ def download_annotation(current_user_id, id):
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
+  
