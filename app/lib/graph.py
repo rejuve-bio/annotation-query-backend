@@ -364,6 +364,9 @@ class Graph:
         return G
 
     def convert_to_graph_json(self, graph):
+        """
+        Convert a networkx graph to a json representation.
+        """
         graph_json = {"nodes": [], "edges": []}
 
         # build the nodes
