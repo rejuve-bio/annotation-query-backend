@@ -15,31 +15,6 @@ class Graph:
         graph = self.group_into_parents(graph)
         return graph
 
-    def convert_to_graph_json(self, graph):
-        graph_json = {"nodes": [], "edges": []}
-
-        # build the nodes
-        for node in graph.nodes():
-            data = {
-                "data": graph.nodes[node]  # Get the node's attributes here
-            }
-            graph_json['nodes'].append(data)
-
-        # build the edges
-        for u, v, data in graph.edges(data=True):
-            edge = {
-                "data": {
-                    "source": u,
-                    "target": v,
-                    "id": data['id'], # Any edge attributes
-                    "label": data['label'],
-                    "edge_id": data['edge_id']
-                }
-            }
-            graph_json['edges'].append(edge)
-
-        return graph_json
-
     def collapse_node_nx_location(self, graph):
         """
         Group nodes and edges of a graph based on their cellular location.
