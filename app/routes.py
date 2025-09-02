@@ -17,10 +17,11 @@ from distutils.util import strtobool
 import datetime
 from app.lib import Graph, heuristic_sort
 from app.annotation_controller import handle_client_request, process_full_data, requery
-from app.constants import TaskStatus
+from app.constants import TaskStatus, Species, form_fields
 from app.workers.task_handler import get_annotation_redis
 from app.persistence import AnnotationStorageService, UserStorageService
 from nanoid import generate
+from app.lib.utils import convert_to_tsv
 import traceback
 from app.lib import convert_to_excel
 # Load environmental variables
@@ -76,68 +77,188 @@ def get_relations_for_node_endpoint(current_user_id, node_label):
         schema_manager.get_relations_for_node(node_label), indent=4)
     return Response(relations, mimetype='application/json')
 
-@app.route('/schema-list', methods=['GET'])
-@token_required
-def get_schema_list(current_user_id):
+def get_schema_list():
     schema_list = schema_manager.schema_list
-    response = {
-        "schemas": schema_list,
-    }
-    return Response(json.dumps(response, indent=4), mimetype='application/json')
+    response = schema_list
 
-@app.route('/schema', methods=['GET'])
-@token_required
-def get_schema_by_source(current_user_id):
+    return response
+
+def schema_by_source(species, query_string):
     try:
-        schema = schema_manager.schmea_representation
+        response = {'schema': {'nodes': [], 'edges': []}}
 
-        response = {'nodes': [], 'edges': []}
-
-        query_string = request.args.getlist("source")
-
-        user = UserStorageService.get(current_user_id)
-
-        if not user:
-            query_string = 'all'
+        if species == 'human':
+            schema = schema_manager.schmea_representation
         else:
-            query_string = user.data_source
+            schema = schema_manager.fly_schema_represetnation
+        if query_string == 'all' and species == 'fly':
+            for key, value in schema['nodes'].items():
+                response['schema']['nodes'].append({
+                    'data': {
+                    'name': value['label'],
+                    'properites':[property for property in value['properties'].keys()]
+                    }
+                })
 
-        if query_string == 'all':
-            response['nodes'] = schema['nodes']
-            response['edges'] = schema['edges']
-
-            return Response(json.dumps(response, indent=4), mimetype='application/json')
+            for key, value in schema['edges'].items():
+                is_new = True
+                for ed in response['schema']['edges']:
+                    if value['source'] == ed['data']['source'] and value['target'] == ed['data']['target']:
+                        is_new = False
+                        ed['data']['possible_connection'].append( value.get('input_label') or value.get('output_label') or 'unknown')
+                if is_new:
+                    response['schema']['edges'].extend(flatten_edges(value))
+            return response
 
         for schema_type in query_string:
             source = schema_type.upper()
             sub_schema = schema.get(source, None)
 
             if sub_schema is None:
-                return jsonify({"error": "Invalid schema source"}), 400
+                continue
 
-            for key, _ in sub_schema['edges'].items():
-                edge = sub_schema['edges'][key]
-                edge_data = {
-                    "label": schema['edges'][key]['output_label'],
-                    **edge
-                }
-                response['edges'].append(edge_data)
-                response['nodes'].append(schema['nodes'][edge['source']])
-                response['nodes'].append(schema['nodes'][edge['target']])
+            for _, values in sub_schema['edges'].items():
+                edge_key = values.get('input_label') or values.get('output_label')
+                edge = sub_schema['edges'][edge_key]
+                edge_data = { 'data': {
+                    "possible_connection": [edge.get('output_label') or edge.get('input_label')],
+                    "source": edge.get('source'),
+                    "target": edge.get('target')
+                }}
+                response['schema']['edges'].append(edge_data)
+                node_to_add_src = schema[source]['nodes'][edge['source']]
+                node_label_src = node_to_add_src['label']
+                if not node_exists(response, node_label_src):
+                    response['schema']['nodes'].append({
+                        'data': {
+                            'name': node_to_add_src['label'],
+                            'properites':[property for property in node_to_add_src['properties'].keys()]
+                        }
+                    })
 
-            if len(response['edges']) == 0:
+                node_to_add_trgt = schema[source]['nodes'][edge['target']]
+                node_label_trgt = node_to_add_trgt['label']
+                if not node_exists(response, node_label_trgt):
+                    response['schema']['nodes'].append({
+                                    'data': {
+                                        'name': node_to_add_trgt['label'],
+                                        'properites':[property for property in node_to_add_trgt['properties'].keys()]
+                                    }
+                                })
+
+            if len(response['schema']['edges']) == 0:
                 for node in sub_schema['nodes']:
-                    response['nodes'].append(schema['nodes'][node])
+                    response['schema']['nodes'].append({
+                        'data': {
+                            'name': schema[source]['nodes'][node]['label'],
+                            'properties': [property for property in schema[source]['nodes'][node]['properties'].keys()]
+                        }
+                    })
+                    response['schema']['nodes'].append(schema[source]['nodes'][node])
 
-        return Response(json.dumps(response, indent=4), mimetype='application/json')
+        return response
     except Exception as e:
         logging.error(f"Error fetching schema: {e}")
-        return jsonify({"error": str(e)}), 500
+        return []
+
+def node_exists(response, name):
+    name = name.strip().lower()
+    return any(n['data']['name'].strip().lower() == name for n in response['schema']['nodes'])
+
+def flatten_edges(value):
+    sources = value['source'] if isinstance(value['source'], list) else [value['source']]
+    targets = value['target'] if isinstance(value['target'], list) else [value['target']]
+    label = value.get('input_label') or value.get('output_label') or 'unknown'
+
+    return [
+        {'data': {
+            'source': src,
+            'target': tgt,
+            'possible_connection': [label]
+            }
+        for src in sources
+        for tgt in targets
+        }
+    ]
+
+@app.route('/preference-option', methods=['GET'])
+@token_required
+def get_preference_option(current_user_id):
+    response = {
+        'species': [specie.value for specie in Species],
+        'sources': {
+            'human': [],
+            'fly': []
+        }
+    }
+
+    schema_list = get_schema_list()
+
+    for source in schema_list:
+        if source['id'] not in ['polyphen-2', 'bgee']:
+            sch = schema_by_source('human', [source['name']])
+            data = {
+                'id': source['id'],
+                'name': source['name'],
+                'url': source['url'],
+                'schema': sch['schema']
+            }
+            response['sources']['human'].append(data)
+    schema_fly = schema_by_source('fly', 'all')
+    data = {
+        'id': 'flyall',
+        'name': 'all',
+        'schema': schema_fly
+    }
+    response['sources']['fly'].append(data)
+    return Response(json.dumps(response, indent=4), mimetype='application/json')
+
+@app.route('/schema', methods=['GET'])
+def get_schema_by_data_source():
+    species = request.args.get('species', 'human')
+    data_source =request.args.getlist('data_source')
+
+    if len(data_source) == 1 and data_source[0] == 'flyall':
+        data_source = 'all'
+
+    schemas = schema_by_source(species, data_source)
+
+    response = {'nodes': [], 'edges': []}
+
+    nodes = schemas['schema']['nodes']
+    edges = schemas['schema']['edges']
+
+    for node in nodes:
+        label = node['data']['name']
+
+        if label in form_fields:
+            node_data = form_fields[label]
+        else:
+            node_data = []
+
+        response['nodes'].append({
+            'id': label,
+            'name': label,
+            'inputs': node_data
+        })
+
+    for edge in edges:
+        source = edge['data']['source']
+        target = edge['data']['target']
+        possible_connections = edge['data']['possible_connection']
+        for possible_connection in possible_connections:
+            response['edges'].append({
+                'id': generate(),
+                'source': source,
+                'target': target,
+                'label': possible_connection
+            })
+    return Response(json.dumps(response, indent=4), mimetype='application/json')
 
 @socketio.on('connect')
 @socket_token_required
-def on_connect(current_user_id, *args, **kwargs):
-    logging.info("User connected")
+def on_connect(current_user_id,  *args, **kwargs):
+    logging.info(f"User connected with ID: {current_user_id}")
     send('User is connected')
 
 @socketio.on('disconnect')
@@ -162,6 +283,8 @@ def on_join(data):
         if status == TaskStatus.COMPLETE.value:
             socketio.emit('update', {'status': status, 'update': {'graph': graph_status}},
                   to=str(room))
+        else:
+            socketio.emit('update', {'status': status, 'update': {'graph': graph_status}}, to=str(room))
 
 @app.route('/query', methods=['POST'])  # type: ignore
 @token_required
@@ -195,7 +318,10 @@ def process_query(current_user_id):
         question = requests.get('question', None)
         answer = None
         # Validate the request data before processing
-        node_map = validate_request(requests, schema_manager.schema, source)
+        user = UserStorageService.get(current_user_id)
+        data_source = user.data_source if user else 'all'
+        species = user.species if user else 'human'
+        node_map = validate_request(requests, schema_manager.schema[species], source)
         if node_map is None:
             return jsonify(
                 {"error": "Invalid node_map returned by validate_request"}
@@ -228,7 +354,7 @@ def process_query(current_user_id):
 
         if source is None:
             return handle_client_request(query, requests,
-                                         current_user_id, node_types)
+                                         current_user_id, node_types, species, data_source)
         result = db_instance.run_query(result_query)
 
         graph_components = {
@@ -261,8 +387,10 @@ def process_query(current_user_id):
         answer = llm.generate_summary(result_graph, requests, question, False, summary)
 
         graph = Graph()
+
         if len(result_graph['edges']) == 0 and len(result_graph['nodes']) > 1:
-            response = graph.group_node_only(result_graph)
+            response = graph.group_node_only(result_graph, requests)
+
         else:
             if len(result_graph['nodes']) > 1:
                 response = graph.group_graph(result_graph)
@@ -297,7 +425,6 @@ def process_query(current_user_id):
     except Exception as e:
         logging.error(f"Error processing query: {e}")
         return jsonify({"error": (e)}), 500
-
 
 @app.route('/email-query/<id>', methods=['POST'])
 @token_required
@@ -336,12 +463,20 @@ def process_user_history(current_user_id):
     else:
         page_number = 1
     return_value = []
+
+    cursor = UserStorageService.get(current_user_id)
     cursor = AnnotationStorageService.get_all(str(current_user_id), page_number)
+
 
     if cursor is None:
         return jsonify('No value Found'), 200
 
     for document in cursor:
+        source = document.get('data_source', 'all')
+        if document.get('species', 'human') == 'fly':
+            source = ['flyall']
+        if document.get('species', 'human') == 'human' and document.get('data_source', 'all') == 'all':
+            source = ['all']
         return_value.append({
             'annotation_id': str(document['_id']),
             "request": document['request'],
@@ -350,12 +485,13 @@ def process_user_history(current_user_id):
             'edge_count': document['edge_count'],
             'node_types': document['node_types'],
             'status': document['status'],
+            'species': document.get('species', 'human'),
+            'source': source,
             "created_at": document['created_at'].isoformat(),
             "updated_at": document["updated_at"].isoformat()
         })
     return Response(json.dumps(return_value, indent=4),
                     mimetype='application/json')
-
 
 @app.route('/annotation/<id>', methods=['GET'])
 @token_required
@@ -398,6 +534,8 @@ def get_by_id(current_user_id, id):
     edge_count_by_label = cursor.edge_count_by_label
     status = cursor.status
     file_path = cursor.path_url
+    species = cursor.species
+    source = cursor.data_source
 
     # Extract node types
     nodes = json_request['nodes']
@@ -422,6 +560,13 @@ def get_by_id(current_user_id, id):
         response_data["annotation_id"] = str(annotation_id)
         response_data["request"] = json_request
         response_data["title"] = title
+
+        if species == 'fly':
+            source = ['flyall']
+        if species == 'human' and source=='all':
+            source = ['all']
+        response_data['source'] = source
+        response_data['species'] = species
 
         if summary is not None:
             response_data["summary"] = summary
@@ -453,7 +598,7 @@ def get_by_id(current_user_id, id):
 
             return Response(json.dumps(response_data, indent=4), mimetype='application/json')
 
-        if status in [TaskStatus.PENDING.value, TaskStatus.COMPLETE.value] and source is None:
+        if status in [TaskStatus.PENDING.value, TaskStatus.COMPLETE.value]:
             if status == TaskStatus.COMPLETE.value:
                 if os.path.exists(file_path):
                     # open the file and read the graph
@@ -475,8 +620,9 @@ def get_by_id(current_user_id, id):
             graph_components, result_type='graph')
 
         graph = Graph()
+
         if (len(response_data['edges']) == 0) and len(response_data['nodes']) > 1:
-            response_data = graph.group_node_only(response_data)
+            response_data = graph.group_node_only(response_data, json_request)
         else:
             if len(response['nodes']) > 1:
                 grouped_graph = graph.group_graph(response_data)
@@ -492,12 +638,6 @@ def get_by_id(current_user_id, id):
             }
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
-
-        if 'nodes' in response_data and len(response_data['nodes']) == 0:
-            response = jsonify({"error": "No data found for the query"})
-            response = Response(response.response, status=404)
-            response.status = "404 No matching results for the query"
-            return response
 
         graph_data = {}
         graph_data['nodes'] = response_data['nodes']
@@ -643,14 +783,7 @@ def delete_by_id(current_user_id, id):
             if stop_event is not None:
                 stop_event.set()
 
-                response_data = {
-                    'message': f'Annotation {id} has been cancelled.'
-                }
-
-                formatted_response = json.dumps(response_data, indent=4)
-                return Response(formatted_response, mimetype='application/json')
-
-        # else delete the annotation from the db
+        #delete the annotation from the db
         existing_record = AnnotationStorageService.get_by_id(id)
 
         if existing_record is None:
@@ -675,7 +808,6 @@ def delete_by_id(current_user_id, id):
     except Exception as e:
         logging.error(f"Error deleting annotation: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 @app.route('/annotation/<id>/title', methods=['PUT'])
 @token_required
@@ -754,38 +886,59 @@ def delete_many(current_user_id):
         logging.error(f"Error deleting annotations: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/settings/data-source', methods=['POST'])
+@app.route('/save-preference', methods=['POST'])
 @token_required
 def update_settings(current_user_id):
     data = request.get_json()
-
-    data_source = data.get('data_source', None)
+    data_source = data.get('sources', None)
+    species = data.get('species', None)
 
     if data_source is None:
         return jsonify({"error": "Missing data source"}), 400
 
-    if isinstance(data_source, str):
-        if data_source.lower() == 'all':
-            UserStorageService.upsert_by_user_id(current_user_id,
-                                             {'data_source': 'all'})
+    if species is None:
+        species = 'human'
 
-            response_data = {
-                'message': 'Data source updated successfully',
-                'data_source': 'all'
-            }
+    if species == "fly":
+        data_source = 'all'
+
+    if isinstance(data_source, str):
+        if data_source.lower() == 'all' or data_source.lower() == "flyall":
+            UserStorageService.upsert_by_user_id(current_user_id,
+                                             {'data_source': 'all', 'species': species})
+
+            if species == 'fly':
+                response_data = {
+                    'message': 'Data source updated successfully',
+                    'data_source': ['flyall']
+                }
+            else:
+                response_data = {
+                    'message': 'Data source updated successfully',
+                    'data_source': ['all']
+                }
             formatted_response = json.dumps(response_data, indent=4)
             return Response(formatted_response, mimetype='application/json')
         else:
             return jsonify({"error": "Invalid data source format"}), 400
 
+    schema_list = get_schema_list()
+    ids = []
+
+    if species == "fly" and data_source != "flyall":
+        return jsonify({"error": "Invalid data source for species fly"}), 400
+
+    for schema in schema_list:
+        ids.append(schema['id'].lower())
+
     # check if the data source is valid
     for ds in data_source:
-        if ds.upper() not in schema_manager.schmea_representation:
+        if ds.lower() not in ids:
             return jsonify({"error": f"Invalid data source: {ds}"}), 400
 
     try:
         UserStorageService.upsert_by_user_id(current_user_id,
-                                         {'data_source': data_source})
+                                         {'data_source': data_source, 'species': species})
 
         response_data = {
             'message': 'Data source updated successfully',
@@ -796,6 +949,63 @@ def update_settings(current_user_id):
         return Response(formatted_response, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error updating data source: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/saved-preference', methods=['GET'])
+@token_required
+def get_saved_preferences(current_user_id):
+    try:
+        preferences = UserStorageService.get(current_user_id)
+        if preferences:
+            data_source = preferences.data_source
+            species = preferences.species
+        else:
+            data_source = ['GWAS']
+            species = 'human'
+
+        if species == 'fly':
+            data_source = ['flyall']
+
+        response_data = {
+            'species': species,
+            'source': data_source
+        }
+
+        return Response(json.dumps(response_data, indent=4), mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error getting saved preferences: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/annotation/<id>/download-tsv', methods=['GET'])
+@token_required
+def download_csv(current_user_id, id):
+    cursor = AnnotationStorageService.get_by_id(id)
+
+    if cursor is None:
+        return jsonify('No value Found'), 404
+
+    file_path = cursor.path_url
+
+    try:
+        graph = json.load(open(file_path))
+
+        g = Graph()
+        new_graph = g.break_grouping(graph)
+
+        file_obj = convert_to_tsv(new_graph)
+
+        if file_obj:
+            return send_file(
+                file_obj,
+                mimetype='application/zip',
+                as_attachment=True,
+                download_name='graph_export.zip'
+            )
+        else:
+            return jsonify('Error generating the file'), 500
+
+    except Exception as e:
+        logging.error(f"Error processing query: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/search", methods=["POST"])
@@ -1064,8 +1274,6 @@ def download_annotation(current_user_id, id):
         return jsonify('No value Found'), 404
 
     file_path = cursor.path_url
-
-
     try:
         graphs = json.load(open(file_path))
 

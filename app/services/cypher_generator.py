@@ -18,9 +18,13 @@ logger = logging.getLogger(__name__)
 
 class CypherQueryGenerator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
-        self.driver = GraphDatabase.driver(
-            os.getenv('NEO4J_URI'),
-            auth=(os.getenv('NEO4J_USERNAME'), os.getenv('NEO4J_PASSWORD'))
+        self.human_driver = GraphDatabase.driver(
+            os.getenv('HUMAN_NEO4J_URI'),
+            auth=(os.getenv('HUMAN_NEO4J_USERNAME'), os.getenv('HUMAN_NEO4J_PASSWORD'))
+        )
+        self.fly_driver = GraphDatabase.driver(
+            os.getenv('FLY_NEO4J_URI'),
+            auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD'))
         )
         # self.dataset_path = dataset_path
         # self.load_dataset(self.dataset_path)
@@ -62,11 +66,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         logger.info(
             f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code, stop_event=None):
+    def run_query(self, query_code, stop_event=None,  species="human"):
         results = []
-
+        driver = self.human_driver if species == "human" else self.fly_driver
         # use lazy loading for improved performance
-        with self.driver.session() as session:
+        with driver.session() as session:
             result = session.run(query_code)
             for record in result:
                 if stop_event is not None and stop_event.is_set():
