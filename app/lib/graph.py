@@ -114,6 +114,11 @@ class Graph:
         return self.convert_to_graph_json(G)
 
     def group_node_only(self, graph, request):
+        """
+        Group nodes by type
+
+        Returns a new graph with grouped nodes
+        """
         nodes = graph['nodes']
         new_graph = {'nodes': [], 'edges': []}
 
@@ -261,6 +266,11 @@ class Graph:
         return new_graph
 
     def collapse_node_nx(self, graph):
+        """
+        Group nodes and edges based on the ingoing and outgoing edges using networkx
+
+        Returns a grouped nodes in netowrkx format
+        """
         G = self.build_graph_nx(graph)
         node_to_id_map = {node["data"]["id"]: node["data"] for node in graph.get("nodes", [])}
         signatures = {}
@@ -324,6 +334,9 @@ class Graph:
         return graph
 
     def build_graph_nx(self, graph):
+        """
+        Build a networkx graph from a json representation.
+        """
         G = nx.MultiDiGraph()
 
         # Create nodes
@@ -523,22 +536,10 @@ class Graph:
         graph["edges"] = new_edges
         return graph
 
-    def build_graph_nx(self, graph):
-        G = nx.MultiDiGraph()
-
-        # Create nodes
-        nodes = graph['nodes']
-        for node in nodes:
-            G.add_node(node['data']['id'], **node['data'])
-
-        # Create edges
-        edges = graph['edges']
-        for edge in edges:
-            G.add_edge(edge['data']['source'], edge['data']['target'], edge_id=edge['data']['edge_id'], label=edge['data']['label'], id=generate())
-
-        return G
-
     def build_subgraph_nx(self, graph):
+        """
+        Build a networkx subgraph from a json representation.
+        """
         # Identify connected components
         connected_components = list(nx.weakly_connected_components(graph))
 
