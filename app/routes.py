@@ -843,6 +843,14 @@ def search(current_user_id):
 @app.route("/localized-graph", methods=["GET"])
 @token_required
 def cell_component(current_user_id):
+    """
+    Build a graph of proteins with their locations.
+
+    - Takes an annotation ID and a list of locations from the frontend.
+    - Expands parent–child relationships into direct edges.
+    - Finds which proteins belong to the given locations.
+    - Returns a JSON graph where each protein is mapped to its location(s).
+    """
     # get annotation id and get go term id
     annotation_id = request.args.get('id')
     locations = request.args.get('locations')
