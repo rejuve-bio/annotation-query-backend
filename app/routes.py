@@ -4,6 +4,7 @@ import logging
 import json
 import os
 import threading
+from pathlib import Path
 from app import app, schema_manager, db_instance, socketio, redis_client
 from app.lib import validate_request
 from flask_cors import CORS
@@ -21,8 +22,8 @@ from app.workers.task_handler import get_annotation_redis
 from app.persistence import AnnotationStorageService, UserStorageService
 from nanoid import generate
 from app.lib.utils import convert_to_tsv
+import traceback
 from app.lib import convert_to_excel
-
 # Load environmental variables
 load_dotenv()
 
@@ -1044,6 +1045,218 @@ def search(current_user_id):
             suggested_response.append(suggestion['text'])
 
         return Response(json.dumps(suggested_response, indent=4), mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error processing search: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/localized-graph", methods=["GET"])
+@token_required
+def cell_component(current_user_id):
+    """
+    Build a graph of proteins with their locations.
+
+    - Takes an annotation ID and a list of locations from the frontend.
+    - Expands parent–child relationships into direct edges.
+    - Finds which proteins belong to the given locations.
+    - Returns a JSON graph where each protein is mapped to its location(s).
+    """
+    # get annotation id and get go term id
+    annotation_id = request.args.get('id')
+    locations = request.args.get('locations')
+
+    # parse the location
+    locations = locations.split(',')
+
+    proteins = []
+
+    try:
+        # get the graph and filter out the protein
+        file_name = f'{annotation_id}.json'
+        path = Path(__file__).parent /".."/ "public" / "graph" / f"{file_name}"
+
+        with open(path, 'r') as f:
+            graph = json.load(f)
+
+        nodes = graph['nodes']
+        edges = graph['edges']
+
+
+        # filter out the parents
+        parent_edges = {}
+
+        for node in nodes:
+            if node['data']['type'] == 'parent':
+                parent_edges[node['data']['id']] = []
+
+        for node in nodes:
+            if 'parent' in node['data'] and node['data']['type'] == 'protein':
+                parent_edges[node['data']['parent']].append(node['data']['id'])
+
+        new_edge = []
+
+        for i, edge in enumerate(edges):
+            if edge['data']['source'] in parent_edges:
+                for child in parent_edges[edge['data']['source']]:
+                    new_edge.append({
+                        "data": {
+                            "source": child,
+                            "target": edge['data']['target'],
+                            "label": edge['data']['label'],
+                            "edge_id": edge['data']['edge_id'],
+                            "id": generate()
+                        }
+                    })
+            elif edge['data']['target'] in parent_edges:
+                for child in parent_edges[edge['data']['target']]:
+                    new_edge.append({
+                        "data": {
+                            "source": edge['data']['source'],
+                            "target": child,
+                            "label": edge['data']['label'],
+                            "edge_id": edge['data']['edge_id'],
+                            "id": generate()
+                        }
+                    })
+            else:
+               new_edge.append({
+                   "data": {
+                       "source": edge['data']['source'],
+                       "target": edge['data']['target'],
+                       "label": edge['data']['label'],
+                       "edge_id": edge['data']['edge_id'],
+                       "id": generate()
+                   }
+               })
+
+        node_to_edge_relationship = {}
+
+        inital_node_map = {}
+
+        for node in nodes:
+            if node['data']['type'] == 'protein':
+                if node['data']['id'] not in inital_node_map:
+                    inital_node_map[node['data']['id']] = node
+
+        for edge in new_edge:
+            source = edge['data']['source']
+            target = edge['data']['target']
+            label = edge['data']['label']
+
+            if source in inital_node_map and target in inital_node_map:
+                source_nodes = []
+                target_nodes = []
+
+                if inital_node_map[source]['data']['type'] != 'parent':
+                    for single_node in inital_node_map[source]['data']['nodes']:
+                        source_nodes.append(single_node['id'])
+
+                if inital_node_map[target]['data']['type'] != 'parent':
+                    for single_node in inital_node_map[target]['data']['nodes']:
+                        target_nodes.append(single_node['id'])
+
+                for source_node in source_nodes:
+                    for target_node in target_nodes:
+                        key = f"{source_node}_{label}_{target_node}"
+                        node_to_edge_relationship[key] = {
+                            'source': source_node,
+                            'label': label,
+                            'target': target_node
+                        }
+
+        response = {"nodes": [], "edges": []}
+
+        for key, value in node_to_edge_relationship.items():
+            edge_id_arr = key.split(' ')
+            middle_arr = edge_id_arr[1].split('_')
+            middle = '_'.join(middle_arr[1:len(middle_arr)])
+            edge_id = f'{edge_id_arr[0]}_{middle}'
+            response['edges'].append({
+                'data': {
+                    'id': generate(),
+                    'source': value['source'],
+                    'target': value['target'],
+                    'label': value['label'],
+                    'edge_id': edge_id
+                }
+            })
+
+
+        go_ids = []
+        protein_node_map = {}
+
+        for node in nodes:
+            if node['data']['type'] == 'protein':
+                for single_node in node['data']['nodes']:
+                    id = single_node['id'].split(' ')[1]
+                    proteins.append(id)
+                    if id not in protein_node_map:
+                        protein_node_map[id] = {}
+                    protein_node_map[id]["data"] = { **single_node, "location": "" }
+
+        go_subcomponents = {
+            "type": "go",
+            "id": "",
+            "properties": {
+                "subontology": "cellular_component"
+            }
+        }
+
+        go_parent = {
+            "type": "go",
+            "id": "",
+            "properties": {}
+        }
+
+        for location in locations:
+            go_id = location.lower()
+            go_id = go_id.replace(':', '_')
+            go_ids.append(go_id)
+
+        query = db_instance.list_query_generator_source_target(go_subcomponents, go_parent, go_ids, "subclass_of")
+
+        result = db_instance.run_query(query)
+        parsed_result_go = db_instance.parse_list_query(result)
+
+        go_ids = []
+
+        for key in parsed_result_go.keys():
+            go_ids.append(key)
+            go_ids.extend(parsed_result_go[key]['node_ids'])
+
+        source = {
+            "type": "go",
+            "id": "",
+            "properties": {}
+        }
+
+        target = {
+            "type": "protein",
+            "id": "",
+            "properties": {}
+        }
+
+        query = db_instance.list_query_generator_both(source, target, go_ids, proteins, "go_gene_product")
+
+        result = db_instance.run_query(query)
+        parsed_result = db_instance.parse_list_query(result)
+
+        for key in parsed_result.keys():
+            normalized_id = []
+            location = parsed_result[key]['node_ids']
+            for i, _ in enumerate(location):
+                for parent_id in parsed_result_go.keys():
+                    if location[i] == parent_id or location[i] in parsed_result_go[parent_id]['node_ids']:
+                        normalized_id.append(parent_id.replace('_', ':').upper())
+            protein_node_map[key]['data']['location'] =  ','.join(normalized_id)
+
+        for values in protein_node_map.values():
+            response["nodes"].append(values)
+
+
+        # graph = Graph()
+        # graph_response = graph.collapse_node_nx_location(response)
+
+        return Response(json.dumps(response, indent=4), mimetype='application/json')
     except Exception as e:
         logging.error(f"Error processing search: {e}")
         return jsonify({"error": str(e)}), 500

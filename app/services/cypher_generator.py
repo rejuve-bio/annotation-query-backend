@@ -527,3 +527,64 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 node['id'] = ''
             node["id"] = node["id"].lower()
         return request
+
+    def list_query_generator_source_target(self, source, target, target_ids, relationship):
+        source_node = self.match_node(source, "source")
+        target_node = self.match_node(target, "target")
+
+        where_clause = ""
+        for key, properties in source['properties'].items():
+            where_clause += f"source.{key} = '{properties}' AND "
+
+        where_clause += f"target.id IN target_ids"
+
+        where_clause = f"WHERE {where_clause}"
+
+        with_clause = f"WITH {str(target_ids)} AS target_ids"
+
+        match_clause = f"MATCH {source_node}-[{relationship}]->{target_node}"
+
+        return_clause = f"RETURN COLLECT(DISTINCT source.id) AS source_ids, target.id AS target_ids"
+
+        query= f"""
+        {with_clause}
+        {match_clause}
+        {where_clause}
+        {return_clause}
+        """
+
+        return query
+
+    def list_query_generator_both(self, source, target, source_ids, target_ids, relationship):
+        source_node = self.match_node(source, "source")
+        target_node = self.match_node(target, "target")
+
+        where_clause = f"source.id IN source_ids AND "
+        where_clause += f"target.id IN target_ids"
+        where_clause = f"WHERE {where_clause}"
+
+        with_clause = f"WITH {str(source_ids)} AS source_ids, {str(target_ids)} AS target_ids"
+
+        match_clause = f"MATCH {source_node}-[{relationship}]->{target_node}"
+
+        return_clause = "RETURN target.id AS target_ids, COLLECT(DISTINCT source.id) AS source_ids"
+
+        query= f"""
+        {with_clause}
+        {match_clause}
+        {where_clause}
+        {return_clause}
+        """
+
+        return query
+
+    def parse_list_query(self, results):
+        paresed_result = {}
+        for result in results:
+            source_ids = result['source_ids']
+            target_ids = result['target_ids']
+
+            paresed_result[target_ids] = {'node_ids': []}
+            paresed_result[target_ids]['node_ids'] = source_ids
+
+        return paresed_result
