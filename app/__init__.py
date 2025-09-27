@@ -5,6 +5,7 @@ from flask_socketio import SocketIO
 from app.services.schema_data import SchemaManager
 from app.services.cypher_generator import CypherQueryGenerator
 from app.services.metta_generator import MeTTa_Query_Generator
+from app.services.mork_generator import MorkQueryGenerator
 from db import mongo_init
 from app.services.llm_handler import LLMHandler
 from app.persistence import AnnotationStorageService, UserStorageService
@@ -57,7 +58,8 @@ es_db = Elasticsearch(ES_URL, api_key=ES_API_KEY)
 
 databases = {
     "metta": lambda: MeTTa_Query_Generator("./Data"),
-    "cypher": lambda: CypherQueryGenerator("./cypher_data")
+    "cypher": lambda: CypherQueryGenerator("./cypher_data"),
+    "mork": lambda: MorkQueryGenerator(".Data"),
 
     # Add other database instances here
 }

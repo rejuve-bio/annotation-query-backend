@@ -2,6 +2,7 @@ import pandas as pd
 from pathlib import Path
 import logging
 import re
+import os
 import zipfile
 from io import BytesIO
 
@@ -45,6 +46,9 @@ def convert_to_csv(response, user_id, file_name):
                 edge = pd.json_normalize(edges[key])
                 edge.columns = [col.replace('data.', '') for col in edge.columns]
                 edge.to_excel(writer, sheet_name=f'{source}-relationship-{target}', index=False)
+    except Exception as e:
+        logging.error(f"Error converting to CSV: {e}")
+        return None
 
 def convert_to_excel(response):
     output = BytesIO()
