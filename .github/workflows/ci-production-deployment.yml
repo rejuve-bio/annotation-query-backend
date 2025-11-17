@@ -1,0 +1,412 @@
+name: CI - Build, Validate and Push Annotation Backend (production Only)
+
+on:
+  push:
+    branches: [ production ]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [production]
+
+env:
+  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+  DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+  
+  APP_PORT: 5007
+  MONGODB_DOCKER_PORT: 27022
+  CADDY_PORT: 5558
+  CADDY_PORT_FORWARD: 6002
+
+jobs:
+  build-and-validate-annotation:
+    runs-on: ubuntu-latest
+    outputs:
+      validation-status: ${{ steps.validate-container.outcome }}
+      image-tag: ${{ steps.set-image-tag.outputs.image-tag }}
+      docker-pushed: ${{ steps.deployment-trigger.outputs.docker_pushed }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+     
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+     
+    - name: Login to Docker Hub
+      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+    - name: Set image tag
+      id: set-image-tag
+      run: |
+        IMAGE_TAG="abdum1964/annotation:production"
+        echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "Using image tag: $IMAGE_TAG"
+
+    - name: Build Annotation Backend Service
+      run: |
+        echo "=== Building Annotation Backend Service ==="
+        IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
+        
+        docker build \
+          --build-arg APP_PORT=${{ env.APP_PORT }} \
+          -t $IMAGE_TAG .
+        
+        echo "[SUCCESS] Image built successfully"
+        echo "Image tag: $IMAGE_TAG"
+
+    - name: Validate Annotation Container (Integration Test)
+      id: validate-container
+      env:
+        # Use ALL  external Neo4j servers 
+        NEO4J_URI: ${{ secrets.NEO4J_URI }}
+        NEO4J_USERNAME: ${{ secrets.NEO4J_USERNAME }}
+        NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+        HUMAN_NEO4J_URI: ${{ secrets.HUMAN_NEO4J_URI }}
+        HUMAN_NEO4J_USERNAME: ${{ secrets.HUMAN_NEO4J_USERNAME }}
+        HUMAN_NEO4J_PASSWORD: ${{ secrets.HUMAN_NEO4J_PASSWORD }}
+        FLY_NEO4J_URI: ${{ secrets.FLY_NEO4J_URI }}
+        FLY_NEO4J_USERNAME: ${{ secrets.FLY_NEO4J_USERNAME }}
+        FLY_NEO4J_PASSWORD: ${{ secrets.FLY_NEO4J_PASSWORD }}
+        
+        # Other environment variables
+        MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
+        MAIL_PORT: ${{ secrets.MAIL_PORT }}
+        MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+        MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+        MAIL_DEFAULT_SENDER: ${{ secrets.MAIL_DEFAULT_SENDER }}
+        MAIL_USE_TLS: False
+        MAIL_USE_SSL: False
+        LLM_MODEL: gemini
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        MONGO_URI: mongodb://mongodb:27017/annotation
+        REDIS_URL: redis://redis:6379/0
+        REDIS_EXPIRATION: 3600
+        PARENT_DIR: /tmp/test_data
+        SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        AXIOM_TOKEN: ${{ secrets.AXIOM_TOKEN }}
+        AXIOM_DATASET: application-logs
+        AXIOM_PERFORMANCE_LOGS: performance-metrics
+        MORK_URL: ${{ secrets.MORK_URL }}
+        DOCKER_HUB_REPO: abdum1964/annotation
+      run: |
+        echo "=== Full Docker Compose Validation for Annotation Backend ==="
+        
+        IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
+        echo "Using image: $IMAGE_TAG"
+        
+        # Create docker-compose.ci.yml  
+        cat > docker-compose.ci.yml << EOF
+        services:
+          annotation_service:
+            image: $IMAGE_TAG
+            container_name: annotation_service-production
+            ports:
+              - "${{ env.APP_PORT }}:${{ env.APP_PORT }}"
+            volumes:
+              - .:/app   
+            command: flask run --host=0.0.0.0 --port=${{ env.APP_PORT }}
+            restart: unless-stopped
+            depends_on:
+              - mongodb
+              - redis
+            environment:
+              # Application
+              - APP_PORT=${{ env.APP_PORT }}
+              
+              # MongoDB - Local test container
+              - MONGO_URI=$MONGO_URI
+              
+              # Redis - Local test container
+              - REDIS_HOST=redis
+              - REDIS_PORT=6379
+              - REDIS_URL=$REDIS_URL
+              - REDIS_EXPIRATION=$REDIS_EXPIRATION
+              
+              # Neo4j - ALL point to REAL external servers (safe for queries)
+              - NEO4J_URI=$NEO4J_URI
+              - NEO4J_USERNAME=$NEO4J_USERNAME
+              - NEO4J_PASSWORD=$NEO4J_PASSWORD
+              - HUMAN_NEO4J_URI=$HUMAN_NEO4J_URI
+              - HUMAN_NEO4J_USERNAME=$HUMAN_NEO4J_USERNAME
+              - HUMAN_NEO4J_PASSWORD=$HUMAN_NEO4J_PASSWORD
+              - FLY_NEO4J_URI=$FLY_NEO4J_URI
+              - FLY_NEO4J_USERNAME=$FLY_NEO4J_USERNAME
+              - FLY_NEO4J_PASSWORD=$FLY_NEO4J_PASSWORD
+              
+              # LLM
+              - LLM_MODEL=$LLM_MODEL
+              - GEMINI_API_KEY=$GEMINI_API_KEY
+              
+              # Security
+              - JWT_SECRET=$JWT_SECRET
+              - SECRET_KEY=$SECRET_KEY
+              
+              # Email
+              - MAIL_SERVER=$MAIL_SERVER
+              - MAIL_PORT=$MAIL_PORT
+              - MAIL_USERNAME=$MAIL_USERNAME
+              - MAIL_PASSWORD=$MAIL_PASSWORD
+              - MAIL_DEFAULT_SENDER=$MAIL_DEFAULT_SENDER
+              - MAIL_USE_TLS=$MAIL_USE_TLS
+              - MAIL_USE_SSL=$MAIL_USE_SSL
+              
+              # Monitoring
+              - SENTRY_DSN=$SENTRY_DSN
+              - AXIOM_TOKEN=$AXIOM_TOKEN
+              - AXIOM_DATASET=$AXIOM_DATASET
+              - AXIOM_PERFORMANCE_LOGS=$AXIOM_PERFORMANCE_LOGS
+              
+              # External Services
+              - MORK_URL=$MORK_URL
+              
+              # File Paths - Use temp directory
+              - PARENT_DIR=$PARENT_DIR
+              
+              # Docker
+              - DOCKER_HUB_REPO=$DOCKER_HUB_REPO
+
+          mongodb:
+            image: mongo:latest
+            container_name: mongodb-production
+            volumes:
+              - mongo_data:/data/db
+            ports:
+              - "${{ env.MONGODB_DOCKER_PORT }}:27017"
+            restart: unless-stopped
+
+          redis:
+            image: redis:latest
+            container_name: redis-production
+            volumes:
+              - redis_data:/data
+            ports:
+              - "6382:6379"
+            restart: unless-stopped
+
+          caddy:
+            image: caddy:latest
+            container_name: caddy-production
+            ports:
+              - "${{ env.CADDY_PORT }}:${{ env.CADDY_PORT_FORWARD }}"
+            volumes:
+              - caddy_data:/data
+              - caddy_config:/config
+            command: caddy reverse-proxy --from http://0.0.0.0:${{ env.CADDY_PORT_FORWARD }} --to http://annotation_service:${{ env.APP_PORT }}
+            restart: unless-stopped
+            depends_on:
+              - annotation_service
+
+        volumes:
+          mongo_data:
+          redis_data:
+          caddy_data:
+          caddy_config:
+        EOF
+        
+        # Create test data directory
+        mkdir -p /tmp/test_data
+        
+        # Step 1: Start all services with docker compose up
+        echo "=== Step 1: Starting all services with 'docker compose up' ==="
+        docker compose -p annotation-production -f docker-compose.ci.yml up -d
+        
+        # Wait for services to initialize
+        echo "=== Waiting 120 seconds for services to initialize ==="
+        sleep 120
+        
+        # Step 2: Check docker ps to see all container status
+        echo "=== Step 2: Checking 'docker ps -a' for all containers ==="
+        echo "All containers status:"
+        docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        
+        # Step 3: Direct Docker logs check
+        echo ""
+        echo "=== Step 3: DIRECT DOCKER LOGS CHECK ==="
+        
+        CONTAINER_NAME="annotation_service-production"
+        
+        # Check if container exists and get logs
+        if docker ps -a --filter "name=$CONTAINER_NAME" | grep -q "$CONTAINER_NAME"; then
+          echo "[SUCCESS] Container $CONTAINER_NAME exists"
+          
+          # Get the container status
+          CONTAINER_STATUS=$(docker inspect --format='{{.State.Status}}' $CONTAINER_NAME 2>/dev/null || echo "unknown")
+          echo "Container status: $CONTAINER_STATUS"
+          
+          # Get exit code if exited
+          if [[ "$CONTAINER_STATUS" == "exited" ]]; then
+            EXIT_CODE=$(docker inspect --format='{{.State.ExitCode}}' $CONTAINER_NAME)
+            echo "Exit code: $EXIT_CODE"
+          fi
+          
+          # ALWAYS get logs
+          echo ""
+          echo "=== DIRECT DOCKER LOGS: docker logs $CONTAINER_NAME ==="
+          docker logs $CONTAINER_NAME --tail 300 || echo "Could not get logs"
+          
+          # If container is exited, try to restart it and get new logs
+          if [[ "$CONTAINER_STATUS" == "exited" ]]; then
+            echo ""
+            echo "=== RESTARTING CONTAINER: docker restart $CONTAINER_NAME ==="
+            docker restart $CONTAINER_NAME
+            sleep 15
+            
+            echo "=== LOGS AFTER RESTART: docker logs $CONTAINER_NAME ==="
+            docker logs $CONTAINER_NAME --tail 50 || echo "Could not get logs after restart"
+          fi
+          
+        else
+          echo "[ERROR] Container $CONTAINER_NAME does not exist"
+        fi
+        
+        # Step 4:check with docker compose logs for comparison
+        echo ""
+        echo "=== Step 4: DOCKER COMPOSE LOGS CHECK ==="
+        docker compose -p annotation-production -f docker-compose.ci.yml logs --tail 100 || echo "Could not get compose logs"
+
+        # Step 5: Test service connections
+        echo ""
+        echo "=== Step 5: Testing Service Connections ==="
+
+        # Test MongoDB connection
+        echo "=== Testing MongoDB Connection ==="
+        docker compose -p annotation-production -f docker-compose.ci.yml exec -T mongodb mongosh --eval "db.runCommand({ping: 1})" || echo "MongoDB connection test failed"
+
+        # Test Redis connection
+        echo "=== Testing Redis Connection ==="
+        docker compose -p annotation-production -f docker-compose.ci.yml exec -T redis redis-cli ping || echo "Redis connection test failed"
+
+        # Step 6: Test External Neo4j Connections (read-only queries)
+        echo ""
+        echo "=== Step 6: Testing External Neo4j Connections ==="
+        
+        # Test if application can connect to external Neo4j servers
+        echo "=== Testing application Neo4j connectivity ==="
+        if curl -f http://localhost:${{ env.APP_PORT }}/health 2>/dev/null; then
+          echo "[SUCCESS] Application health check passed"
+        else
+          # Check if Neo4j connection errors appear in logs
+          if docker compose -f docker-compose.ci.yml logs annotation_service 2>/dev/null | grep -q "neo4j.*error\|Neo4j.*failed"; then
+            echo "[WARNING] Possible Neo4j connection issues detected"
+          else
+            echo "[INFO] Application might be starting up..."
+          fi
+        fi
+
+        # Check infrastructure services are running
+        INFRA_RUNNING=true
+        for service in mongodb redis annotation_service caddy; do
+          if docker compose -p annotation-production -f docker-compose.ci.yml ps $service | grep -q "Up"; then
+            echo "[SUCCESS] $service is running"
+          else
+            echo "[ERROR] $service is NOT running"
+            INFRA_RUNNING=false
+          fi
+        done
+        
+        # Check application health
+        APP_HEALTHY=true
+        echo "=== Checking application health ==="
+        
+        # Check for critical errors in logs
+        if docker compose -f docker-compose.ci.yml logs annotation_service 2>/dev/null | grep -E "ConnectionRefusedError|OperationalError|Authentication failed"; then
+          echo "[ERROR] Critical database connection/authentication error found"
+          APP_HEALTHY=false
+        fi
+        
+        # Check if application responds to health endpoint
+        echo "=== Testing application response ==="
+        if curl -f http://localhost:${{ env.APP_PORT }}/health 2>/dev/null || \
+           curl -f http://localhost:${{ env.APP_PORT }}/ 2>/dev/null || \
+           curl -f http://localhost:${{ env.CADDY_PORT }}/ 2>/dev/null; then
+          echo "[SUCCESS] Application is responding through Flask or Caddy"
+        else
+          echo "[WARNING] Application direct endpoints not responding, checking if it's starting up..."
+          # Give it more time and retry
+          sleep 30
+          if curl -f http://localhost:${{ env.APP_PORT }}/ 2>/dev/null || curl -f http://localhost:${{ env.CADDY_PORT }}/ 2>/dev/null; then
+            echo "[SUCCESS] Application responded after additional wait"
+          else
+            echo "[ERROR] Application is NOT responding after extended wait"
+            APP_HEALTHY=false
+          fi
+        fi
+        
+        if [[ "$INFRA_RUNNING" == "true" && "$APP_HEALTHY" == "true" ]]; then
+          echo "[SUCCESS] All services are running and application is healthy"
+          echo ""
+          echo "*** VALIDATION PASSED - Continuing pipeline"
+          echo "*** Image will be pushed to Docker Hub"
+        else
+          echo "[ERROR] CRITICAL: Validation failed - application is not working properly"
+          exit 1
+        fi
+
+    - name: Cleanup Docker Compose
+      if: always()
+      run: |
+        echo "=== Cleaning up Docker Compose setup ==="
+        docker compose -p annotation-production -f docker-compose.ci.yml down -v
+        rm -f docker-compose.ci.yml
+
+    - name: Push to Docker Hub
+      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
+      run: |
+        echo "=== Pushing validated Annotation Backend image to Docker Hub ==="
+        IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
+        
+        echo "Pushing: $IMAGE_TAG"
+        docker push $IMAGE_TAG
+        
+        echo "[SUCCESS] Image pushed successfully to Docker Hub"
+        echo "Image: $IMAGE_TAG"
+
+    - name: Set deployment trigger
+      
+      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
+      id: deployment-trigger
+      run: |
+        echo "docker_pushed=true" >> $GITHUB_OUTPUT
+
+    - name: Cleanup Docker system
+      if: always()
+      run: |
+        echo "=== Cleaning up Docker system ==="
+        docker system prune -f
+        echo "=== Disk space after cleanup ==="
+        df -h
+
+    - name: Trigger CD workflow via Repository Dispatch
+       
+      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
+      run: |
+        curl -L -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://api.github.com/repos/${{ github.repository }}/dispatches \
+          -d '{"event_type":"deploy-production","client_payload":{"image_tag":"${{ steps.set-image-tag.outputs.image-tag }}"}}'
+        echo "[SUCCESS] CD workflow triggered successfully!"
+
+  validation-summary:
+    runs-on: ubuntu-latest
+    needs: build-and-validate-annotation
+    if: always()
+    steps:
+    - name: Summary
+      run: |
+        echo "=== CI/CD Validation Summary ==="
+        echo "Annotation Backend Validation: ${{ needs.build-and-validate-annotation.outputs.validation-status }}"
+        
+        if [[ "${{ needs.build-and-validate-annotation.outputs.validation-status }}" == "success" ]]; then
+          echo "[SUCCESS] SUCCESS: Annotation Backend built, validated, and pushed to Docker Hub!"
+          echo "*** Image: ${{ needs.build-and-validate-annotation.outputs.image-tag }}"
+        else
+          echo "[ERROR] FAILED: Validation did not pass. Check the build-and-validate-annotation job for details."
+          exit 1
+        fi
