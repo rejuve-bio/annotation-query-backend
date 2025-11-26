@@ -1,6 +1,14 @@
 name: GOA
 description: Gene Ontology Annotations
 website: http://geneontology.org/
+nodes:
+  go:
+    represented_as: node
+    input_label: go
+    inherit_properties: true
+    properties:
+      subontology: str
+
 relationships:
   biological process gene product:
     url: http://geneontology.org/gene-associations/goa_human.gaf.gz
@@ -49,3 +57,53 @@ relationships:
       qualifier: obj
       db_reference: obj
       evidence: str
+
+  cl capable of:
+    is_a: annotation
+    inherit_properties: true
+    represented_as: edge
+    input_label: cl_capable_of
+    output_label: capable_of
+    description: >-
+      Represents a functional capability relationship between a CL term and a GO term.
+    source: cl
+    target: go
+  go subclass of:
+    is_a: subclass of
+    inherit_properties: true
+    represented_as: edge
+    input_label: go_subclass_of
+    output_label: subclass_of
+    source: go
+    target: go
+  go gene product:
+    is_a: annotation
+    inherit_properties: true
+    represented_as: edge
+    input_label: go_gene_product
+    source: go
+    target: protein
+    properties:
+      qualifier: obj
+      db_reference: obj
+      evidence: str
+  go gene:
+    is_a: annotation
+    inherit_properties: true
+    represented_as: edge
+    input_label: go_gene
+    output_label: belongs_to
+    source: gene
+    target: go
+    properties:
+      qualifier: obj
+      db_reference: obj
+      evidence: str
+  go rna:
+    is_a: annotation
+    inherit_properties: true
+    represented_as: edge
+    input_label: go_rna
+    output_label: belongs_to
+    source: non_coding_rna
+    target: go
