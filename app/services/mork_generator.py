@@ -16,6 +16,7 @@ class MorkQueryGenerator:
     def __init__(self, dataset_path):
         self.server = self.connect()
         self.metta = MeTTa()
+        self.current_id = None
         # self.clear_space()
         # self.load_dataset(dataset_path)
 
@@ -55,21 +56,59 @@ class MorkQueryGenerator:
         return node_representation
 
     def run_query(self, query, stop_event=None, species='human'):
-        with app.config["annotation_lock"]:
+        if isinstance(query, tuple) and len(query) == 3:
+            with app.config["annotation_lock"]:
+                start_time = time.time()
+                timestamp = datetime.datetime.utcnow().isoformat()
+                pattern, template, type = query
+
+                with self.server.work_at("annotation") as annotation:
+                    annotation.transform(pattern, template).block()
+                    result = annotation.download(f"({self.current_id} $x)", "($x)")
+                    with annotation.work_at(f"{self.current_id}") as tmp:
+                        tmp.clear()
+
+                metta_result = self.metta.parse_all(result.data)
+                # Success log
+                duration = (time.time() - start_time) * 1000 # in ms
+
+                perf_logger.info(
+                    "Query executed",
+                    extra={
+                        "query": str(query),
+                        "timestamp": timestamp,
+                        "duration_ms": duration,
+                        "species": species,
+                        "status": "success"
+                    }
+                )
+                print("RES: ", metta_result, flush=True)
+                return [metta_result]
+        elif isinstance(query, list):
+            queries = query
+            metta_results = []
             start_time = time.time()
             timestamp = datetime.datetime.utcnow().isoformat()
-            pattern, template, type = query
 
-            with self.server.work_at("annotation") as annotation:
-                annotation.transform(pattern, template).block()
-                result = annotation.download("(tmp $x)", "($x)")
-                with annotation.work_at("tmp") as tmp:
-                    tmp.clear()
+            for pattern, template, _ in queries:
+                # Ensure pattern/template are tuples
+                if isinstance(pattern, str):
+                    pattern = (pattern,)
+                if isinstance(template, str):
+                    template = (template,)
 
-            if result.data is None:
-                result.data = ''
-            metta_result = self.metta.parse_all(result.data)
-            # Success log
+                try:
+                    with self.server.work_at("annotation") as annotation:
+                        annotation.transform(pattern, template).block()
+                        result = annotation.download(f"({self.current_id} $x)", "($x)")
+                        with annotation.work_at(f"{self.current_id}") as tmp:
+                            tmp.clear()
+                    metta_result = self.metta.parse_all(result.data)
+                    metta_results.extend(metta_result)
+                except Exception as e:
+                    print("Query failed:", pattern, template)
+                    print(e)
+
             duration = (time.time() - start_time) * 1000  # in ms
 
             perf_logger.info(
@@ -83,7 +122,9 @@ class MorkQueryGenerator:
                 }
             )
 
-            return [metta_result]
+            return metta_results
+        else:
+            raise ValueError("query must be a tuple or a list of tuples")
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
         # this will do only transfomration
@@ -94,6 +135,7 @@ class MorkQueryGenerator:
         template = []
 
         node_representation = ''
+        self.current_id = self.generate_id()
 
         if "predicates" in requests and len(requests["predicates"]) > 0:
             predicates = requests["predicates"]
@@ -121,14 +163,14 @@ class MorkQueryGenerator:
                 if node["id"]:
                     essemble_id = node["id"]
                     pattern.append(f'({node_type} {essemble_id})')
-                    template.append(f'(tmp ({node_type} {essemble_id}))')
+                    template.append(f'({self.current_id} ({node_type} {essemble_id}))')
                 else:
                     if len(node["properties"]) == 0:
                         pattern.append(f'({node_type} ${node_id})')
                     else:
                         pattern.append(self.construct_node_representation(
                             node, node_identifier))
-                    template.append(f'(tmp ({node_type} {node_identifier}))')
+                    template.append(f'({self.current_id} ({node_type} {node_identifier}))')
 
             query = (tuple(pattern), tuple(template), 'query')
             total_count_query = (
@@ -168,7 +210,7 @@ class MorkQueryGenerator:
 
             # Add relationship
             pattern.append(f'({predicate_type} {source} {target})')
-            template.append(f'(tmp ({predicate_type} {source} {target}))')
+            template.append(f'({self.current_id} ({predicate_type} {source} {target}))')
 
         query = (tuple(pattern), tuple(template), 'query')
         total_count_query = (tuple(pattern), tuple(template), 'total_count')
@@ -234,7 +276,6 @@ class MorkQueryGenerator:
                     nodes.add(target)
 
                 predicate = result['predicate']
-                print(schema[species]['edges'][predicate])
                 for property in schema[species]['edges'][predicate]:
                     random = self.generate_id()
                     pattern.append(f'({property} ({predicate} ({source}) ({target})) ${random})')
@@ -329,7 +370,6 @@ class MorkQueryGenerator:
 
         return nodes_list, edges
 
-   # Won't work because of we don't try to parse node count and count by labels
     def process_result(self, results, graph_components, result_type):
         node_and_edge_count = {}
         count_by_label = {}
@@ -498,10 +538,8 @@ class MorkQueryGenerator:
                 f"({relationship} ({source_type} ${go_id}) ({target_type} {target_id}))"
             )
             template.append(
-                f"(tmp ({relationship} ({source_type} ${go_id}) ({target_type} {target_id})))"
+                f"({self.current_id} ({relationship} ({source_type} ${go_id}) ({target_type} {target_id})))"
             )
-            
-        print(pattern)
 
         return (tuple(pattern), tuple(template), 'query')
 
@@ -516,7 +554,7 @@ class MorkQueryGenerator:
                 target_type = target["type"]
 
                 pattern = f"({relationship} ({source_type} {source_id}) ({target_type} {target_id}))"
-                template = f"(tmp ({relationship} ({source_type} {source_id}) ({target_type} {target_id})))"
+                template = f"({self.current_id} ({relationship} ({source_type} {source_id}) ({target_type} {target_id})))"
 
                 exec_list.append((pattern, template, 'query'))
 
