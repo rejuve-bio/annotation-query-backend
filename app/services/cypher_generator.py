@@ -7,7 +7,7 @@ from neo4j import GraphDatabase
 import glob
 import os
 from neo4j.graph import Node, Relationship
-from app.error import ThreadStopException
+from app.error import TaskCancelledException
 
 load_dotenv()
 
@@ -26,8 +26,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             os.getenv('FLY_NEO4J_URI'),
             auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD'))
         )
-        # self.dataset_path = dataset_path
-        # self.load_dataset(self.dataset_path)
 
     def close(self):
         self.driver.close()
@@ -74,7 +72,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             result = session.run(query_code)
             for record in result:
                 if stop_event is not None and stop_event.is_set():
-                    raise ThreadStopException('Query runner is stopped')
+                    raise TaskCancelledException()
                 results.append(record)
         return results
 
@@ -107,6 +105,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         where_no_preds = []
         node_ids = set()
         clause_list = []
+        
+        virtual_defs = []
 
         if not predicates:
             list_of_node_ids = []
@@ -146,8 +146,14 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
                 source_match = self.match_node(source_node, source_var)
                 target_match = self.match_node(target_node, target_var)
+                
+                is_virtual = (predicate_type == 'overlaps_with')
 
                 tmp_where_preds = []
+                overlap_constraints = self.construct_overlap_clause(source_var, target_var, predicate_type)
+                if overlap_constraints:
+                    tmp_where_preds.extend(overlap_constraints)
+                    where_preds.extend(overlap_constraints)
                 if source_var not in node_ids:
                     tmp_where_preds.extend(self.where_construct(source_node, source_var))
                     where_preds.extend(
@@ -157,30 +163,46 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     where_preds.extend(
                         self.where_construct(target_node, target_var))
 
-                return_preds.append(predicate_id)
                 node_ids.add(source_var)
                 node_ids.add(target_var)
 
-                match_preds.append(
-                    f"{source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
-                )
+                # Initialize variable for virtual relationship creation
+                virtual_creation = ""
 
-                # Construct the MATCH clause
-                match_clause = f"MATCH {source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
+                if is_virtual:
+                    # Virtual: Match nodes implicitly
+                    match_clause = f"MATCH {source_match}, {target_match}"
+                    match_preds.append(f"{source_match}, {target_match}")
+                    
+                    return_preds.append(predicate_id)
+
+                    # 1. Create string for Main Query
+                    virtual_creation = f"WITH *, apoc.create.vRelationship({source_var}, '{predicate_type}', {{source:'virtual'}}, {target_var}) AS {predicate_id}"
+                    
+                    # 2. Store definition for Count Query (without WITH *)
+                    virtual_defs.append(f"apoc.create.vRelationship({source_var}, '{predicate_type}', {{source:'virtual'}}, {target_var}) AS {predicate_id}")
+
+                else:
+                    # Physical: Match with explicit relationship
+                    return_preds.append(predicate_id) 
+                    match_pattern = f"{source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
+                    match_clause = f"MATCH {match_pattern}"
+                    match_preds.append(match_pattern)
 
                 # Construct the WHERE clause if there are conditions
                 where_clause = f"WHERE {' AND '.join(tmp_where_preds)}" if len(tmp_where_preds) >= 1 else ''
 
                 if i == len(predicates) - 1:
-                    # Construct the RETURN clause
-                    return_clause = f"RETURN {', '.join(return_preds)}, {', '.join(node_ids)}"
+                    if return_preds:
+                        return_clause = f"RETURN {', '.join(return_preds)}, {', '.join(node_ids)}"
+                    else:
+                        return_clause = f"RETURN {', '.join(node_ids)}"
 
-                    # Combine all clauses into a single query
-                    clause_list.append(f"{match_clause} {where_clause} {return_clause}")
+                    # Combine all clauses
+                    clause_list.append(f"{match_clause} {where_clause} {virtual_creation} {return_clause}")
                 else:
                     with_clause = f"WITH {', '.join(return_preds)}, {', '.join(node_ids)}"
-
-                    clause_list.append(f"{match_clause} {where_clause} {with_clause}")
+                    clause_list.append(f"{match_clause} {where_clause} {virtual_creation} {with_clause}")
 
             list_of_node_ids = list(node_ids)
             list_of_node_ids.sort()
@@ -195,11 +217,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 "where_preds": where_preds,
                 "list_of_node_ids": list_of_node_ids,
                 "return_preds": return_preds,
-                "predicates": predicates
+                "predicates": predicates,
+                "virtual_defs": virtual_defs # Pass virtual definitions to count clause
             }
             count = self.construct_count_clause(
                 query_clauses, node_map, predicate_map)
             cypher_queries.extend(count)
+            
         return cypher_queries
 
     def construct_clause(self, match_clause, return_clause, where_no_preds, limit):
@@ -227,6 +251,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         where_no_clause = ''
         match_clause = ''
         where_clause = ''
+        virtual_setup = ''
         return_preds = []
         collect_node_and_edge = ''
 
@@ -242,6 +267,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             if 'where_preds' in query_clauses and query_clauses['where_preds']:
                 where_clause = f"WHERE {' AND '.join(query_clauses['where_preds'])}"
 
+        # Prepare virtual relationship definitions so they can be counted
+        if 'virtual_defs' in query_clauses and query_clauses['virtual_defs']:
+            virtual_setup = f"WITH *, {', '.join(query_clauses['virtual_defs'])}"
+
         if "return_no_preds" in query_clauses and "return_preds" in query_clauses:
             query_clauses['list_of_node_ids'].extend(
                 query_clauses['return_no_preds'])
@@ -254,8 +283,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         if "return_preds" in query_clauses:
             for predicate in query_clauses['predicates']:
+                # UPDATED: Do not skip overlaps_with; we want to count them now
                 predicate_id = predicate['predicate_id']
                 collect_node_and_edge += f"COLLECT(DISTINCT {predicate_id}) AS {predicate_id}_count, "
+        
         collect_node_and_edge = f"WITH {collect_node_and_edge.rstrip(', ')}"
 
         # Construct the WITH and UNWIND clauses
@@ -277,6 +308,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             {where_no_clause}
             {match_clause}
             {where_clause}
+            {virtual_setup}
             {collect_node_and_edge}
             {with_clause}
             {unwind_clause}
@@ -291,16 +323,19 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             for node in query_clauses['list_of_node_ids']:
                 count_clause += f"COUNT(DISTINCT {node}) AS {node}_{node_map[node]['type']}, "
             for edge in query_clauses['predicates']:
+                # UPDATED: Do not skip overlaps_with here either
                 edge_id = edge['predicate_id']
                 count_clause += f"COUNT(DISTINCT {edge_id}) AS {edge_id}_{predicate_map[edge_id]['type'].replace(' ', '_')}, "
             return_clause = "RETURN " + count_clause.rstrip(', ')
-            label_count_query = f'''{match_no_clause} {where_no_clause} {match_clause} {where_clause} {return_clause}'''
+            
+            label_count_query = f'''{match_no_clause} {where_no_clause} {match_clause} {where_clause} {virtual_setup} {return_clause}'''
         else:
             count_clause = ''
             for node in query_clauses['list_of_node_ids']:
                 count_clause += f"COUNT(DISTINCT {node}) AS {node}_{node_map[node]['type']}, "
             return_clause = "RETURN " + count_clause.rstrip(', ')
-            label_count_query = f'''{match_no_clause} {where_no_clause} {return_clause}'''
+            the_clause = match_no_clause or match_clause
+            label_count_query = f'''{the_clause} {where_no_clause} {return_clause}'''
 
         return [total_count, label_count_query]
 
@@ -322,6 +357,31 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             return f"({var_name}:{node['type']} {{id: '{node['id']}'}})"
         else:
             return f"({var_name}:{node['type']})"
+
+    def construct_overlap_clause(self, source_var, target_var, predicate_type):
+        """
+        Generates WHERE clauses for relationship-based genomic overlaps.
+        overlaps_with(A, B) :- 
+            chr(A) == chr(B), 
+            start(B) < start(A), 
+            end(A) < end(B).
+        """
+        conditions = []
+        
+        # Check if the relationship is specifically 'overlaps_with'
+        if predicate_type == 'overlaps_with':
+            # 1. Chromosome Check (Assuming property is 'chr' or 'chromosome')
+            # You might need to change '.chr' to '.chromosome' depending on your Neo4j properties
+            conditions.append(f"{source_var}.chr = {target_var}.chr")
+            
+            # 2. Start Logic: StartB < StartA (Target starts before Source)
+            # using toInteger ensures numerical comparison rather than string comparison
+            conditions.append(f"toInteger({target_var}.start) < toInteger({source_var}.start)")
+            
+            # 3. End Logic: EndA < EndB (Source ends before Target)
+            conditions.append(f"toInteger({source_var}.end) < toInteger({target_var}.end)")
+
+        return conditions
 
     def where_construct(self, node, var_name):
         """

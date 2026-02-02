@@ -1,5 +1,4 @@
 import os
-import traceback
 import logging
 from pymongo import MongoClient
 from pymongoose.methods import set_schemas
@@ -9,27 +8,35 @@ from app.models.shared_annotation import SharedAnnotation
 
 MONGO_URI = os.environ.get("MONGO_URI")
 
-mongo_db = None
-
+_client = None
+_db = None
 
 def mongo_init():
-    global mongo_db
+    global _client, _db
 
-    client = MongoClient(MONGO_URI)
-    db = client.test
-    try:
-        # Define the shcemas
+    if _client is not None:
+        return _db  # already initialized in this process
 
-        schemas = {
-            "annotation": Annotation(empty=True).schema,
-            "user": User(empty=True).schema,
-            "shared_annotation": SharedAnnotation(empty=True).schema,
-        }
+    _client = MongoClient(
+        MONGO_URI,
+        maxPoolSize=20,
+        connectTimeoutMS=5000,
+    )
 
-        set_schemas(db, schemas)
+    _db = _client.test
 
-        logging.info("MongoDB Connected!")
-    except Exception as e:
-        traceback.print_exc()
-        logging.error(f"Error initializing database {e}")
-        exit(1)
+    schemas = {
+        "annotation": Annotation(empty=True).schema,
+        "user": User(empty=True).schema,
+        "shared_annotation": SharedAnnotation(empty=True).schema,
+    }
+
+    set_schemas(_db, schemas)
+    logging.info("MongoDB Connected!")
+
+    return _db
+
+def get_db():
+    if _db is None:
+        raise RuntimeError("MongoDB not initialized in this process")
+    return _db
