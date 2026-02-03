@@ -1,3 +1,5 @@
+from app.constants import TaskStatus
+
 class RedisStopEvent:
     """
     Used to cancel loops inside Celery tasks.
@@ -9,13 +11,12 @@ class RedisStopEvent:
     def is_set(self):
         # Check if the status in Redis is 'CANCELLED'
         status = self.redis.hget(f"annotation:{self.annotation_id}", "status")
-        print("ANNOTATION STATUS: ", status)
         
         if status:
             # Decode if bytes (Redis standard)
             if isinstance(status, bytes):
                 status = status.decode('utf-8')
-            return status == "CANCELLED"
+            return status == TaskStatus.CANCELLED.value
         return False
     
     def get_status(self):

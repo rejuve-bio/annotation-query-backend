@@ -101,8 +101,6 @@ from app.services.llm_handler import LLMHandler
 llm = LLMHandler()
 
 app.config['llm_handler'] = llm
-app.config['annotation_threads'] = {}
-app.config['annotation_lock'] = threading.Lock()
 app.config['es_db'] = es_db
 app.config['db_type'] = database_type
 
@@ -110,7 +108,7 @@ graph_info = json.load(open(GRAPH_INFO_PATH))
 
 from app import routes
 from app.annotation_controller import handle_client_request, process_full_data, requery
-from app.workers.scheduler import MetaDataUpdateWorker
+from app.workers.scheduler import metadata_update_worker
 
 def listen_to_redis(app):
     """
@@ -176,5 +174,5 @@ def start_redis_listener():
     redis_thread.daemon = True
     redis_thread.start()
 
-MetaDataUpdateWorker()
+metadata_update_worker()
 start_redis_listener()

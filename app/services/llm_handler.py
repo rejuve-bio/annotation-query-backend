@@ -164,8 +164,6 @@ class LLMHandler:
 
     def generate_title(self, query, request=None, node_map=None):
         try:
-            print(request)
-            print(node_map)
             if self.model is None:
                 if request is None or node_map is None:
                     return "Untitled"
@@ -305,7 +303,6 @@ class LLMHandler:
 
             chains.append(fragment)
 
-        # Final Polish
         title = ", and ".join(chains)
         return title[0].upper() + title[1:]
 
