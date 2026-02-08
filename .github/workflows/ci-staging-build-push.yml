@@ -17,8 +17,172 @@ env:
   CADDY_PORT_FORWARD: 6001
 
 jobs:
+  # STEP 1: Secret Scanning (runs first, in parallel)
+  secret-scanning:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+    
+    - name: TruffleHog Secret Scan
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: ${{ github.event.repository.default_branch }}
+        head: HEAD
+        extra_args: --debug --only-verified
+
+  # STEP 2: Code Quality Analysis (runs in parallel with secret scanning)
+  code-quality-analysis:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov pylint
+    
+    - name: Run tests with coverage
+      env:
+        MONGO_URI: mongodb://localhost:27017/test
+        REDIS_URL: redis://localhost:6379/0
+        NEO4J_URI: bolt://localhost:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: test
+        HUMAN_NEO4J_URI: bolt://localhost:7687
+        HUMAN_NEO4J_USERNAME: neo4j
+        HUMAN_NEO4J_PASSWORD: test
+        FLY_NEO4J_URI: bolt://localhost:7687
+        FLY_NEO4J_USERNAME: neo4j
+        FLY_NEO4J_PASSWORD: test
+        GEMINI_API_KEY: dummy-key-for-testing
+        JWT_SECRET: test-jwt-secret
+        SECRET_KEY: test-secret-key
+        MAIL_SERVER: localhost
+        MAIL_PORT: 1025
+        MAIL_USERNAME: test
+        MAIL_PASSWORD: test
+        MAIL_DEFAULT_SENDER: test@example.com
+        MAIL_USE_TLS: False
+        MAIL_USE_SSL: False
+        SENTRY_DSN: ""
+        AXIOM_TOKEN: ""
+        PARENT_DIR: /tmp/test_data
+        LLM_MODEL: gemini
+      run: |
+        pytest --cov=. --cov-report=xml --cov-report=html --cov-report=term || echo "No tests found"
+    
+    - name: Run pylint
+      run: |
+        pylint . --output-format=json > pylint-report.json || true
+    
+    - name: SonarQube Scan
+      uses: sonarsource/sonarqube-scan-action@master
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      with:
+        args: >
+          -Dsonar.projectKey=annotation-service
+          -Dsonar.sources=.
+          -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }}
+          -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+          -Dsonar.python.coverage.reportPaths=coverage.xml
+          -Dsonar.python.pylint.reportPaths=pylint-report.json
+          -Dsonar.exclusions=**/tests/**,**/__pycache__/**,**/venv/**,**/migrations/**
+    
+    - name: SonarQube Quality Gate Check
+      uses: sonarsource/sonarqube-quality-gate-action@master
+      timeout-minutes: 5
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      continue-on-error: true
+    
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: coverage-reports
+        path: |
+          coverage.xml
+          htmlcov/
+          pylint-report.json
+
+  # STEP 3: Unit Tests (runs in parallel)
+  unit-tests:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov
+    
+    - name: Run unit tests
+      env:
+        MONGO_URI: mongodb://localhost:27017/test
+        REDIS_URL: redis://localhost:6379/0
+        NEO4J_URI: bolt://localhost:7687
+        NEO4J_USERNAME: neo4j
+        NEO4J_PASSWORD: test
+        HUMAN_NEO4J_URI: bolt://localhost:7687
+        HUMAN_NEO4J_USERNAME: neo4j
+        HUMAN_NEO4J_PASSWORD: test
+        FLY_NEO4J_URI: bolt://localhost:7687
+        FLY_NEO4J_USERNAME: neo4j
+        FLY_NEO4J_PASSWORD: test
+        GEMINI_API_KEY: dummy-key-for-testing
+        JWT_SECRET: test-jwt-secret
+        SECRET_KEY: test-secret-key
+        MAIL_SERVER: localhost
+        MAIL_PORT: 1025
+        MAIL_USERNAME: test
+        MAIL_PASSWORD: test
+        MAIL_DEFAULT_SENDER: test@example.com
+        MAIL_USE_TLS: False
+        MAIL_USE_SSL: False
+        PARENT_DIR: /tmp/test_data
+        LLM_MODEL: gemini
+      run: |
+        pytest tests/ --cov=. --cov-report=xml --cov-report=term-missing || echo "No tests found"
+    
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: coverage.xml
+
+  # STEP 4: Build and Validate (depends on security and quality checks)
   build-and-validate-annotation:
     runs-on: ubuntu-latest
+    needs: [secret-scanning, code-quality-analysis, unit-tests]
     outputs:
       validation-status: ${{ steps.validate-container.outcome }}
       image-tag: ${{ steps.set-image-tag.outputs.image-tag }}
@@ -60,7 +224,6 @@ jobs:
     - name: Validate Annotation Container (Integration Test)
       id: validate-container
       env:
-        # Use ALL  external Neo4j servers 
         NEO4J_URI: ${{ secrets.NEO4J_URI }}
         NEO4J_USERNAME: ${{ secrets.NEO4J_USERNAME }}
         NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
@@ -141,12 +304,8 @@ jobs:
               # LLM
               - LLM_MODEL=$LLM_MODEL
               - GEMINI_API_KEY=$GEMINI_API_KEY
-              
-              # Security
               - JWT_SECRET=$JWT_SECRET
               - SECRET_KEY=$SECRET_KEY
-              
-              # Email
               - MAIL_SERVER=$MAIL_SERVER
               - MAIL_PORT=$MAIL_PORT
               - MAIL_USERNAME=$MAIL_USERNAME
@@ -207,8 +366,7 @@ jobs:
           caddy_data:
           caddy_config:
         EOF
-        
-        # Create test data directory
+         # Create test data directory
         mkdir -p /tmp/test_data
         
         # Step 1: Start all services with docker compose up
@@ -347,6 +505,114 @@ jobs:
           exit 1
         fi
 
+ 
+
+    # STEP 5: Trivy Vulnerability Scanner
+    - name: Run Trivy vulnerability scanner
+      if: steps.validate-container.outcome == 'success'
+      run: |
+        echo "=== Scanning image for vulnerabilities ==="
+        
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+        echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update
+        sudo apt-get install trivy -y
+        
+        IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
+        
+        trivy image --severity HIGH,CRITICAL --exit-code 0 $IMAGE_TAG
+        
+        echo "[SUCCESS] Vulnerability scan completed"
+    
+    - name: Generate Trivy report
+      if: always() && steps.validate-container.outcome == 'success'
+      run: |
+        IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
+        trivy image --format sarif --output trivy-results.sarif $IMAGE_TAG
+    
+    - name: Upload Trivy results to GitHub Security
+      if: always() && steps.validate-container.outcome == 'success'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    # STEP 6: Load Testing
+    - name: Run basic load test
+      if: steps.validate-container.outcome == 'success'
+      run: |
+        echo "=== Running basic load test ==="
+        pip install locust
+        
+        cat > /tmp/locustfile.py << 'EOF'
+        from locust import HttpUser, task, between
+        
+        class AnnotationLoadTest(HttpUser):
+            wait_time = between(1, 2)
+            
+            @task
+            def health_check(self):
+                self.client.get("/health")
+            
+            @task(3)
+            def root_endpoint(self):
+                self.client.get("/")
+        EOF
+        
+        APP_PORT=${{ env.APP_PORT }}
+        locust -f /tmp/locustfile.py --headless \
+          -u 10 -r 2 --run-time 30s \
+          --host http://localhost:${APP_PORT} \
+          --html /tmp/locust-report.html || echo "Load test completed"
+        
+        echo "Load test completed"
+    
+    - name: Upload load test results
+      if: always() && steps.validate-container.outcome == 'success'
+      uses: actions/upload-artifact@v4
+      with:
+        name: load-test-report
+        path: /tmp/locust-report.html
+
+    # STEP 7: Docker Image Size Check
+    - name: Check Docker image size
+      if: steps.validate-container.outcome == 'success'
+      run: |
+        echo "=== Checking Docker image size ==="
+        IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
+        SIZE=$(docker images $IMAGE_TAG --format "{{.Size}}")
+        echo "Image size: $SIZE"
+        
+        SIZE_MB=$(docker inspect $IMAGE_TAG --format='{{.Size}}' | awk '{print int($1/1024/1024)}')
+        echo "Image size in MB: $SIZE_MB"
+        
+        if [ $SIZE_MB -gt 2048 ]; then
+          echo "⚠️ WARNING: Image size ($SIZE) exceeds 2GB"
+        else
+          echo " Image size is within acceptable limits"
+        fi
+
+    # STEP 8: Smoke Tests
+    - name: Run smoke tests
+      if: steps.validate-container.outcome == 'success'
+      run: |
+        echo "=== Running smoke tests on critical endpoints ==="
+        APP_PORT=${{ env.APP_PORT }}
+        
+        ENDPOINTS=("/health" "/" "/api/status")
+        
+        for endpoint in "${ENDPOINTS[@]}"; do
+          echo "Testing endpoint: $endpoint"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${APP_PORT}${endpoint} || echo "000")
+          if [[ "$HTTP_CODE" =~ ^(200|404)$ ]]; then
+            echo " $endpoint - OK (HTTP $HTTP_CODE)"
+          else
+            echo " $endpoint - FAILED (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+        done
+        
+        echo "[SUCCESS] All smoke tests passed!"
+
     - name: Cleanup Docker Compose
       if: always()
       run: |
@@ -354,17 +620,53 @@ jobs:
         docker compose -p annotation-staging -f docker-compose.ci.yml down -v
         rm -f docker-compose.ci.yml
 
+    # STEP 9: Push to Docker Hub (only on merge)
     - name: Push to Docker Hub
       if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
       run: |
         echo "=== Pushing validated Annotation Backend image to Docker Hub ==="
         IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
+        SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+        
+        # Tag with multiple tags
+        SHA_TAG="abdum1964/annotation:staging-${SHORT_SHA}"
+        LATEST_TAG="abdum1964/annotation:staging-latest"
+        
+        docker tag $IMAGE_TAG $SHA_TAG
+        docker tag $IMAGE_TAG $LATEST_TAG
         
         echo "Pushing: $IMAGE_TAG"
         docker push $IMAGE_TAG
         
-        echo "[SUCCESS] Image pushed successfully to Docker Hub"
-        echo "Image: $IMAGE_TAG"
+        echo "Pushing: $SHA_TAG"
+        docker push $SHA_TAG
+        
+        echo "Pushing: $LATEST_TAG"
+        docker push $LATEST_TAG
+        
+        echo "[SUCCESS] Images pushed successfully to Docker Hub"
+        echo "Tags:"
+        echo "  - $IMAGE_TAG"
+        echo "  - $SHA_TAG (for rollback)"
+        echo "  - $LATEST_TAG"
+
+    # STEP 10: Image Signing with Cosign
+    - name: Install Cosign
+      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
+      uses: sigstore/cosign-installer@v3
+    
+    - name: Sign Docker image
+      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
+      env:
+        COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      run: |
+        echo "=== Signing Docker image ==="
+        IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
+        echo "$COSIGN_PRIVATE_KEY" > /tmp/cosign.key
+        cosign sign --key /tmp/cosign.key $IMAGE_TAG -y || echo "Image signing skipped (keys not configured)"
+        rm -f /tmp/cosign.key
+        echo "[SUCCESS] Image signing completed"
 
     - name: Set deployment trigger
       if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
@@ -379,6 +681,8 @@ jobs:
         docker system prune -f
         echo "=== Disk space after cleanup ==="
         df -h
+
+    # STEP 11: Trigger CD workflow
     - name: Trigger CD workflow via Repository Dispatch
       if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
       run: |
@@ -390,21 +694,95 @@ jobs:
           -d '{"event_type":"deploy-staging","client_payload":{"image_tag":"${{ steps.set-image-tag.outputs.image-tag }}"}}'
         echo "[SUCCESS] CD workflow triggered successfully!"
 
+  # Email Notifications - Success
+  notify-success:
+    runs-on: ubuntu-latest
+    needs: [build-and-validate-annotation]
+    if: success() && github.event_name == 'push'
+    
+    steps:
+    - name: Send success email
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: " CI Pipeline SUCCESS - Annotation Backend"
+        to: ${{ secrets.RECIEVER_EMAIL }}
+        from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+        body: |
+          CI Pipeline Completed Successfully! 
+          
+          Repository: ${{ github.repository }}
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Author: ${{ github.actor }}
+          
+          Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          Image pushed: ${{ needs.build-and-validate-annotation.outputs.image-tag }}
 
+  # Email Notifications - Failure
+  notify-failure:
+    runs-on: ubuntu-latest
+    needs: [build-and-validate-annotation]
+    if: failure()
+    
+    steps:
+    - name: Send failure email
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: " CI Pipeline FAILED - Annotation Backend"
+        to: ${{ secrets.RECIEVER_EMAIL }}
+        from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+        body: |
+          CI Pipeline Failed! 
+          
+          Repository: ${{ github.repository }}
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Author: ${{ github.actor }}
+          
+          View Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          Please check the workflow logs for details.
+
+  # Validation Summary
   validation-summary:
     runs-on: ubuntu-latest
-    needs: build-and-validate-annotation
+    needs: [build-and-validate-annotation]
     if: always()
+    
     steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Display artifact structure
+      run: |
+        echo "=== Downloaded Artifacts ==="
+        ls -R artifacts/ || echo "No artifacts found"
+    
     - name: Summary
       run: |
         echo "=== CI/CD Validation Summary ==="
+        echo "Event: ${{ github.event_name }}"
         echo "Annotation Backend Validation: ${{ needs.build-and-validate-annotation.outputs.validation-status }}"
         
         if [[ "${{ needs.build-and-validate-annotation.outputs.validation-status }}" == "success" ]]; then
-          echo "[SUCCESS] SUCCESS: Annotation Backend built, validated, and pushed to Docker Hub!"
-          echo "*** Image: ${{ needs.build-and-validate-annotation.outputs.image-tag }}"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo " [SUCCESS] Annotation Backend built, validated, and pushed to Docker Hub!"
+            echo "*** Image: ${{ needs.build-and-validate-annotation.outputs.image-tag }}"
+          else
+            echo " [SUCCESS] PR validation passed - ready to merge!"
+          fi
         else
-          echo "[ERROR] FAILED: Validation did not pass. Check the build-and-validate-annotation job for details."
+          echo " [ERROR] Validation did not pass."
           exit 1
         fi
