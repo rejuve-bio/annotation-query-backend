@@ -15,6 +15,10 @@ env:
   MONGODB_DOCKER_PORT: 27021
   CADDY_PORT: 5557
   CADDY_PORT_FORWARD: 6001
+permissions:
+  contents: read
+  security-events: write  # Required for uploading security scan results
+  pull-requests: read
 
 jobs:
   # STEP 1: Secret Scanning (runs first, in parallel)
@@ -532,9 +536,10 @@ jobs:
     
     - name: Upload Trivy results to GitHub Security
       if: always() && steps.validate-container.outcome == 'success'
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: 'trivy-results.sarif'
+        continue-on-error: true 
 
     # STEP 6: Load Testing
     - name: Run basic load test
