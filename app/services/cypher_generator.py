@@ -252,8 +252,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         match_clause = ''
         where_clause = ''
         virtual_setup = ''
-        return_preds = []
-        collect_node_and_edge = ''
 
         # Construct clause for match with no predicates
         if 'match_no_preds' in query_clauses and query_clauses['match_no_preds']:
@@ -267,75 +265,50 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             if 'where_preds' in query_clauses and query_clauses['where_preds']:
                 where_clause = f"WHERE {' AND '.join(query_clauses['where_preds'])}"
 
-        # Prepare virtual relationship definitions so they can be counted
+
         if 'virtual_defs' in query_clauses and query_clauses['virtual_defs']:
             virtual_setup = f"WITH *, {', '.join(query_clauses['virtual_defs'])}"
 
-        if "return_no_preds" in query_clauses and "return_preds" in query_clauses:
-            query_clauses['list_of_node_ids'].extend(
-                query_clauses['return_no_preds'])
-
-        if "return_preds" in query_clauses:
-            return_preds = query_clauses['return_preds']
-
-        for node_ids in query_clauses['list_of_node_ids']:
-            collect_node_and_edge += f"COLLECT(DISTINCT {node_ids}) AS {node_ids}_count, "
-
-        if "return_preds" in query_clauses:
-            for predicate in query_clauses['predicates']:
-                # UPDATED: Do not skip overlaps_with; we want to count them now
-                predicate_id = predicate['predicate_id']
-                collect_node_and_edge += f"COLLECT(DISTINCT {predicate_id}) AS {predicate_id}_count, "
+        # 1. Total Count Query
+        node_counts = [f"COUNT(DISTINCT {node_id})" for node_id in query_clauses['list_of_node_ids']]
+        total_nodes_expr = " + ".join(node_counts) if node_counts else "0"
         
-        collect_node_and_edge = f"WITH {collect_node_and_edge.rstrip(', ')}"
+        edge_counts = []
+        if 'predicates' in query_clauses and query_clauses['predicates']:
+            edge_counts = [f"COUNT(DISTINCT {pred['predicate_id']})" for pred in query_clauses['predicates']]
+        total_edges_expr = " + ".join(edge_counts) if edge_counts else "0"
 
-        # Construct the WITH and UNWIND clauses
-        combined_nodes = ' + '.join(
-            [f"{var}_count" for var in query_clauses['list_of_node_ids']])
-        combined_edges = None
-        if 'return_preds' in query_clauses:
-            combined_edges = ' + '.join(
-                [f"{var}_count" for var in query_clauses['return_preds']])
-        with_clause = f"WITH {combined_nodes} AS combined_nodes {f',{combined_edges} AS combined_edges' if combined_edges else ''}"
-        unwind_clause = f"UNWIND combined_nodes AS nodes"
-
-        # Construct the RETURN clause
-        return_clause = f"RETURN COUNT(DISTINCT nodes) AS total_nodes {', SIZE(combined_edges) AS total_edges ' if combined_edges else ''}"
-
-        # build the query for total node and edge count
         total_count = f'''
             {match_no_clause}
             {where_no_clause}
             {match_clause}
             {where_clause}
             {virtual_setup}
-            {collect_node_and_edge}
-            {with_clause}
-            {unwind_clause}
-            {return_clause}
+            RETURN ({total_nodes_expr}) AS total_nodes, ({total_edges_expr}) AS total_edges
         '''
 
-        # start building query for counting by label for both ndoe and edges
-
-        if return_preds:
-            # count query
-            count_clause = ''
-            for node in query_clauses['list_of_node_ids']:
-                count_clause += f"COUNT(DISTINCT {node}) AS {node}_{node_map[node]['type']}, "
-            for edge in query_clauses['predicates']:
-                # UPDATED: Do not skip overlaps_with here either
-                edge_id = edge['predicate_id']
-                count_clause += f"COUNT(DISTINCT {edge_id}) AS {edge_id}_{predicate_map[edge_id]['type'].replace(' ', '_')}, "
-            return_clause = "RETURN " + count_clause.rstrip(', ')
+        # 2. Label Count Query
+        label_count_parts = []
+        for node_id in query_clauses['list_of_node_ids']:
+            node_type = node_map[node_id]['type']
+            label_count_parts.append(f"COUNT(DISTINCT {node_id}) AS {node_id}_{node_type}")
             
-            label_count_query = f'''{match_no_clause} {where_no_clause} {match_clause} {where_clause} {virtual_setup} {return_clause}'''
-        else:
-            count_clause = ''
-            for node in query_clauses['list_of_node_ids']:
-                count_clause += f"COUNT(DISTINCT {node}) AS {node}_{node_map[node]['type']}, "
-            return_clause = "RETURN " + count_clause.rstrip(', ')
-            the_clause = match_no_clause or match_clause
-            label_count_query = f'''{the_clause} {where_no_clause} {return_clause}'''
+        if 'predicates' in query_clauses and query_clauses['predicates']:
+            for pred in query_clauses['predicates']:
+                pred_id = pred['predicate_id']
+                pred_type = predicate_map[pred_id]['type'].replace(' ', '_')
+                label_count_parts.append(f"COUNT(DISTINCT {pred_id}) AS {pred_id}_{pred_type}")
+
+        return_label_clause = "RETURN " + ", ".join(label_count_parts) if label_count_parts else "RETURN 0 as count"
+
+        label_count_query = f'''
+            {match_no_clause}
+            {where_no_clause}
+            {match_clause}
+            {where_clause}
+            {virtual_setup}
+            {return_label_clause}
+        '''
 
         return [total_count, label_count_query]
 
@@ -360,26 +333,24 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def construct_overlap_clause(self, source_var, target_var, predicate_type):
         """
-        Generates WHERE clauses for relationship-based genomic overlaps.
-        overlaps_with(A, B) :- 
-            chr(A) == chr(B), 
-            start(B) < start(A), 
-            end(A) < end(B).
+        Generates WHERE clauses for general genomic overlaps.
+        Two intervals overlap if: (StartA < EndB) AND (StartB < EndA)
         """
         conditions = []
-        
-        # Check if the relationship is specifically 'overlaps_with'
+    
         if predicate_type == 'overlaps_with':
-            # 1. Chromosome Check (Assuming property is 'chr' or 'chromosome')
-            # You might need to change '.chr' to '.chromosome' depending on your Neo4j properties
+            # 1. Chromosome Check
             conditions.append(f"{source_var}.chr = {target_var}.chr")
-            
-            # 2. Start Logic: StartB < StartA (Target starts before Source)
-            # using toInteger ensures numerical comparison rather than string comparison
-            conditions.append(f"toInteger({target_var}.start) < toInteger({source_var}.start)")
-            
-            # 3. End Logic: EndA < EndB (Source ends before Target)
-            conditions.append(f"toInteger({source_var}.end) < toInteger({target_var}.end)")
+        
+            # 2. General Overlap Logic
+            # (Source Start < Target End) AND (Target Start < Source End)
+            source_start = f"toInteger({source_var}.start)"
+            source_end = f"toInteger({source_var}.end)"
+            target_start = f"toInteger({target_var}.start)"
+            target_end = f"toInteger({target_var}.end)"
+        
+            conditions.append(f"{source_start} < {target_end}")
+            conditions.append(f"{target_start} < {source_end}")
 
         return conditions
 
