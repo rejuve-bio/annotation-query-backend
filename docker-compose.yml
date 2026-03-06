@@ -8,19 +8,41 @@ services:
       - .:/app
     ports:
       - "${APP_PORT}:${APP_PORT}"
-    # for now use development server till we can figure out 
-    # a way to make it work with gunicorn
-    # command: gunicorn -w 16 --bind 0.0.0.0:${APP_PORT} run:app
-    command: flask run --host=0.0.0.0 --port=${APP_PORT}
+    # Web server command
+    command: gunicorn -k gthread -w 1 --threads 100 --bind 0.0.0.0:${APP_PORT} run:app
     restart: always
     depends_on:
       - mongodb
       - redis
-    environment:
+    # We define the environment here and anchor it as &app_env
+    # so we can simply reuse it in the celery_worker below.
+    environment: &app_env
       - MONGO_URI=${MONGO_URI}
       - APP_PORT=${APP_PORT}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Cache and Result Backend (DB 0)
+      - REDIS_URL=redis://redis:6379/0
+      # Celery Message Broker (DB 1)
+      - REDIS_URL_BROKER=redis://redis:6379/1
+      - REDIS_EXPIRATION=3600
+
+  celery_worker:
+    image: "${DOCKER_HUB_REPO}"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    # Worker command
+    command: celery -A app.workers.celery_app worker --loglevel=info
+    restart: always
+    depends_on:
+      - annotation_service
+      - redis
+      - mongodb
+    # Reuse the exact same environment variables as the main app
+    environment: *app_env
 
   mongodb:
     image: mongo:latest

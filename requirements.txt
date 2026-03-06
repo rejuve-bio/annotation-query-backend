@@ -24,3 +24,8 @@ elasticsearch==9.0.1
 axiom-py==0.9.1
 sentry-sdk==2.43.0
 APScheduler==3.11.1
+neo4j==6.0.3
+celery
+accelerate
+pysam==0.23.3
+redis==4.6.0

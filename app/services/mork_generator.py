@@ -82,7 +82,6 @@ class MorkQueryGenerator:
                         "status": "success"
                     }
                 )
-                print("RES: ", metta_result, flush=True)
                 return [metta_result]
         elif isinstance(query, list):
             queries = query
@@ -547,7 +546,6 @@ class MorkQueryGenerator:
         self, source, target, source_ids, target_ids, relationship
     ):
         exec_list = []
-
         for source_id in source_ids:
             for target_id in target_ids:
                 source_type = source["type"]
@@ -557,7 +555,6 @@ class MorkQueryGenerator:
                 template = f"({self.current_id} ({relationship} ({source_type} {source_id}) ({target_type} {target_id})))"
 
                 exec_list.append((pattern, template, 'query'))
-
         return exec_list
 
     def parse_list_query(self, results):
@@ -590,4 +587,3 @@ class MorkQueryGenerator:
             parsed_result[key]["node_ids"].append(value)
 
         return parsed_result
-

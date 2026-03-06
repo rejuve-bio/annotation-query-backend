@@ -23,6 +23,7 @@ class Annotation(Schema):
     created_at = None
     updated_at = None
     data_source = None
+    files = None
     species = None
     path_url = None
 
@@ -73,6 +74,7 @@ class Annotation(Schema):
                 "default": "human"
             },
             "data_source": any,
+            "files": any,
             "created_at": {
                 "type": Types.Date,
                 "required": True,

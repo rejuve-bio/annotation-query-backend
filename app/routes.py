@@ -27,6 +27,8 @@ from app.lib.utils import convert_to_tsv
 import traceback
 from app.lib import convert_to_excel
 from pathlib import Path
+from app.workers.celery_app import redis_state
+from app.events import RedisStopEvent
 
 # Load environmental variables
 load_dotenv()
@@ -325,7 +327,6 @@ def on_join(data):
     logging.info(f"user join a room with {room}")
         # send(f'connected to {room}', to=room)
     cache = get_annotation_redis(room)
-
     if cache != None:
         status = cache['status']
         graph = cache['graph']
@@ -698,6 +699,7 @@ def get_by_id(current_user_id, id):
     file_path = cursor.path_url
     species = cursor.species
     source = cursor.data_source
+    files = cursor.files
 
     # Extract node types
     nodes = json_request['nodes']
@@ -722,6 +724,8 @@ def get_by_id(current_user_id, id):
         response_data["annotation_id"] = str(annotation_id)
         response_data["request"] = json_request
         response_data["title"] = title
+        response_data["query"] = query
+        response_data["files"] = files
         
         if species == 'fly':
             source = ['flyall']
@@ -952,17 +956,14 @@ def delete_by_id(current_user_id, id):
 
         if annotation is None:
             return jsonify('No value Found'), 404
-
+        stop_event = RedisStopEvent(id, redis_state)
+        status = stop_event.get_status()
+        
         # first check if there is any running running annoation
-        with app.config['annotation_lock']:
-            thread_event = app.config['annotation_threads']
-            stop_event = thread_event.get(id, None)
-
-            # if there is stop the running annoation
-            if stop_event is not None:
-                stop_event.set()
-
-                response_data = {
+        if status is not None:
+            stop_event.set_event()
+            
+            response_data = {
                     'message': f'Annotation {id} has been cancelled.'
                 }
 
@@ -1515,10 +1516,35 @@ def cell_component(current_user_id):
             go_ids.append(go_id)
 
         query = db_instance.list_query_generator_source_target(go_subcomponents, go_parent, go_ids, "subclass_of")
-
         result = db_instance.run_query(query)
         parsed_result_go = db_instance.parse_list_query(result)
-
+        
+        if not parsed_result_go:
+            # Return proteins with empty location
+            response = {"nodes": [], "edges": []}
+        
+            for node in nodes:
+                if node["data"]["type"] == "protein":
+                    for single_node in node["data"]["nodes"]:
+                        id = single_node["id"].split(" ")[1]
+        
+                        response["nodes"].append({
+                            "data": {
+                                **single_node,
+                                "location": ""
+                            }
+                        })
+        
+            logging.info(json.dumps({
+                "status": "success",
+                "method": "GET",
+                "timestamp": datetime.datetime.now().isoformat(),
+                "endpoint": "/localized-graph"
+            }))
+        
+            return Response(json.dumps(response, indent=4), mimetype='application/json')
+        
+            
         go_ids = []
 
         for key in parsed_result_go.keys():
@@ -1536,9 +1562,7 @@ def cell_component(current_user_id):
             "id": "",
             "properties": {}
         }
-
         query = db_instance.list_query_generator_both(source, target, go_ids, proteins, "go_gene_product")
-
         result = db_instance.run_query(query)
         parsed_result = db_instance.parse_list_query(result)
 
@@ -1624,3 +1648,50 @@ def download_csv(current_user_id, id):
         return Response(json.dumps(error_response, indent=4),
                     mimetype='application/json',
                     status=500)
+
+@app.route('/public/vcf/<filename>', methods=['GET'])
+def download_vcf_file(filename):
+    public_folder = os.path.join(os.getcwd(), 'public')
+    file_path = os.path.join(public_folder, "vcf", filename)
+    return send_file(file_path, as_attachment=True)
+
+@app.route('/autofill', methods=['GET'])
+@token_required
+def autofill(current_user_id):
+    node_type = request.args.get('type')
+    annotation_id = request.args.get('id')
+    species = request.args.get('species') or 'human'
+    
+    request_json = {
+        "nodes": [
+        {
+            "node_id": "n1",
+            "id": annotation_id,
+            "type": node_type,
+            "properties": {}
+        }
+        ],
+        "predicates": []
+    }
+    
+    
+    node_map = {}
+    for node in request_json['nodes']:
+        if node['node_id'] not in node_map:
+            node_map[node['node_id']] = node
+        else:
+            raise Exception('Repeated Node_id')
+    
+    query = db_instance.query_Generator(request_json, node_map)
+    result = db_instance.run_query(query[0], stop_event=None, species=species)
+    graph_components = {
+    "nodes": request_json['nodes'], "predicates": request_json['predicates'],
+    'properties': True}
+    result =  db_instance.parse_and_serialize(
+            result, schema_manager.full_schema_representation,
+            graph_components, result_type='graph')
+
+    
+    data = result["nodes"][0]
+    
+    return Response(json.dumps(data, indent=4), mimetype='application/json')
