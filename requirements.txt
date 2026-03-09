@@ -20,4 +20,4 @@ Flask-SocketIO==5.5.1
 flask-redis==0.4.0
 nanoid==2.0.0
 networkx==3.6.1
-elasticsearch==9.0.1
+elasticsearch==9.3.0
