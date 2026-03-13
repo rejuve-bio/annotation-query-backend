@@ -1695,3 +1695,7 @@ def autofill(current_user_id):
     data = result["nodes"][0]
     
     return Response(json.dumps(data, indent=4), mimetype='application/json')
+
+@app.route('/health', methods=['GET'])
+def health():
+    return Response(json.dumps({"status": "ok"}), mimetype='application/json')
