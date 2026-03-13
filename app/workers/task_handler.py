@@ -9,7 +9,8 @@ from app.persistence import AnnotationStorageService
 from pathlib import Path
 import traceback
 import pysam
-from .celery_app import init_request_state, redis_state, celery_app, RedisStopEvent
+from .celery_app import init_request_state, redis_state, celery_app
+from app.events import RedisStopEvent
 from celery import chord
 
 EXP = os.getenv('REDIS_EXPIRATION', 3600)
