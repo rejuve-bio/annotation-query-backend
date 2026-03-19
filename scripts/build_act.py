@@ -7,10 +7,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def get_mork_bin():
-    mork_bin = os.getenv("MORK_BIN_PATH")
-    if not mork_bin:
-        raise RuntimeError("MORK_BIN_PATH is not set.")
-    return mork_bin
+    default_wrapper = Path(__file__).resolve().parent / "mork_docker_wrapper.py"
+    if default_wrapper.exists():
+        return str(default_wrapper)
+    raise RuntimeError("MORK docker wrapper not found.")
 
 def get_metta_files(data_dir):
     data_path = Path(data_dir)

@@ -1,0 +1,19 @@
+FROM rustlang/rust:nightly
+
+WORKDIR /app
+
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone https://github.com/Adam-Vandervorst/PathMap.git /app/PathMap \
+    && cd /app/PathMap \
+    && cargo build --release
+
+RUN git clone https://github.com/trueagi-io/MORK.git /app/MORK \
+    && cd /app/MORK/kernel \
+    && cargo build --release

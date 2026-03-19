@@ -12,9 +12,12 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
     def __init__(self, dataset_path):
         super().__init__(dataset_path=None)
         self.dataset_path = Path(dataset_path)
-        self.mork_bin = os.getenv("MORK_BIN_PATH")
-        if not self.mork_bin:
-            raise RuntimeError("MORK_BIN_PATH is not set.")
+        project_root = Path(__file__).resolve().parents[2]
+        default_wrapper = project_root / "scripts" / "mork_docker_wrapper.py"
+        if default_wrapper.exists():
+            self.mork_bin = str(default_wrapper)
+        else:
+            raise RuntimeError("MORK docker wrapper not found.")
         self.metta = MeTTa()
 
     def connect(self):
