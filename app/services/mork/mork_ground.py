@@ -1,3 +1,15 @@
+def _edge_label_from_tuple(match):
+    if not match:
+        return 'unknown'
+
+    if len(match) >= 7:
+        property_key = match[0]
+        inner_predicate = match[1] if len(match) > 1 else None
+        if isinstance(property_key, str) and property_key.endswith('_id') and inner_predicate:
+            return inner_predicate
+
+    return match[0]
+
 def get_total_counts(graph_data):
     """
     Calculate the total number of nodes and edges.
@@ -92,7 +104,7 @@ def get_count_by_label(graph_data):
 
             for match in tuples:
                 if len(match) >= 5:
-                    label = match[0] if len(match) > 0 else 'unknown'
+                    label = _edge_label_from_tuple(match)
                     edge_count_by_label[label] = edge_count_by_label.get(label, 0) + 1
                 elif len(match) >= 2:
                     label = match[0]

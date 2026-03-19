@@ -134,6 +134,7 @@ class MorkQueryGenerator:
             predicate_type = predicate['type'].replace(" ", "_")
             source_id = predicate['source']
             target_id = predicate['target']
+            predicate_properties = predicate.get('properties', {})
 
             # Handle source node
             source_node = node_map[source_id]
@@ -162,6 +163,13 @@ class MorkQueryGenerator:
             # Add relationship
             pattern.append(f'({predicate_type} {source} {target})')
             template.append(f'(tmp ({predicate_type} {source} {target}))')
+
+            # Add predicate property constraints, if any
+            if isinstance(predicate_properties, dict):
+                for prop_key, prop_value in predicate_properties.items():
+                    pattern.append(
+                        f'({prop_key} ({predicate_type} {source} {target}) {prop_value})'
+                    )
 
         query = (tuple(pattern), tuple(template), 'query')
         total_count_query = (tuple(pattern), tuple(template), 'total_count')
