@@ -175,20 +175,29 @@ def generate_result(query_code, annotation_id, requests, result_status, species,
         response_data = db_instance.run_query(query_code, stop_event, species)
         graph_components = {"nodes": requests['nodes'], "predicates":
                             requests['predicates'], "properties": True}
-        response = db_instance.parse_and_serialize(
-            response_data, schema_manager.full_schema_representation, graph_components, 'graph')
+        try:
+            response = db_instance.parse_and_serialize(
+                response_data, schema_manager.full_schema_representation, graph_components, 'graph')
+        except Exception as e:
+            logging.warning("Graph serialization fallback: %s", e)
+            response = {"nodes": [], "edges": []}
 
         graph = Graph()
 
-        if len(response['edges']) == 0 and len(response['nodes']) > 0:
-            grouped_graph = graph.group_node_only(response, requests)
-        else:
-            grouped_graph = graph.group_graph(response);
+        try:
+            if len(response.get('edges', [])) == 0 and len(response.get('nodes', [])) > 0:
+                grouped_graph = graph.group_node_only(response, requests)
+            else:
+                grouped_graph = graph.group_graph(response)
+        except Exception as e:
+            logging.warning("Graph grouping fallback: %s", e)
+            grouped_graph = response
 
-        file_path = Path(__file__).parent /".."/ ".."/ "public" / "graph" / f"{annotation_id}.json"
+        file_path = Path(__file__).parent / ".." / ".." / "public" / "graph" / f"{annotation_id}.json"
+        file_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(file_path, 'w') as file:
-            json.dump(grouped_graph, file)
+            json.dump(grouped_graph, file, default=str)
 
         AnnotationStorageService.update(annotation_id, {"path_url": str(file_path.resolve())})
 

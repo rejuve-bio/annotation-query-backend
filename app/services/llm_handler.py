@@ -34,7 +34,7 @@ class LLMHandler:
             title = self.model.generate(prompt)
             return title
         except Exception as e:
-            logging.error("Error generating title: ", {e})
+            logging.error(f"Error generating title: {e}")
             return "Untitled"
 
     def generate_summary(self, graph, request, user_query=None,graph_id=None, summary=None):
@@ -45,5 +45,5 @@ class LLMHandler:
             summary = summarizer.summary(graph, request, user_query, graph_id, summary)
             return summary
         except Exception as e:
-            logging.error("Error generating summary: ", e)
+            logging.error(f"Error generating summary: {e}")
             return "No summary available"

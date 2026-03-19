@@ -11,6 +11,7 @@ from app.services.llm_handler import LLMHandler
 from app.persistence import AnnotationStorageService, UserStorageService
 import os
 import logging
+import importlib
 import yaml
 from flask_redis import FlaskRedis
 from app.error import ThreadStopException
@@ -25,7 +26,6 @@ load_dotenv()
 perf_logger = init_logging()
 
 app = Flask(__name__)
-# Disable werkzeug request logs
 logging.getLogger('werkzeug').disabled = True
 socketio = SocketIO(app, cors_allowed_origins='*',
                     async_mode='threading', logger=False, engineio_logger=False)
@@ -61,24 +61,40 @@ limiter = Limiter(
 
 mongo_init()
 
-try:
-    es_db = Elasticsearch(ES_URL, api_key=ES_API_KEY)
-    if es_db.ping():
-        print("Elasticsearch connected")
-    else:
-        print("Elasticsearch not reachable, continuing without it")
-        logging.error("Elasticsearch not reachable")
-        es_db = None
-except ConnectionError:
-    logging.error("Elasticsearch not reachable")
+if not ES_URL:
+    logging.warning("ES_URL not set; skipping Elasticsearch initialization")
     es_db = None
+else:
+    try:
+        es_db = Elasticsearch(ES_URL, api_key=ES_API_KEY, max_retries=0, request_timeout=2)
+        if es_db.ping():
+            print("Elasticsearch connected")
+        else:
+            print("Elasticsearch not reachable, continuing without it")
+            logging.error("Elasticsearch not reachable")
+            es_db = None
+    except (ConnectionError, ValueError) as exc:
+        logging.error("Elasticsearch not reachable: %s", exc)
+        es_db = None
 
-from app.services.mork_generator import MorkQueryGenerator
+mork_data_dir = os.environ.get("MORK_DATA_DIR")
+if not mork_data_dir:
+    logging.error("MORK_DATA_DIR is not set.")
+    raise RuntimeError("MORK_DATA_DIR is not set.")
+
+def _load_mork_generator():
+    module = importlib.import_module("app.services.mork_generator")
+    return module.MorkQueryGenerator("./mork_data")
+
+def _load_mork_cli_generator():
+    module = importlib.import_module("app.services.mork_cli_generator")
+    return module.MorkCLIQueryGenerator(mork_data_dir)
 
 databases = {
     "metta": lambda: MeTTa_Query_Generator("./Data"),
     "cypher": lambda: CypherQueryGenerator("./cypher_data"),
-    "mork": lambda: MorkQueryGenerator("./mork_data")
+    "mork": _load_mork_generator,
+    "mork_cli": _load_mork_cli_generator
     # Add other database instances here
 }
 

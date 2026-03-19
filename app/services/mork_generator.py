@@ -176,6 +176,9 @@ class MorkQueryGenerator:
                 continue
             tuples = metta_seralizer(input)
             for tuple in tuples:
+                if tuple and tuple[0] == 'tmp':
+                    tuple = tuple[1:]
+
                 if len(tuple) == 2:
                     src_type, src_id = tuple
                     result.append({
