@@ -265,7 +265,15 @@ class Graph:
 
     def collapse_node_nx(self, graph):
         G = self.build_graph_nx(graph)
-        node_to_id_map = {node["data"]["id"]: node["data"] for node in graph.get("nodes", [])}
+        node_to_id_map = {}
+        for node in graph.get("nodes", []):
+            data = node.get("data") if isinstance(node, dict) and "data" in node else node
+            if not isinstance(data, dict):
+                continue
+            node_id = data.get("id")
+            if not node_id:
+                continue
+            node_to_id_map[node_id] = data
         signatures = {}
 
         # Graph traversal for in/out edges
@@ -287,18 +295,18 @@ class Graph:
             merged_id = generate()  # Generate a new unique ID for the merged node
 
             if len(nodes) == 1:
-                name = G.nodes[first_node]["data"]["name"]
+                node_data = G.nodes[first_node].get("data", G.nodes[first_node])
+                name = node_data.get("name") or node_data.get("id", first_node)
             else:
                 name = f'{len(nodes)} {base_label} nodes'
 
             other_nodes = []
 
             for single_node in nodes:
-                nd = node_to_id_map[single_node]
-                data = {
-                    **nd
-                }
-                other_nodes.append(data)
+                nd = node_to_id_map.get(single_node)
+                if not nd:
+                    continue
+                other_nodes.append({**nd})
 
             merged_attrs = {
                 "type": base_label,

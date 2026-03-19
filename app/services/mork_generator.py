@@ -227,7 +227,8 @@ class MorkQueryGenerator:
                     nodes.add(target)
 
                 predicate = result['predicate']
-                for property in schema[species]['edges'][predicate]['properties']:
+                edge_props = schema[species]['edges'].get(predicate, {}).get('properties', {})
+                for property in edge_props:
                     random = self.generate_id()
                     pattern.append(f'({property} ({predicate} ({source}) ({target})) ${random})')
                     template.append(f'(tmp (edge {property} ({predicate} ({source}) ({target})) ${random}))')

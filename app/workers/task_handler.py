@@ -175,29 +175,21 @@ def generate_result(query_code, annotation_id, requests, result_status, species,
         response_data = db_instance.run_query(query_code, stop_event, species)
         graph_components = {"nodes": requests['nodes'], "predicates":
                             requests['predicates'], "properties": True}
-        try:
-            response = db_instance.parse_and_serialize(
-                response_data, schema_manager.full_schema_representation, graph_components, 'graph')
-        except Exception as e:
-            logging.warning("Graph serialization fallback: %s", e)
-            response = {"nodes": [], "edges": []}
+        response = db_instance.parse_and_serialize(
+            response_data, schema_manager.full_schema_representation, graph_components, 'graph')
 
         graph = Graph()
 
-        try:
-            if len(response.get('edges', [])) == 0 and len(response.get('nodes', [])) > 0:
-                grouped_graph = graph.group_node_only(response, requests)
-            else:
-                grouped_graph = graph.group_graph(response)
-        except Exception as e:
-            logging.warning("Graph grouping fallback: %s", e)
-            grouped_graph = response
+        if len(response.get('edges', [])) == 0 and len(response.get('nodes', [])) > 0:
+            grouped_graph = graph.group_node_only(response, requests)
+        else:
+            grouped_graph = graph.group_graph(response)
 
         file_path = Path(__file__).parent / ".." / ".." / "public" / "graph" / f"{annotation_id}.json"
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(file_path, 'w') as file:
-            json.dump(grouped_graph, file, default=str)
+            json.dump(grouped_graph, file)
 
         AnnotationStorageService.update(annotation_id, {"path_url": str(file_path.resolve())})
 
@@ -230,7 +222,7 @@ def generate_result(query_code, annotation_id, requests, result_status, species,
         socketio.emit('update', {'status': TaskStatus.FAILED.value, 'update': {'graph': False}})
         AnnotationStorageService.update(annotation_id, {'status': TaskStatus.FAILED.value})
         result_status.set()
-        logging.error("Error generating result graph %s", e)
+        logging.exception("Error generating result graph %s", e)
 
 
 def generate_total_count(
@@ -391,7 +383,7 @@ def generate_total_count(
             },
         )
         total_count_status.set()
-        logging.error("Error generating total count %s", e)
+        logging.exception("Error generating total count %s", e)
         traceback.print_exc()
 
 
@@ -558,7 +550,7 @@ def generate_label_count(
         )
         socketio.emit("update", {"status": TaskStatus.FAILED.value, "update": update})
         count_label_status.set()
-        logging.error("Error generating label count %s", e)
+        logging.exception("Error generating label count %s", e)
         traceback.print_exc()
 
 def start_thread(annotation_id, args):
@@ -578,13 +570,13 @@ def start_thread(annotation_id, args):
         try:
             generate_result(find_query, annotation_id, request, all_status['result_done'], species)
         except Exception as e:
-            logging.error("Error generating result graph %s", e)
+            logging.exception("Error generating result graph %s", e)
 
     def send_summary():
         try:
             generate_summary(annotation_id, request, all_status, summary)
         except Exception as e:
-            logging.error("Error generating summary %s", e)
+            logging.exception("Error generating summary %s", e)
 
 
     def send_total_count():
@@ -592,13 +584,13 @@ def start_thread(annotation_id, args):
             generate_total_count(
                 total_count_query, annotation_id, request, all_status['total_count_done'], species, meta_data)
         except Exception as e:
-            logging.error("Error generating total count %s", e)
+            logging.exception("Error generating total count %s", e)
 
     def send_label_count():
         try:
             generate_label_count(label_count_query, annotation_id, request, all_status['label_count_done'], species, meta_data)
         except Exception as e:
-            logging.error("Error generating count by label %s", e)
+            logging.exception("Error generating count by label %s", e)
 
     result_generator = threading.Thread(
         name='result_generator', target=send_annotation)
