@@ -28,6 +28,9 @@ def main():
 
     try:
         result = subprocess.run(docker_cmd, check=True)
+    except FileNotFoundError:
+        print("Error: 'docker' command not found. Please ensure Docker is installed and on your PATH.", file=sys.stderr)
+        return 127
     except subprocess.CalledProcessError as exc:
         return exc.returncode
     return result.returncode
