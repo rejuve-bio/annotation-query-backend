@@ -1,2 +1,2 @@
 database:
-  type: mork_cli
+  type: cypher
