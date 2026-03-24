@@ -4,9 +4,7 @@ import time
 from pathlib import Path
 from app.services.mork_generator import MorkQueryGenerator
 from hyperon import MeTTa
-from logger import init_logging
-
-perf_logger = init_logging()
+from app import perf_logger
 
 class MorkCLIQueryGenerator(MorkQueryGenerator):
     def __init__(self, dataset_path):
