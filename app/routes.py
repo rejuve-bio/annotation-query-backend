@@ -767,6 +767,12 @@ def get_by_id(current_user_id, id):
 
             return Response(json.dumps(response_data, indent=4), mimetype='application/json')
 
+        # Regenerate the live query tuple from the stored request.
+        # cursor.query is only a string snapshot; run_query needs the full tuple.
+        _node_map = {n['node_id']: n for n in json_request['nodes']}
+        _node_only = True if source == 'hypothesis' else False
+        _live_query = db_instance.query_Generator(json_request, _node_map, limit, _node_only)
+
         if status in [TaskStatus.PENDING.value, TaskStatus.COMPLETE.value]:
             if status == TaskStatus.COMPLETE.value:
                 if os.path.exists(file_path):
@@ -778,12 +784,12 @@ def get_by_id(current_user_id, id):
                     response_data['edges'] = graph['edges']
                 else:
                     response_data['status'] = TaskStatus.PENDING.value
-                    requery(annotation_id, query, json_request)
+                    requery(annotation_id, _live_query, json_request)
             formatted_response = json.dumps(response_data, indent=4)
             return Response(formatted_response, mimetype='application/json')
 
         # Run the query and parse the results
-        result = db_instance.run_query(query)
+        result = db_instance.run_query(_live_query[0])
         graph_components = {"properties": properties}
         response_data = db_instance.parse_and_serialize(
             result, schema_manager.full_schema_representation,
