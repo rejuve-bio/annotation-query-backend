@@ -135,9 +135,8 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
             summary = llm.generate_summary(response, request)
             summary = summary if summary else 'Graph too big, could not summarize'
         
-        AnnotationStorageService.update(annotation_id, {"summary": summary})
+        AnnotationStorageService.update(annotation_id, {"summary": summary, "status": TaskStatus.COMPLETE.value})
         update_task(annotation_id, 'summary', 1)
-
 
         cache['summary'] = summary
         cache['status'] = TaskStatus.COMPLETE.value # This marks the whole flow as done
