@@ -1,6 +1,7 @@
 import os
+import atexit
 import subprocess
-import sys
+import threading
 import time
 import hashlib
 import uuid
@@ -9,16 +10,88 @@ from app.services.mork_generator import MorkQueryGenerator
 from hyperon import MeTTa
 from app import perf_logger
 
+# ---------------------------------------------------------------------------
+# Per-process container registry
+# ---------------------------------------------------------------------------
+# One long-running mork:latest container is kept alive per dataset_path per
+# worker process.  Queries are sent via `docker exec` (~100 ms overhead)
+# instead of `docker run` (~1-2 s overhead).  All threads within one process
+# share the same session; concurrent access is serialised by a per-session
+# lock.
+
+_session_registry: dict = {}
+_registry_lock = threading.Lock()
+
+
+class _MorkSession:
+    """Manages one long-running mork:latest container for a dataset path."""
+
+    MORK_BIN = "/app/MORK/target/release/mork"
+
+    def __init__(self, dataset_path: str):
+        self._path = dataset_path
+        self._uid_gid = f"{os.getuid()}:{os.getgid()}"
+        self._cid: str | None = None
+        self._lock = threading.Lock()
+
+    def _alive(self) -> bool:
+        if not self._cid:
+            return False
+        r = subprocess.run(
+            ["docker", "inspect", "--format={{.State.Running}}", self._cid],
+            capture_output=True, text=True,
+        )
+        return r.returncode == 0 and r.stdout.strip() == "true"
+
+    def _start(self):
+        r = subprocess.run([
+            "docker", "run", "-d", "--rm",
+            "-u", self._uid_gid,
+            "-v", f"{self._path}:{self._path}:rw",
+            "-v", "/dev/shm:/dev/shm",
+            "-w", self._path,
+            "mork:latest",
+            "tail", "-f", "/dev/null",   # keeps container alive
+        ], capture_output=True, text=True, check=True)
+        self._cid = r.stdout.strip()
+
+    def exec_query(self, query_file_name: str):
+        with self._lock:
+            if not self._alive():
+                self._start()
+            return subprocess.run([
+                "docker", "exec", self._cid,
+                self.MORK_BIN, "run", query_file_name,
+            ], capture_output=True, text=True, check=True)
+
+    def stop(self):
+        if self._cid:
+            subprocess.run(["docker", "stop", self._cid], capture_output=True)
+            self._cid = None
+
+
+def _get_session(dataset_path: str) -> _MorkSession:
+    key = str(Path(dataset_path).resolve())
+    with _registry_lock:
+        if key not in _session_registry:
+            _session_registry[key] = _MorkSession(key)
+        return _session_registry[key]
+
+
+def _cleanup_sessions():
+    for session in list(_session_registry.values()):
+        session.stop()
+
+
+atexit.register(_cleanup_sessions)
+
+
+# ---------------------------------------------------------------------------
+
 class MorkCLIQueryGenerator(MorkQueryGenerator):
     def __init__(self, dataset_path):
         super().__init__(dataset_path=None)
         self.dataset_path = Path(dataset_path)
-        project_root = Path(__file__).resolve().parents[2]
-        default_wrapper = project_root / "scripts" / "mork_docker_wrapper.py"
-        if default_wrapper.exists():
-            self.mork_bin = str(default_wrapper)
-        else:
-            raise RuntimeError("MORK docker wrapper not found.")
         self.metta = MeTTa()
 
     def _run_single_pattern(self, pattern_str, template_str):
@@ -43,9 +116,8 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
         try:
             with open(query_file, "w") as f:
                 f.write(metta_query)
-            run_cmd = [sys.executable, self.mork_bin, "run", query_file.name]
-            result = subprocess.run(run_cmd, capture_output=True, text=True,
-                                    check=True, cwd=str(self.dataset_path))
+            session = _get_session(str(self.dataset_path))
+            result = session.exec_query(query_file.name)
             raw = result.stdout
             actual = raw.split("result:", 1)[1].strip() if "result:" in raw else raw.strip()
             return self.metta.parse_all(actual)
