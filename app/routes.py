@@ -784,7 +784,7 @@ def get_by_id(current_user_id, id):
                     response_data['edges'] = graph['edges']
                 else:
                     response_data['status'] = TaskStatus.PENDING.value
-                    requery(annotation_id, _live_query, json_request)
+                    requery(annotation_id, _live_query[0], json_request)
             formatted_response = json.dumps(response_data, indent=4)
             return Response(formatted_response, mimetype='application/json')
 

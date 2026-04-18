@@ -295,8 +295,18 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 output_vars = vars_in_pat - resolved_vars
 
                 if not input_vars and vars_in_pat:
-                    deferred.append(pred_pat)
-                    continue
+                    # Only defer if another unprocessed pattern with resolved
+                    # inputs shares our vars (meaning it will produce them for us).
+                    # Patterns whose vars are all new outputs (e.g. a predicate
+                    # starting from a concrete node ID) should run immediately.
+                    produces_our_vars = any(
+                        (extract_vars(other) & vars_in_pat)
+                        and (extract_vars(other) & resolved_vars)
+                        for other in remaining if other != pred_pat
+                    )
+                    if produces_our_vars:
+                        deferred.append(pred_pat)
+                        continue
 
                 tmpl           = body_to_tmpl[pred_pat.strip()]
                 input_var_list = sorted(input_vars)
@@ -310,9 +320,10 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 for combo in combos:
                     subst_pat  = pred_pat.strip()
                     subst_tmpl = tmpl
-                    for var, val in zip(input_var_list, combo):
-                        subst_pat  = subst_pat.replace(f'${var}', val)
-                        subst_tmpl = subst_tmpl.replace(f'${var}', val)
+                    # Sort longest var name first to prevent $n1 clobbering $n10
+                    for var, val in sorted(zip(input_var_list, combo), key=lambda x: -len(x[0])):
+                        subst_pat  = re.sub(r'\$' + re.escape(var) + r'(?!\w)', val, subst_pat)
+                        subst_tmpl = re.sub(r'\$' + re.escape(var) + r'(?!\w)', val, subst_tmpl)
 
                     atoms = self._run_single_pattern(subst_pat, subst_tmpl)
                     all_atoms.extend(atoms)

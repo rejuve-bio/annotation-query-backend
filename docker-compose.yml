@@ -6,7 +6,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - .:/app
-      - ${MORK_DATA_DIR}:${MORK_DATA_DIR}:rw
+      - ${MORK_DATA_DIR:-./mork_data}:${MORK_DATA_DIR:-./mork_data}:rw
       - /dev/shm:/dev/shm
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
@@ -62,7 +62,7 @@ services:
   redis:
     image: redis:latest
     ports:
-      - "${REDIS_DOCKER_PORT}:6379"
+      - "${REDIS_DOCKER_PORT:-6380}:6379"
     restart: always
     volumes:
       - redis_data:/data
