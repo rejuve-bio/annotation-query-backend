@@ -26,6 +26,9 @@ class Annotation(Schema):
     files = None
     species = None
     path_url = None
+    retrieval_duration = None
+    processing_duration = None
+    total_duration = None
 
     def __init__(self, **kwargs):
         self.schema = {
@@ -68,6 +71,9 @@ class Annotation(Schema):
                 "required": True
             },
             "path_url": Types.String,
+            "retrieval_duration": Types.String,
+            "processing_duration": Types.String,
+            "total_duration": Types.String,
             "species": {
                 "type": Types.String,
                 "required": True,

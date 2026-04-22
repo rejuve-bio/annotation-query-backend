@@ -3,6 +3,7 @@ from app import schema_manager, db_instance, redis_client, app, TaskCancelledExc
 import logging
 import json
 import os
+import time
 from app.lib import Graph
 from app.constants import TaskStatus
 from app.persistence import AnnotationStorageService
@@ -134,8 +135,17 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
         else:
             summary = llm.generate_summary(response, request)
             summary = summary if summary else 'Graph too big, could not summarize'
-        
-        AnnotationStorageService.update(annotation_id, {"summary": summary, "status": TaskStatus.COMPLETE.value})
+
+        import datetime as dt
+        from app.routes import _format_duration
+        created_at = getattr(meta_data, 'created_at', None)
+        total_ms = round((dt.datetime.now() - created_at).total_seconds() * 1000) if created_at else None
+
+        AnnotationStorageService.update(annotation_id, {
+            "summary": summary,
+            "status": TaskStatus.COMPLETE.value,
+            "total_duration": _format_duration(total_ms),
+        })
         update_task(annotation_id, 'summary', 1)
 
         cache['summary'] = summary
@@ -172,11 +182,15 @@ def graph_task(query_code, annotation_id, requests, result_status, species, stat
         
         stop_event = RedisStopEvent(annotation_id, redis_state)
 
+        t0 = time.time()
         response_data = db_instance.run_query(query_code, stop_event, species)
-        
+        retrieval_ms = round((time.time() - t0) * 1000)
+
         graph_components = {"nodes": requests['nodes'], "predicates": requests['predicates'], "properties": True}
+        t1 = time.time()
         response = db_instance.parse_and_serialize(
             response_data, schema_manager.full_schema_representation, graph_components, 'graph')
+        processing_ms = round((time.time() - t1) * 1000)
         
         snp_nodes = [n for n in response['nodes'] if n['data'].get('label') == 'snp']
         
@@ -241,6 +255,11 @@ def graph_task(query_code, annotation_id, requests, result_status, species, stat
         with open(file_path, 'w') as file:
             json.dump(grouped_graph, file)
 
+        from app.routes import _format_duration
+        timing_update = {
+            "retrieval_duration": _format_duration(retrieval_ms),
+            "processing_duration": _format_duration(processing_ms),
+        }
         if snp_nodes:
             AnnotationStorageService.update(annotation_id, {"path_url": str(file_path.resolve()), "files": [
                 {
@@ -248,9 +267,9 @@ def graph_task(query_code, annotation_id, requests, result_status, species, stat
                     "file": f"/public/vcf/{annotation_id}.vcf.gz",
                     "index": f"/public/vcf/{annotation_id}.vcf.gz.tbi"
                 }
-            ]})
+            ], **timing_update})
         else:
-            AnnotationStorageService.update(annotation_id, {"path_url": str(file_path.resolve()), "files": None})
+            AnnotationStorageService.update(annotation_id, {"path_url": str(file_path.resolve()), "files": None, **timing_update})
 
         status = status or TaskStatus.PENDING.value
         set_status(annotation_id, status)

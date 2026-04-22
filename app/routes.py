@@ -16,6 +16,19 @@ from app.lib.email import init_mail, send_email
 from app.lib.utils import convert_to_csv
 from dotenv import load_dotenv
 import datetime
+
+
+def _format_duration(ms):
+    if ms is None:
+        return None
+    if ms < 1000:
+        return f"{ms} ms"
+    elif ms < 60_000:
+        return f"{ms / 1000:.2f} sec"
+    elif ms < 3_600_000:
+        return f"{ms / 60_000:.2f} min"
+    else:
+        return f"{ms / 3_600_000:.2f} hr"
 from app.lib import Graph, heuristic_sort
 from app.annotation_controller import handle_client_request, process_full_data, requery
 from app.constants import TaskStatus, Species, form_fields, ROLES
@@ -712,6 +725,9 @@ def get_by_id(current_user_id, id):
     species = cursor.species
     source = cursor.data_source
     files = cursor.files
+    retrieval_duration = cursor.retrieval_duration
+    processing_duration = cursor.processing_duration
+    total_duration = cursor.total_duration
 
     # Extract node types
     nodes = json_request['nodes']
@@ -755,16 +771,18 @@ def get_by_id(current_user_id, id):
             response_data["node_count_by_label"] = node_count_by_label
             response_data["edge_count_by_label"] = edge_count_by_label
         response_data["status"] = status
+        response_data["timing"] = {
+            "retrieval": retrieval_duration,
+            "processing": processing_duration,
+            "total": total_duration,
+        }
 
         cache = redis_client.get(str(annotation_id))
 
         if cache is not None:
             cache = json.loads(cache)
-            graph = cache['graph']
-            if graph is not None:
-                response_data['nodes'] = graph['nodes']
-                response_data['edges'] = graph['edges']
-
+            response_data['nodes'] = cache.get('nodes', [])
+            response_data['edges'] = cache.get('edges', [])
             return Response(json.dumps(response_data, indent=4), mimetype='application/json')
 
         # Regenerate the live query tuple from the stored request.
@@ -791,16 +809,19 @@ def get_by_id(current_user_id, id):
         # Run the query and parse the results
         result = db_instance.run_query(_live_query[0])
         graph_components = {"properties": properties}
-        response_data = db_instance.parse_and_serialize(
+        graph_data = db_instance.parse_and_serialize(
             result, schema_manager.full_schema_representation,
             graph_components, result_type='graph')
         graph = Graph()
-        if (len(response_data['edges']) == 0):
-            grouped_graph = graph.group_node_only(response_data, json_request)
+        if (len(graph_data['edges']) == 0):
+            grouped_graph = graph.group_node_only(graph_data, json_request)
         else:
-            grouped_graph = graph.group_graph(response_data)
+            grouped_graph = graph.group_graph(graph_data)
         response_data['nodes'] = grouped_graph['nodes']
         response_data['edges'] = grouped_graph['edges']
+        for field in ('node_count', 'edge_count', 'node_count_by_label', 'edge_count_by_label'):
+            if field in graph_data:
+                response_data[field] = graph_data[field]
 
         if source == 'hypothesis':
             response = {
