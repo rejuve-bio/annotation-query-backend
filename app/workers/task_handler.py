@@ -1,5 +1,8 @@
 from flask import request, Response, g, current_app
-from app import schema_manager, db_instance, redis_client, app, TaskCancelledException
+from app import schema_manager, db_instance, db_instances, redis_client, app, TaskCancelledException
+
+def get_db_for_species(species):
+    return db_instances.get(species, db_instance)
 import logging
 import json
 import os
@@ -183,12 +186,12 @@ def graph_task(query_code, annotation_id, requests, result_status, species, stat
         stop_event = RedisStopEvent(annotation_id, redis_state)
 
         t0 = time.time()
-        response_data = db_instance.run_query(query_code, stop_event, species)
+        response_data = get_db_for_species(species).run_query(query_code, stop_event, species)
         retrieval_ms = round((time.time() - t0) * 1000)
 
         graph_components = {"nodes": requests['nodes'], "predicates": requests['predicates'], "properties": True}
         t1 = time.time()
-        response = db_instance.parse_and_serialize(
+        response = get_db_for_species(species).parse_and_serialize(
             response_data, schema_manager.full_schema_representation, graph_components, 'graph')
         processing_ms = round((time.time() - t1) * 1000)
         
@@ -325,10 +328,11 @@ def total_count_task(count_query, annotation_id, requests, total_count_status, s
         return
 
     try:
-        total_count = db_instance.run_query(count_query, None, species)
-        
+        _db = get_db_for_species(species)
+        total_count = _db.run_query(count_query, None, species)
+
         if db_type in ["mork", "mork_cli"]:
-            result = db_instance.parse_and_serialize(total_count, schema_manager.full_schema_representation, {
+            result = _db.parse_and_serialize(total_count, schema_manager.full_schema_representation, {
                 "nodes": requests.get("nodes", []),
                 "predicates": requests.get("predicates", []),
                 "properties": True
@@ -358,7 +362,7 @@ def total_count_task(count_query, annotation_id, requests, total_count_status, s
 
         count_result = [total_count[0], {}]
         graph_components = {"nodes": requests["nodes"], "predicates": requests["predicates"], "properties": False}
-        response = db_instance.parse_and_serialize(count_result, schema_manager.full_schema_representation, graph_components, "count")
+        response = _db.parse_and_serialize(count_result, schema_manager.full_schema_representation, graph_components, "count")
 
         update_task(annotation_id, 'total_count', 1)
         status = TaskStatus.PENDING.value
@@ -416,8 +420,9 @@ def label_count_task(count_query, annotation_id, requests, count_label_status, s
             return
 
         if db_type in ["mork", "mork_cli"]:
-            count_result = db_instance.run_query(count_query, None, species)
-            result = db_instance.parse_and_serialize(count_result, schema_manager.full_schema_representation, {
+            _db = get_db_for_species(species)
+            count_result = _db.run_query(count_query, None, species)
+            result = _db.parse_and_serialize(count_result, schema_manager.full_schema_representation, {
                 "nodes": requests.get("nodes", []),
                 "predicates": requests.get("predicates", []),
                 "properties": True
@@ -439,10 +444,10 @@ def label_count_task(count_query, annotation_id, requests, count_label_status, s
             redis_client.publish('socket_event', json.dumps(socket_event))
             return
 
-        label_count = db_instance.run_query(count_query, None, species)
+        label_count = _db.run_query(count_query, None, species)
         count_result = [{}, label_count[0]]
         graph_components = {"nodes": requests["nodes"], "predicates": requests["predicates"], "properties": False}
-        response = db_instance.parse_and_serialize(count_result, schema_manager.full_schema_representation, graph_components, "count")
+        response = _db.parse_and_serialize(count_result, schema_manager.full_schema_representation, graph_components, "count")
         
         AnnotationStorageService.update(
             annotation_id,
