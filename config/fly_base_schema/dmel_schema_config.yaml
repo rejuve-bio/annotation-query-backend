@@ -1,0 +1,723 @@
+Title: BioCypher graph schema configuration file (Biolink-adapted for dmel)
+
+
+
+##################             NODES   SECTION             ####################
+
+allele:
+  represented_as: node
+  input_label: allele
+  is_a: genomic variant
+  mixins:
+  - biolink:Allele
+  - biolink:SequenceVariant
+  biolink_category: biolink:Allele
+  inherit_properties: true
+  properties:
+    allele_symbol:
+      type: str
+      biolink: symbol
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  description: Different versions of the same variant (in a specific  locus) are called
+    alleles[1, 2]. Most commonly used referring to genes.
+  kgx_properties:
+    category: biolink:Allele
+
+dmel disease model:
+  represented_as: node
+  input_label: dmel_disease_model
+  is_a: biological entity
+  mixins:
+  - biolink:DiseaseModel
+  - biolink:OrganismalEntity
+  biolink_category: biolink:DiseaseModel
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    gene:
+      type: str
+      biolink: has_gene_or_gene_product
+    do_qualifier:
+      type: str
+      biolink: qualifier
+    do_term_id:
+      type: str
+      biolink: in_disease
+    do_term_name:
+      type: str
+      biolink: name
+    allele:
+      type: str
+      biolink: has_attribute
+    ortholog_hgnc_id:
+      type: str
+      biolink: id
+    ortholog_hgnc_symbol:
+      type: str
+      biolink: symbol
+    evidence_code:
+      type: str
+      biolink: has_evidence
+    interacting_alleles:
+      type: str[]
+      biolink: has_attribute
+    ev_code_interact_alleles:
+      type: str
+      biolink: has_evidence
+    reference_FBrf_id:
+      type: str
+      biolink: publication
+  kgx_properties:
+    category: biolink:DiseaseModel
+
+gene group:
+  represented_as: node
+  input_label: gene_group
+  is_a: biological entity
+  mixins:
+  - biolink:GeneGroup
+  biolink_category: biolink:GeneGroup
+  properties:
+    genes:
+      type: str[]
+      biolink: has_gene_or_gene_product
+    group_symbol:
+      type: str
+      biolink: symbol
+    group_name:
+      type: str
+      biolink: name
+    parent_groups:
+      type: str[]
+      biolink: subclass_of
+    HGNC_family_ID:
+      type: str[]
+      biolink: id
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    category: biolink:GeneGroup
+
+genotype:
+  represented_as: node
+  input_label: genotype
+  is_a: biological entity
+  mixins:
+  - biolink:Genotype
+  biolink_category: biolink:Genotype
+  properties:
+    genotype_ids:
+      type: str
+      biolink: id
+    genotype_symbols:
+      type: str
+      biolink: symbol
+    reference:
+      type: str
+      biolink: publication
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    category: biolink:Genotype
+
+metabolic pathway gene group:
+  represented_as: node
+  input_label: metabolic_pathway_gene_group
+  is_a: biological entity
+  mixins:
+  - biolink:Pathway
+  - biolink:GeneGroup
+  biolink_category: biolink:Pathway
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    genes:
+      type: str[]
+      biolink: has_gene_or_gene_product
+    group_symbol:
+      type: str
+      biolink: symbol
+    group_name:
+      type: str
+      biolink: name
+    parent_groups:
+      type: str[]
+      biolink: subclass_of
+    HGNC_family_ID:
+      type: str[]
+      biolink: id
+  kgx_properties:
+    category: biolink:Pathway
+
+phenotype_set:
+  represented_as: node
+  input_label: phenotype_set
+  is_a: biological entity
+  mixins:
+  - biolink:PhenotypicFeature
+  biolink_category: biolink:PhenotypicFeature
+  properties:
+    phenotype_ontology_id:
+      type: str
+      biolink: has_attribute
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    category: biolink:PhenotypicFeature
+
+rnaseq library:
+  is_a: entity
+  represented_as: node
+  inherit_properties: false
+  input_label: rnaseq_library
+  mixins:
+  - biolink:DataSet
+  biolink_category: biolink:DataSet
+  description: A library/cluster/sample that is a set of genes and their expression
+    values.
+  properties:
+    name:
+      type: str
+      biolink: name
+    experiment_info:
+      type: str[]
+      biolink: has_attribute
+    tissue_info:
+      type: str[]
+      biolink: has_attribute
+    cell_type_id:
+      type: str
+      biolink: has_cell_type
+    anatomy_entity_id:
+      type: str[]
+      biolink: anatomical_entity
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+  kgx_properties:
+    category: biolink:DataSet
+
+signaling pathway gene group:
+  represented_as: node
+  input_label: signaling_pathway_gene_group
+  is_a: biological entity
+  mixins:
+  - biolink:Pathway
+  - biolink:GeneGroup
+  biolink_category: biolink:Pathway
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    genes:
+      type: str[]
+      biolink: has_gene_or_gene_product
+    group_symbol:
+      type: str
+      biolink: symbol
+    group_name:
+      type: str
+      biolink: name
+    parent_groups:
+      type: str[]
+      biolink: subclass_of
+    HGNC_family_ID:
+      type: str[]
+      biolink: id
+  kgx_properties:
+    category: biolink:Pathway
+
+
+
+##################             EDGES   SECTION             ####################
+
+allele to allele genetic interaction:
+  represented_as: edge
+  input_label: allele_to_allele_genetic_interaction
+  is_a: annotation
+  biolink_predicate: biolink:interacts_with
+  source: allele
+  target: allele
+  properties:
+    interaction_description:
+      type: str
+      biolink: description
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Allele
+    object_category: biolink:Allele
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+allele to gene association:
+  is_a: annotation
+  inherit_properties: true
+  represented_as: edge
+  input_label: variant_of
+  biolink_predicate: biolink:variant_of
+  source: allele
+  target: gene
+  properties:
+    taxon_id:
+      type: str
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Allele
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+allele to phenotype_set:
+  represented_as: edge
+  input_label: involved_in
+  is_a: annotation
+  biolink_predicate: biolink:involved_in
+  source: allele
+  target: phenotype_set
+  properties:
+    miniref:
+      type: str
+      biolink: publication
+    fb_ref:
+      type: str
+      biolink: publication
+    pmid_ref:
+      type: str
+      biolink: publication
+    pmcid_ref:
+      type: str
+      biolink: publication
+    doi:
+      type: str
+      biolink: publication
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Allele
+    object_category: biolink:PhenotypicFeature
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+expression value:
+  is_a: expression
+  mixins:
+  - biolink:ExpressionQuantitativeTraitLocus
+  biolink_predicate: biolink:has_quantified_expression_level
+  represented_as: edge
+  inherit_properties: false
+  input_label: expression_value
+  source: biolink:GeneOrGeneProduct
+  target: rnaseq library
+  description: A set of values for numeric estimation of single gene/transcript expression
+    as measured by a given methodology (represented by a library).
+  properties:
+    value_and_description:
+      type: list[tuple]
+      biolink: has_quantitative_value
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+  kgx_properties:
+    subject_category: biolink:GeneOrGeneProduct
+    object_category: biolink:DataSet
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+FBbt subclass of:
+  is_a: subclass of
+  inherit_properties: true
+  represented_as: edge
+  input_label: FBbt_subclass_of
+  output_label: is_a
+  biolink_predicate: biolink:subclass_of
+  source: anatomy
+  target: anatomy
+  kgx_properties:
+    subject_category: biolink:AnatomicalEntity
+    object_category: biolink:AnatomicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+FBcv subclass of:
+  is_a: subclass of
+  inherit_properties: true
+  represented_as: edge
+  input_label: FBcv_subclass_of
+  output_label: is_a
+  biolink_predicate: biolink:subclass_of
+  source: phenotype
+  target: phenotype
+  kgx_properties:
+    subject_category: biolink:OntologyClass
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+FBdv subclass of:
+  is_a: subclass of
+  inherit_properties: true
+  represented_as: edge
+  input_label: FBdv_subclass_of
+  output_label: is_a
+  biolink_predicate: biolink:subclass_of
+  source: developmental stage
+  target: developmental stage
+  kgx_properties:
+    subject_category: biolink:LifeStage
+    object_category: biolink:LifeStage
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene genetic association:
+  description: An association between a gene and another gene, i.e., a gene-level
+    genetic interactions in FlyBase. This data is computed from the allele-level genetic
+    interaction data captured by FlyBase curators.
+  is_a: regulatory association
+  inherit_properties: true
+  represented_as: edge
+  input_label: gene_genetic_association
+  biolink_predicate: biolink:genetic_association
+  source: gene
+  target: gene
+  properties:
+    reference:
+      type: str
+      biolink: publication
+    type:
+      type: str
+      biolink: PairwiseGeneToGeneInteraction
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene to group association:
+  description: 'An association between a gene and a group of genes: genes are grouped
+    into gene groups based on shared characteristics, such as sequence, biological
+    function, or participation in a biological process'
+  is_a: related to at instance level
+  represented_as: edge
+  input_label: grouped_into
+  biolink_predicate: biolink:member_of
+  source: gene
+  target: gene group
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:GeneGroup
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene to metabolic pathway group association:
+  description: 'An association between a gene and a group of genes: genes are grouped
+    into gene groups based on shared characteristics, such as sequence, biological
+    function, or participation in a biological process'
+  is_a: related to at instance level
+  represented_as: edge
+  input_label: metabolic_pathway_grouped_into
+  biolink_predicate: biolink:member_of
+  source: gene
+  target: metabolic pathway gene group
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene to sequence type:
+  is_a: annotation
+  inherit_properties: true
+  represented_as: edge
+  input_label: sequence_classified_as
+  output_label: classified_as
+  biolink_predicate: biolink:classified_as
+  source: gene
+  target: sequence type
+  properties:
+    taxon_id:
+      type: str
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene to signaling pathway group association:
+  description: 'An association between a gene and a group of genes: genes are grouped
+    into gene groups based on shared characteristics, such as sequence, biological
+    function, or participation in a biological process'
+  is_a: related to at instance level
+  represented_as: edge
+  input_label: signaling_pathway_grouped_into
+  biolink_predicate: biolink:member_of
+  source: gene
+  target: signaling pathway gene group
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+modelled to do term:
+  represented_as: edge
+  input_label: modelled_to_do_term
+  is_a: annotation
+  biolink_predicate: biolink:has_phenotype
+  source: gene
+  target: disease
+  properties:
+    disease_model_id:
+      type: str
+      biolink: has_model
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Disease
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+modelled to human disease:
+  represented_as: edge
+  input_label: modelled_to_human_disease
+  is_a: annotation
+  biolink_predicate: biolink:models
+  source: gene
+  target: dmel disease model
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:DiseaseModel
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+phenotype_set to cellular component:
+  represented_as: edge
+  input_label: inheres_in
+  is_a: annotation
+  biolink_predicate: biolink:inheres_in
+  source: phenotype_set
+  target: cellular component
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:PhenotypicFeature
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+phenotype_set to genotype:
+  represented_as: edge
+  input_label: genetically_informed_by
+  is_a: annotation
+  biolink_predicate: biolink:genetically_inferred_from
+  source: phenotype_set
+  target: genotype
+  properties:
+    miniref:
+      type: str
+      biolink: publication
+    fb_ref:
+      type: str
+      biolink: publication
+    pmid_ref:
+      type: str
+      biolink: publication
+    pmcid_ref:
+      type: str
+      biolink: publication
+    doi:
+      type: str
+      biolink: publication
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:PhenotypicFeature
+    object_category: biolink:Genotype
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+phenotype_set to ontology:
+  represented_as: edge
+  input_label: characterized_by
+  is_a: annotation
+  biolink_predicate: biolink:characterized_by
+  source: phenotype_set
+  target: ontology term
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:PhenotypicFeature
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+ptp physical interaction type:
+  is_a: expression
+  represented_as: edge
+  input_label: ptp_physical_interaction_type
+  source: ptp physically interacts with
+  target: molecular_interaction
+
+ptp physically interacts with:
+  is_a: expression
+  inherit_properties: true
+  represented_as: edge
+  input_label: ptp_physically_interacts_with
+  biolink_predicate: biolink:physically_interacts_with
+  source: biolink:GeneOrGeneProduct
+  target: protein
+  properties:
+    source_gene:
+      type: str
+      biolink: has_gene_or_gene_product
+    target_gene:
+      type: str
+      biolink: has_gene_or_gene_product
+    detection_method:
+      type: str
+      biolink: has_metric
+    pubmed_ids:
+      type: str[]
+      biolink: publication
+    source_taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    target_taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    interaction_type:
+      type: molecular_interaction
+      biolink: has_attribute
+    interaction_comments:
+      type: str
+      biolink: comment
+    source_comments:
+      type: str
+      biolink: comment
+    target_comments:
+      type: str
+      biolink: comment
+  kgx_properties:
+    subject_category: biolink:GeneOrGeneProduct
+    object_category: biolink:Protein
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+ptt physically interacts with:
+  is_a: expression
+  inherit_properties: true
+  represented_as: edge
+  input_label: ptt_physically_interacts_with
+  biolink_predicate: biolink:physically_interacts_with
+  source: biolink:GeneOrGeneProduct
+  target: transcript
+  properties:
+    source_gene:
+      type: str
+      biolink: has_gene_or_gene_product
+    target_gene:
+      type: str
+      biolink: has_gene_or_gene_product
+    detection_method:
+      type: str
+      biolink: has_metric
+    pubmed_ids:
+      type: str[]
+      biolink: publication
+    source_taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    target_taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    interaction_type:
+      type: str
+      biolink: has_attribute
+    interaction_comments:
+      type: str
+      biolink: comment
+    source_comments:
+      type: str
+      biolink: comment
+    target_comments:
+      type: str
+      biolink: comment
+  kgx_properties:
+    subject_category: biolink:GeneOrGeneProduct
+    object_category: biolink:Transcript
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
