@@ -5,6 +5,74 @@ import re
 import zipfile
 from io import BytesIO
 import os
+import tempfile
+import yaml
+
+def merge_schemas(primer_schema_path, species_schema_path, output_path=None):
+    """
+    Merges two BioCypher schema YAML files. Species schema entries override primer on conflict.
+
+    Args:
+        primer_schema_path (str): Path to the primer schema YAML file.
+        species_schema_path (str): Path to the species-specific schema YAML file.
+        output_path (str, optional): Destination path for the merged file.
+            If None, a temporary file is created in the same directory as the primer schema.
+
+    Returns:
+        Path: Path to the merged schema file.
+    """
+    primer_schema_path = Path(primer_schema_path)
+    species_schema_path = Path(species_schema_path)
+
+    with open(primer_schema_path, 'r') as f:
+        primer_schema = yaml.safe_load(f)
+
+    with open(species_schema_path, 'r') as f:
+        species_schema = yaml.safe_load(f)
+
+    merged_schema = {**primer_schema, **species_schema}
+
+    if output_path is not None:
+        dest = Path(output_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        write_fd = open(dest, 'w')
+        try:
+            items = list(merged_schema.items())
+            for i, (schema_name, schema_content) in enumerate(items):
+                yaml.dump(
+                    {schema_name: schema_content},
+                    write_fd,
+                    default_flow_style=False,
+                    sort_keys=False,
+                )
+                if i < len(items) - 1:
+                    write_fd.write('\n')
+        finally:
+            write_fd.close()
+        return dest
+
+    temp_fd, temp_path = tempfile.mkstemp(
+        suffix='.yaml',
+        dir=primer_schema_path.parent,
+    )
+    try:
+        with os.fdopen(temp_fd, 'w') as f:
+            items = list(merged_schema.items())
+            for i, (schema_name, schema_content) in enumerate(items):
+                yaml.dump(
+                    {schema_name: schema_content},
+                    f,
+                    default_flow_style=False,
+                    sort_keys=False,
+                )
+                if i < len(items) - 1:
+                    f.write('\n')
+    except Exception as e:
+        Path(temp_path).unlink(missing_ok=True)
+        raise RuntimeError(f"Error writing merged schema: {e}")
+
+    return Path(temp_path)
+
 
 def adjust_file_path(file_path):
     parent_name = file_path.parents[1].name
