@@ -7,6 +7,7 @@ services:
     volumes:
       - .:/app
       - ${MORK_DATA_DIR:-./mork_data}:${MORK_DATA_DIR:-./mork_data}:rw
+      - ${FLY_MORK_DATA_DIR:-/mnt/hdd_1/biocypher-kg/output/dmel/metta}:${FLY_MORK_DATA_DIR:-/mnt/hdd_1/biocypher-kg/output/dmel/metta}:rw
       - /dev/shm:/dev/shm
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
@@ -39,6 +40,7 @@ services:
     volumes:
       - .:/app
       - ${MORK_DATA_DIR}:${MORK_DATA_DIR}:rw
+      - ${FLY_MORK_DATA_DIR:-/mnt/hdd_1/biocypher-kg/output/dmel/metta}:${FLY_MORK_DATA_DIR:-/mnt/hdd_1/biocypher-kg/output/dmel/metta}:rw
       - /dev/shm:/dev/shm
       - /var/run/docker.sock:/var/run/docker.sock
     # Worker command
