@@ -6,7 +6,10 @@ import os
 import threading
 import jwt
 from pathlib import Path
-from app import app, schema_manager, db_instance, socketio, redis_client
+from app import app, schema_manager, db_instance, db_instances, socketio, redis_client
+
+def get_db_for_species(species):
+    return db_instances.get(species, db_instance)
 from app.lib import validate_request
 from flask_cors import CORS
 from flask_socketio import disconnect, join_room, send
@@ -262,7 +265,8 @@ def get_preference_option(current_user_id):
                                   "exception": str(e)}), exc_info=True)
         error_response = {
         "status": "error",
-        "message": "An internal server error occurred. Please try again later.",
+        "message": str(e),
+        "traceback": traceback.format_exc(),
         "timestamp": datetime.datetime.now().isoformat()
         }
         return Response(json.dumps(error_response, indent=4),
@@ -323,12 +327,13 @@ def get_schema_by_data_source():
                                   "exception": str(e)}), exc_info=True)
         error_response = {
         "status": "error",
-        "message": "An internal server error occurred. Please try again later.",
+        "message": str(e),
+        "traceback": traceback.format_exc(),
         "timestamp": datetime.datetime.now().isoformat()
         }
-    return Response(json.dumps(error_response, indent=4),
-                    mimetype='application/json',
-                    status=500)
+        return Response(json.dumps(error_response, indent=4),
+                        mimetype='application/json',
+                        status=500)
 
 @socketio.on('connect')
 # @socket_token_required
@@ -435,7 +440,7 @@ def process_query(current_user_id):
         # Validate the request data before processing
         user = UserStorageService.get(current_user_id)
         data_source = user.data_source if user else 'all'
-        species = user.species if user else 'human'
+        species = requests.get('species') or (user.species if user else 'human')
         node_map = validate_request(requests, schema_manager.schema[species], source)
         if node_map is None:
             return jsonify(
@@ -443,7 +448,8 @@ def process_query(current_user_id):
             ), 400
 
         # convert id to appropriate format
-        requests = db_instance.parse_id(requests)
+        _db = get_db_for_species(species)
+        requests = _db.parse_id(requests)
 
         # sort the predicate based on the the edge count
         requests = heuristic_sort(requests, node_map)
@@ -451,7 +457,7 @@ def process_query(current_user_id):
         node_only = True if source == 'hypothesis' else False
 
         # Generate the query code
-        query = db_instance.query_Generator(
+        query = _db.query_Generator(
             requests, node_map, limit, node_only)
 
         result_query = query[0]
@@ -470,13 +476,13 @@ def process_query(current_user_id):
         if source is None:
             return handle_client_request(query, requests,
                                          current_user_id, node_types, species, data_source, node_map)
-        result = db_instance.run_query(result_query)
+        result = _db.run_query(result_query)
 
         graph_components = {
             "nodes": requests['nodes'], "predicates": requests['predicates'],
             'properties': properties}
 
-        result_graph = db_instance.parse_and_serialize(
+        result_graph = _db.parse_and_serialize(
             result, schema_manager.full_schema_representation,
             graph_components, result_type='graph')
 
@@ -485,12 +491,12 @@ def process_query(current_user_id):
             formatted_response = json.dumps(response, indent=4)
             return Response(formatted_response, mimetype='application/json')
 
-        total_count = db_instance.run_query(total_count_query)
-        count_by_label = db_instance.run_query(count_by_label_query)
+        total_count = _db.run_query(total_count_query)
+        count_by_label = _db.run_query(count_by_label_query)
 
         count_result = [total_count[0], count_by_label[0]]
 
-        meta_data = db_instance.parse_and_serialize(
+        meta_data = _db.parse_and_serialize(
             count_result, schema_manager.full_schema_representation,
             graph_components, result_type='count')
 
@@ -544,7 +550,8 @@ def process_query(current_user_id):
                                   "exception": str(e)}), exc_info=True)
         error_response = {
         "status": "error",
-        "message": "An internal server error occurred. Please try again later.",
+        "message": str(e),
+        "traceback": traceback.format_exc(),
         "timestamp": datetime.datetime.now().isoformat()
         }
 
@@ -632,7 +639,8 @@ def process_user_history(current_user_id):
                                   "exception": str(e)}), exc_info=True)
         error_response = {
         "status": "error",
-        "message": "An internal server error occurred. Please try again later.",
+        "message": str(e),
+        "traceback": traceback.format_exc(),
         "timestamp": datetime.datetime.now().isoformat()
         }
 
@@ -787,9 +795,10 @@ def get_by_id(current_user_id, id):
 
         # Regenerate the live query tuple from the stored request.
         # cursor.query is only a string snapshot; run_query needs the full tuple.
+        _db = get_db_for_species(species)
         _node_map = {n['node_id']: n for n in json_request['nodes']}
         _node_only = True if source == 'hypothesis' else False
-        _live_query = db_instance.query_Generator(json_request, _node_map, limit, _node_only)
+        _live_query = _db.query_Generator(json_request, _node_map, limit, _node_only)
 
         if status in [TaskStatus.PENDING.value, TaskStatus.COMPLETE.value]:
             if status == TaskStatus.COMPLETE.value:
@@ -807,9 +816,9 @@ def get_by_id(current_user_id, id):
             return Response(formatted_response, mimetype='application/json')
 
         # Run the query and parse the results
-        result = db_instance.run_query(_live_query[0])
+        result = _db.run_query(_live_query[0])
         graph_components = {"properties": properties}
-        graph_data = db_instance.parse_and_serialize(
+        graph_data = _db.parse_and_serialize(
             result, schema_manager.full_schema_representation,
             graph_components, result_type='graph')
         graph = Graph()
@@ -845,7 +854,8 @@ def get_by_id(current_user_id, id):
                                   "exception": str(e)}), exc_info=True)
         error_response = {
         "status": "error",
-        "message": "An internal server error occurred. Please try again later.",
+        "message": str(e),
+        "traceback": traceback.format_exc(),
         "timestamp": datetime.datetime.now().isoformat()
         }
 

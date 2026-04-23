@@ -81,29 +81,46 @@ except Exception as e:
 schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
                                biocypher_config_path='./config/biocypher_config.yaml',
                                config_path='./config/schema',
-                               fly_schema_config_path='./config/fly_base_schema/net_act_essential_schema_config.yaml')
+                               fly_schema_config_path='./config/fly_base_schema/dmel_full_schema_config.yaml')
 
 
 from app.services.mork_generator import MorkQueryGenerator
 
-def _load_mork_cli_generator():
-    mork_data_dir = os.environ.get("MORK_DATA_DIR")
-    if not mork_data_dir:
-        logging.error("MORK_DATA_DIR is not set.")
-        raise RuntimeError("MORK_DATA_DIR is not set.")
+def _make_mork_cli_generator(data_dir, act_file="annotation.act"):
     module = importlib.import_module("app.services.mork_cli_generator")
-    return module.MorkCLIQueryGenerator(mork_data_dir)
+    return module.MorkCLIQueryGenerator(data_dir, act_filename=act_file)
+
+def _load_mork_cli_generators():
+    default_data_dir = os.environ.get("MORK_DATA_DIR")
+    db_config = config.get('database', {})
+    instances = {}
+    for species in ('human', 'fly'):
+        spec = db_config.get(species, {})
+        data_dir = spec.get('data_dir') or default_data_dir
+        act_file = spec.get('act_file', 'annotation.act')
+        if data_dir:
+            try:
+                instances[species] = _make_mork_cli_generator(data_dir, act_file)
+                logger.info(f"[MORK] Loaded {species} generator: {data_dir}/{act_file}")
+            except Exception as e:
+                logger.error(f"[MORK] Failed to load {species} generator: {e}")
+    if not instances:
+        raise RuntimeError("No MORK generators could be loaded. Check MORK_DATA_DIR and config.yaml.")
+    return instances
 
 databases = {
     "metta": lambda: MeTTa_Query_Generator("./Data"),
     "cypher": lambda: CypherQueryGenerator("./cypher_data"),
     "mork": lambda: MorkQueryGenerator("./mork_data"),
-    "mork_cli": _load_mork_cli_generator
-    # Add other database instances here
 }
 
 database_type = config['database']['type']
-db_instance = databases[database_type]()
+if database_type == 'mork_cli':
+    db_instances = _load_mork_cli_generators()
+    db_instance = db_instances.get('human') or next(iter(db_instances.values()))
+else:
+    db_instance = databases[database_type]()
+    db_instances = {'human': db_instance}
 
 from app.services.llm_handler import LLMHandler
 
