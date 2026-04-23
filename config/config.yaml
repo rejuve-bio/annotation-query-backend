@@ -1,2 +1,7 @@
 database:
-  type: cypher
+  type: mork_cli
+  human:
+    act_file: annotation.act
+  fly:
+    data_dir: /mnt/hdd_1/biocypher-kg/output/dmel/metta
+    act_file: flybase.act
