@@ -140,7 +140,7 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
             summary = summary if summary else 'Graph too big, could not summarize'
 
         import datetime as dt
-        from app.routes import _format_duration
+        from app.lib.utils import format_duration as _format_duration
         created_at = getattr(meta_data, 'created_at', None)
         total_ms = round((dt.datetime.now() - created_at).total_seconds() * 1000) if created_at else None
 
@@ -258,7 +258,7 @@ def graph_task(query_code, annotation_id, requests, result_status, species, stat
         with open(file_path, 'w') as file:
             json.dump(grouped_graph, file)
 
-        from app.routes import _format_duration
+        from app.lib.utils import format_duration as _format_duration
         timing_update = {
             "retrieval_duration": _format_duration(retrieval_ms),
             "processing_duration": _format_duration(processing_ms),

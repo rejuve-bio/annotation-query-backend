@@ -245,3 +245,16 @@ def convert_to_tsv(new_graph):
     except Exception as e:
         logging.error(f"Error converting to Excel: {e}")
         return None
+
+
+def format_duration(ms):
+    if ms is None:
+        return None
+    if ms < 1000:
+        return f"{ms} ms"
+    elif ms < 60_000:
+        return f"{ms / 1000:.2f} sec"
+    elif ms < 3_600_000:
+        return f"{ms / 60_000:.2f} min"
+    else:
+        return f"{ms / 3_600_000:.2f} hr"

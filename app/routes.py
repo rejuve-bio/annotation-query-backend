@@ -27,17 +27,7 @@ def _error_body(e):
         body["traceback"] = traceback.format_exc()
     return body
 
-def _format_duration(ms):
-    if ms is None:
-        return None
-    if ms < 1000:
-        return f"{ms} ms"
-    elif ms < 60_000:
-        return f"{ms / 1000:.2f} sec"
-    elif ms < 3_600_000:
-        return f"{ms / 60_000:.2f} min"
-    else:
-        return f"{ms / 3_600_000:.2f} hr"
+from app.lib.utils import format_duration as _format_duration
 from app.lib import Graph, heuristic_sort
 from app.annotation_controller import handle_client_request, process_full_data, requery
 from app.constants import TaskStatus, Species, form_fields, ROLES
