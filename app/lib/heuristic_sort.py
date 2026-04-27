@@ -16,25 +16,25 @@ def heuristic_sort(requests, node_map):
 
     def get_node_priority_score(node_id):
         """
-        Returns a score (lower is better) based on property keys.
+        Returns a score (lower is better) based on how specific the node is.
         """
         node = node_map.get(node_id, {})
+
+        # Priority 1: node has a concrete id (most selective)
+        if node.get('id'):
+            return 0
+
         props = node.get('properties')
 
-        # Priority 4: If properties is None or empty dict
+        # Priority 4: no properties and no id
         if not props:
             return 3
 
-        # Priority 1: Exact property key 'id'
-        if 'id' in props:
-            return 0
-        
-        # Priority 2: Any key containing the substring 'name'
-        # This covers 'gene_name', 'transcript_name', etc.
+        # Priority 2: any key containing 'name'
         if any('name' in key.lower() for key in props.keys()):
             return 1
-            
-        # Priority 3: Just property (generic)
+
+        # Priority 3: other property
         return 2
 
     def get_count(predicate):

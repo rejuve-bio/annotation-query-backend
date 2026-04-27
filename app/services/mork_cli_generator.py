@@ -1,6 +1,5 @@
 import os
 import sys
-import re
 import atexit
 import subprocess
 import threading
@@ -11,46 +10,6 @@ from pathlib import Path
 from app.services.mork_generator import MorkQueryGenerator
 from hyperon import MeTTa
 from app import perf_logger
-
-# ---------------------------------------------------------------------------
-# Fallback lookup helpers
-# ---------------------------------------------------------------------------
-
-def _is_direct_id_pattern(pattern_str):
-    """True when pattern is '(type bare_identifier)' with no nested parens."""
-    return bool(re.fullmatch(r'\(\S+\s+\S+\)', pattern_str.strip()))
-
-
-def _make_name_fallback(pattern_str, template_str):
-    """
-    Rewrite a direct-ID pattern to a name-property pattern:
-      (type ID)  →  (type_name (type $_fb_fallback) ID)
-    Returns (None, None) if the pattern doesn't match the expected shape.
-    """
-    m = re.fullmatch(r'\((\S+)\s+(\S+)\)', pattern_str.strip())
-    if not m:
-        return None, None
-    node_type, node_id = m.group(1), m.group(2)
-    var = "$_fb_fallback"
-    new_pattern = f"({node_type}_name ({node_type} {var}) {node_id})"
-    new_template = template_str.replace(f"({node_type} {node_id})", f"({node_type} {var})")
-    return new_pattern, new_template
-
-
-def _make_id_fallback(pattern_str, template_str):
-    """
-    Rewrite a name-property pattern to a direct-ID pattern:
-      (type_name (type $var) VALUE)  →  (type VALUE)
-    Returns (None, None) if the pattern doesn't match the expected shape.
-    """
-    m = re.fullmatch(r'\((\S+)_name\s+\((\S+)\s+(\S+)\)\s+(\S+)\)', pattern_str.strip())
-    if not m:
-        return None, None
-    node_type, value = m.group(2), m.group(4)
-    new_pattern = f"({node_type} {value})"
-    new_template = template_str
-    return new_pattern, new_template
-
 
 # ---------------------------------------------------------------------------
 # Per-process container registry
@@ -137,12 +96,8 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
         self.act_filename = act_filename
         self.metta = MeTTa()
 
-    def _run_single_pattern(self, pattern_str, template_str, _is_fallback=False):
-        """Run one single-pattern MORK query and return raw MeTTa atoms.
-
-        If the primary query returns no results, automatically retries in the
-        opposite direction (direct-ID ↔ name-property) once.
-        """
+    def _run_single_pattern(self, pattern_str, template_str):
+        """Run one single-pattern MORK query and return raw MeTTa atoms."""
         from app import app
         dataset_id = hashlib.md5(str(self.dataset_path.resolve()).encode()).hexdigest()[:8]
         target_space = f"mork_{dataset_id}"
@@ -167,7 +122,7 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
             result = session.exec_query(query_file.name)
             raw = result.stdout
             actual = raw.split("result:", 1)[1].strip() if "result:" in raw else raw.strip()
-            atoms = self.metta.parse_all(actual)
+            return self.metta.parse_all(actual)
         except subprocess.CalledProcessError as e:
             from app import app as flask_app
             flask_app.logger.error(f"MORK single-pattern error: {e.stderr}")
@@ -178,18 +133,6 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                     query_file.unlink()
                 except Exception:
                     pass
-
-        # Symmetric fallback: if primary returned nothing, try the other direction
-        if not atoms and not _is_fallback:
-            if _is_direct_id_pattern(pattern_str):
-                fb_p, fb_t = _make_name_fallback(pattern_str, template_str)
-            else:
-                fb_p, fb_t = _make_id_fallback(pattern_str, template_str)
-            if fb_p:
-                app.logger.info(f"[MORK fallback] '{pattern_str}' → '{fb_p}'")
-                atoms = self._run_single_pattern(fb_p, fb_t, _is_fallback=True)
-
-        return atoms
 
     def prepare_query_input(self, inputs, schema):
         """
