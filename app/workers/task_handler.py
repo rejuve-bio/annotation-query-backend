@@ -412,6 +412,8 @@ def label_count_task(count_query, annotation_id, requests, count_label_status, s
         return
 
     try:
+        _db = get_db_for_species(species)
+
         if meta_data:
             status = TaskStatus.PENDING.value
             update_task(annotation_id, 'label_count', 1)
@@ -420,7 +422,6 @@ def label_count_task(count_query, annotation_id, requests, count_label_status, s
             return
 
         if db_type in ["mork", "mork_cli"]:
-            _db = get_db_for_species(species)
             count_result = _db.run_query(count_query, None, species)
             result = _db.parse_and_serialize(count_result, schema_manager.full_schema_representation, {
                 "nodes": requests.get("nodes", []),

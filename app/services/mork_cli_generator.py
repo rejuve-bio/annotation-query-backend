@@ -90,10 +90,11 @@ atexit.register(_cleanup_sessions)
 # ---------------------------------------------------------------------------
 
 class MorkCLIQueryGenerator(MorkQueryGenerator):
-    def __init__(self, dataset_path, act_filename="annotation.act"):
+    def __init__(self, dataset_path, act_filename="annotation.act", species="human"):
         super().__init__(dataset_path=None)
         self.dataset_path = Path(dataset_path)
         self.act_filename = act_filename
+        self.species = species
         self.metta = MeTTa()
 
     def _run_single_pattern(self, pattern_str, template_str):
@@ -174,7 +175,7 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                     continue
                 seen_nodes.add(node_str)
                 node_type = node_str.split(' ')[0]
-                props = schema.get('human', {}).get('nodes', {}).get(node_type, {}).get('properties', {})
+                props = schema.get(self.species, {}).get('nodes', {}).get(node_type, {}).get('properties', {})
                 for prop in props:
                     if prop in to_be_removed:
                         continue
@@ -187,7 +188,7 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 predicate = item['predicate']
                 source    = item['source']
                 target    = item['target']
-                edge_props = schema.get('human', {}).get('edges', {}).get(predicate, {}).get('properties', {})
+                edge_props = schema.get(self.species, {}).get('edges', {}).get(predicate, {}).get('properties', {})
                 for prop in edge_props:
                     var = self.generate_id()
                     pattern  = f'({prop} ({predicate} ({source}) ({target})) ${var})'

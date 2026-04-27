@@ -86,21 +86,22 @@ schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
 
 from app.services.mork_generator import MorkQueryGenerator
 
-def _make_mork_cli_generator(data_dir, act_file="annotation.act"):
+def _make_mork_cli_generator(data_dir, act_file="annotation.act", species="human"):
     module = importlib.import_module("app.services.mork_cli_generator")
-    return module.MorkCLIQueryGenerator(data_dir, act_filename=act_file)
+    return module.MorkCLIQueryGenerator(data_dir, act_filename=act_file, species=species)
 
 def _load_mork_cli_generators():
-    default_data_dir = os.environ.get("MORK_DATA_DIR")
+    default_data_dir = os.environ.get("MORK_DATA_DIR") or None
     db_config = config.get('database', {})
     instances = {}
     for species in ('human', 'fly'):
         spec = db_config.get(species, {})
-        data_dir = spec.get('data_dir') or default_data_dir
+        env_key = f"{species.upper()}_MORK_DATA_DIR"
+        data_dir = os.environ.get(env_key) or spec.get('data_dir') or default_data_dir
         act_file = spec.get('act_file', 'annotation.act')
         if data_dir:
             try:
-                instances[species] = _make_mork_cli_generator(data_dir, act_file)
+                instances[species] = _make_mork_cli_generator(data_dir, act_file, species)
                 logger.info(f"[MORK] Loaded {species} generator: {data_dir}/{act_file}")
             except Exception as e:
                 logger.error(f"[MORK] Failed to load {species} generator: {e}")

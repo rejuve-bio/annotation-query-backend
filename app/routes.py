@@ -21,6 +21,12 @@ from dotenv import load_dotenv
 import datetime
 
 
+def _error_body(e):
+    body = {"status": "error", "message": str(e), "timestamp": datetime.datetime.now().isoformat()}
+    if app.debug:
+        body["traceback"] = traceback.format_exc()
+    return body
+
 def _format_duration(ms):
     if ms is None:
         return None
@@ -263,12 +269,7 @@ def get_preference_option(current_user_id):
                                   "timestamp":  datetime.datetime.now().isoformat(),
                                   "endpoint": "/preference-option",
                                   "exception": str(e)}), exc_info=True)
-        error_response = {
-        "status": "error",
-        "message": str(e),
-        "traceback": traceback.format_exc(),
-        "timestamp": datetime.datetime.now().isoformat()
-        }
+        error_response = _error_body(e)
         return Response(json.dumps(error_response, indent=4),
                     mimetype='application/json',
                     status=500)
@@ -325,12 +326,7 @@ def get_schema_by_data_source():
                                   "timestamp":  datetime.datetime.now().isoformat(),
                                   "endpoint": "/schema",
                                   "exception": str(e)}), exc_info=True)
-        error_response = {
-        "status": "error",
-        "message": str(e),
-        "traceback": traceback.format_exc(),
-        "timestamp": datetime.datetime.now().isoformat()
-        }
+        error_response = _error_body(e)
         return Response(json.dumps(error_response, indent=4),
                         mimetype='application/json',
                         status=500)
@@ -548,12 +544,7 @@ def process_query(current_user_id):
                                   "timestamp":  datetime.datetime.now().isoformat(),
                                   "endpoint": "/query",
                                   "exception": str(e)}), exc_info=True)
-        error_response = {
-        "status": "error",
-        "message": str(e),
-        "traceback": traceback.format_exc(),
-        "timestamp": datetime.datetime.now().isoformat()
-        }
+        error_response = _error_body(e)
 
         return Response(json.dumps(error_response, indent=4),
                     mimetype='application/json',
@@ -637,12 +628,7 @@ def process_user_history(current_user_id):
                                   "timestamp":  datetime.datetime.now().isoformat(),
                                   "endpoint": "/history",
                                   "exception": str(e)}), exc_info=True)
-        error_response = {
-        "status": "error",
-        "message": str(e),
-        "traceback": traceback.format_exc(),
-        "timestamp": datetime.datetime.now().isoformat()
-        }
+        error_response = _error_body(e)
 
         return Response(json.dumps(error_response, indent=4),
                     mimetype='application/json',
@@ -789,8 +775,9 @@ def get_by_id(current_user_id, id):
 
         if cache is not None:
             cache = json.loads(cache)
-            response_data['nodes'] = cache.get('nodes', [])
-            response_data['edges'] = cache.get('edges', [])
+            graph_cache = cache.get('graph') if isinstance(cache.get('graph'), dict) else {}
+            response_data['nodes'] = cache.get('nodes') or graph_cache.get('nodes', [])
+            response_data['edges'] = cache.get('edges') or graph_cache.get('edges', [])
             return Response(json.dumps(response_data, indent=4), mimetype='application/json')
 
         # Regenerate the live query tuple from the stored request.
@@ -852,12 +839,7 @@ def get_by_id(current_user_id, id):
                                   "timestamp":  datetime.datetime.now().isoformat(),
                                   "endpoint": "/annotation/<id>",
                                   "exception": str(e)}), exc_info=True)
-        error_response = {
-        "status": "error",
-        "message": str(e),
-        "traceback": traceback.format_exc(),
-        "timestamp": datetime.datetime.now().isoformat()
-        }
+        error_response = _error_body(e)
 
         return Response(json.dumps(error_response, indent=4),
                     mimetype='application/json',

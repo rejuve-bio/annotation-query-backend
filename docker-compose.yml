@@ -30,7 +30,7 @@ services:
       # Celery Message Broker (DB 1)
       - REDIS_URL_BROKER=redis://redis:6379/1
       - REDIS_EXPIRATION=3600
-      - MORK_DATA_DIR=${MORK_DATA_DIR}
+      - MORK_DATA_DIR=${MORK_DATA_DIR:-./mork_data}
 
   celery_worker:
     image: "${DOCKER_HUB_REPO}"
@@ -39,7 +39,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - .:/app
-      - ${MORK_DATA_DIR}:${MORK_DATA_DIR}:rw
+      - ${MORK_DATA_DIR:-./mork_data}:${MORK_DATA_DIR:-./mork_data}:rw
       - ${FLY_MORK_DATA_DIR:-/mnt/hdd_1/biocypher-kg/output/dmel/metta}:${FLY_MORK_DATA_DIR:-/mnt/hdd_1/biocypher-kg/output/dmel/metta}:rw
       - /dev/shm:/dev/shm
       - /var/run/docker.sock:/var/run/docker.sock
