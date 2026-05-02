@@ -175,7 +175,11 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
         to_be_removed = {'synonyms', 'accessions'}
         merged_atoms = []
 
-        # --- Node properties: one batch query per (node_type, property) ---
+        # --- Node properties: hybrid batch/per-node based on type population size ---
+        from app.constants import BATCH_MAX_TYPE_SIZE, BATCH_NODE_THRESHOLD
+        from app import graph_info as _graph_info
+        _type_counts = {e['name']: e['count'] for e in _graph_info.get('top_entities', [])}
+
         nodes_by_type: dict[str, set] = {}
         for item in result:
             for role in ('source', 'target'):
@@ -189,16 +193,30 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
 
         for node_type, node_ids in nodes_by_type.items():
             props = schema.get(self.species, {}).get('nodes', {}).get(node_type, {}).get('properties', {})
-            _id_re = re.compile(rf'\({re.escape(node_type)} ([^\)]+)\)')
-            for prop in props:
-                if prop in to_be_removed:
-                    continue
-                pattern  = f'({prop} ({node_type} $n) $v)'
-                template = f'(tmp (node {prop} ({node_type} $n) $v))'
-                for atom in self._run_single_pattern(pattern, template):
-                    m = _id_re.search(str(atom))
-                    if m and m.group(1) in node_ids:
-                        merged_atoms.append(atom)
+            total = _type_counts.get(node_type, 0)
+            use_batch = total < BATCH_MAX_TYPE_SIZE and len(node_ids) >= BATCH_NODE_THRESHOLD
+
+            if use_batch:
+                _id_re = re.compile(rf'\({re.escape(node_type)} ([^\)]+)\)')
+                for prop in props:
+                    if prop in to_be_removed:
+                        continue
+                    pattern  = f'({prop} ({node_type} $n) $v)'
+                    template = f'(tmp (node {prop} ({node_type} $n) $v))'
+                    for atom in self._run_single_pattern(pattern, template):
+                        m = _id_re.search(str(atom))
+                        if m and m.group(1) in node_ids:
+                            merged_atoms.append(atom)
+            else:
+                for node_id in node_ids:
+                    node_str = f'{node_type} {node_id}'
+                    for prop in props:
+                        if prop in to_be_removed:
+                            continue
+                        var = self.generate_id()
+                        pattern  = f'({prop} ({node_str}) ${var})'
+                        template = f'(tmp (node {prop} ({node_str}) ${var}))'
+                        merged_atoms.extend(self._run_single_pattern(pattern, template))
 
         # --- Edge properties: per-edge (few edges, unchanged) ---
         seen_edges: set = set()

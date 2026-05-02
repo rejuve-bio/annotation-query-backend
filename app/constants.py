@@ -149,6 +149,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 GRAPH_INFO_PATH = os.path.join(BASE_DIR, '../Data/count_info.json')
 
 QUERY_MAX_NODES = 200_000   # hard cap on nodes returned per query
+BATCH_MAX_TYPE_SIZE = 500_000   # node types with more total nodes than this → per-node only
+BATCH_NODE_THRESHOLD = 50       # result sets with ≥ this many nodes use batch (if type is small)
 ES_URL = os.getenv('ES_URL')
 ES_API_KEY = os.getenv('ES_API_KEY')
 
