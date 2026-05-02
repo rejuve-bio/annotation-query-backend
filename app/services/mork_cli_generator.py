@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import atexit
 import subprocess
@@ -45,15 +46,22 @@ class _MorkSession:
         return r.returncode == 0 and r.stdout.strip() == "true"
 
     def _start(self):
-        r = subprocess.run([
-            "docker", "run", "-d", "--rm",
-            "-u", self._uid_gid,
-            "-v", f"{self._path}:{self._path}:rw",
-            "-v", "/dev/shm:/dev/shm",
-            "-w", self._path,
-            "mork:latest",
-            "tail", "-f", "/dev/null",   # keeps container alive
-        ], capture_output=True, text=True, check=True)
+        try:
+            r = subprocess.run([
+                "docker", "run", "-d", "--rm",
+                "-u", self._uid_gid,
+                "-v", f"{self._path}:{self._path}:rw",
+                "-v", "/dev/shm:/dev/shm",
+                "-w", self._path,
+                "mork:latest",
+                "tail", "-f", "/dev/null",   # keeps container alive
+            ], capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                f"Failed to start mork:latest container. "
+                f"Build it with: docker build --network host -f app/services/mork/Dockerfile.mork -t mork:latest .\n"
+                f"Docker stderr: {e.stderr.strip()}"
+            ) from e
         self._cid = r.stdout.strip()
 
     def exec_query(self, query_file_name: str):
@@ -127,7 +135,7 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
         except subprocess.CalledProcessError as e:
             from app import app as flask_app
             flask_app.logger.error(f"MORK single-pattern error: {e.stderr}")
-            return []
+            raise RuntimeError(f"MORK query failed: {e.stderr.strip()}") from e
         finally:
             if query_file.exists():
                 try:
@@ -137,9 +145,9 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
 
     def prepare_query_input(self, inputs, schema):
         """
-        ACT files do not support conjunction patterns.
-        Run one query per property and merge the atom results instead of
-        issuing a single (,  prop1  prop2 ...) conjunction.
+        Batch-optimized: runs one MORK query per (node_type, property) pair
+        instead of one per (node, property). Reduces docker exec calls from
+        N×P to T×P where T = number of unique node types (typically 1-3).
         """
         from .metta.metta_seralizer import metta_seralizer
         result = []
@@ -166,34 +174,50 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
 
         to_be_removed = {'synonyms', 'accessions'}
         merged_atoms = []
-        seen_nodes = set()
 
+        # --- Node properties: one batch query per (node_type, property) ---
+        nodes_by_type: dict[str, set] = {}
         for item in result:
             for role in ('source', 'target'):
                 node_str = item.get(role)
-                if not node_str or node_str in seen_nodes:
+                if not node_str:
                     continue
-                seen_nodes.add(node_str)
-                node_type = node_str.split(' ')[0]
-                props = schema.get(self.species, {}).get('nodes', {}).get(node_type, {}).get('properties', {})
-                for prop in props:
-                    if prop in to_be_removed:
-                        continue
-                    var = self.generate_id()
-                    pattern  = f'({prop} ({node_str}) ${var})'
-                    template = f'(tmp (node {prop} ({node_str}) ${var}))'
-                    merged_atoms.extend(self._run_single_pattern(pattern, template))
+                parts = node_str.split(' ', 1)
+                if len(parts) == 2:
+                    node_type, node_id = parts
+                    nodes_by_type.setdefault(node_type, set()).add(node_id)
 
-            if 'predicate' in item and 'source' in item and 'target' in item:
-                predicate = item['predicate']
-                source    = item['source']
-                target    = item['target']
-                edge_props = schema.get(self.species, {}).get('edges', {}).get(predicate, {}).get('properties', {})
-                for prop in edge_props:
-                    var = self.generate_id()
-                    pattern  = f'({prop} ({predicate} ({source}) ({target})) ${var})'
-                    template = f'(tmp (edge {prop} ({predicate} ({source}) ({target})) ${var}))'
-                    merged_atoms.extend(self._run_single_pattern(pattern, template))
+        for node_type, node_ids in nodes_by_type.items():
+            props = schema.get(self.species, {}).get('nodes', {}).get(node_type, {}).get('properties', {})
+            _id_re = re.compile(rf'\({re.escape(node_type)} ([^\)]+)\)')
+            for prop in props:
+                if prop in to_be_removed:
+                    continue
+                pattern  = f'({prop} ({node_type} $n) $v)'
+                template = f'(tmp (node {prop} ({node_type} $n) $v))'
+                for atom in self._run_single_pattern(pattern, template):
+                    m = _id_re.search(str(atom))
+                    if m and m.group(1) in node_ids:
+                        merged_atoms.append(atom)
+
+        # --- Edge properties: per-edge (few edges, unchanged) ---
+        seen_edges: set = set()
+        for item in result:
+            if 'predicate' not in item or 'target' not in item:
+                continue
+            predicate = item['predicate']
+            source    = item['source']
+            target    = item['target']
+            edge_key  = (predicate, source, target)
+            if edge_key in seen_edges:
+                continue
+            seen_edges.add(edge_key)
+            edge_props = schema.get(self.species, {}).get('edges', {}).get(predicate, {}).get('properties', {})
+            for prop in edge_props:
+                var = self.generate_id()
+                pattern  = f'({prop} ({predicate} ({source}) ({target})) ${var})'
+                template = f'(tmp (edge {prop} ({predicate} ({source}) ({target})) ${var}))'
+                merged_atoms.extend(self._run_single_pattern(pattern, template))
 
         dummy_query = ((), (), 'query')
         return dummy_query, [merged_atoms], result
@@ -481,7 +505,7 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 raw_output = result.stdout
             except subprocess.CalledProcessError as e:
                 app.logger.error(f"MORK exec error: {e.stderr}")
-                return [[]]
+                raise RuntimeError(f"MORK query failed: {e.stderr.strip()}") from e
 
             if "result:" in raw_output:
                 actual_result = raw_output.split("result:", 1)[1].strip()
