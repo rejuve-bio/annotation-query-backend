@@ -8,7 +8,7 @@ import json
 import os
 import time
 from app.lib import Graph
-from app.constants import TaskStatus
+from app.constants import TaskStatus, QUERY_MAX_NODES
 from app.persistence import AnnotationStorageService
 from pathlib import Path
 import traceback
@@ -190,21 +190,41 @@ def graph_task(query_code, annotation_id, requests, result_status, species, stat
         retrieval_ms = round((time.time() - t0) * 1000)
 
         graph_components = {"nodes": requests['nodes'], "predicates": requests['predicates'], "properties": True}
+
+        # Cap raw atoms before enrichment to avoid runaway large queries
+        all_atoms = response_data[0] if response_data else []
+        truncated = len(all_atoms) > QUERY_MAX_NODES
+        if truncated:
+            logging.info(f"[graph_task] Capping {len(all_atoms)} atoms → {QUERY_MAX_NODES} for {annotation_id}")
+            all_atoms = all_atoms[:QUERY_MAX_NODES]
+
         t1 = time.time()
         response = get_db_for_species(species).parse_and_serialize(
-            response_data, schema_manager.full_schema_representation, graph_components, 'graph')
+            [all_atoms], schema_manager.full_schema_representation, graph_components, 'graph')
         processing_ms = round((time.time() - t1) * 1000)
-        
+
+        response['truncated'] = truncated
+
+        # Correct node_count to reflect the capped/delivered count, not the raw match count
+        # stored by total_count_task which runs in parallel against unfiltered results
+        if truncated:
+            AnnotationStorageService.update(annotation_id, {"node_count": response['node_count']})
+
+        graph = Graph()
+        base_graph_dir = Path(app.root_path) / "public" / "graph"
+        file_path = base_graph_dir / f"{annotation_id}.json"
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
         snp_nodes = [n for n in response['nodes'] if n['data'].get('label') == 'snp']
-        
+
         if snp_nodes:
             snp_nodes.sort(key=lambda x: (x['data'].get('chr', ''), int(x['data'].get('start', 0))))
             unique_chroms = sorted(list(set(n['data'].get('chr') for n in snp_nodes if n['data'].get('chr'))))
-            
+
             vcf_dir = Path("public/vcf").resolve()
             vcf_dir.mkdir(parents=True, exist_ok=True)
             vcf_path = vcf_dir / f"{annotation_id}.vcf"
-            
+
             with open(vcf_path, 'w') as vcf_file:
                 vcf_file.write("##fileformat=VCFv4.2\n")
                 vcf_file.write(f"##source=GenomicGraphAnnotation_{annotation_id}\n")
@@ -218,7 +238,7 @@ def graph_task(query_code, annotation_id, requests, result_status, species, stat
                 vcf_file.write('##INFO=<ID=CADD_PHRED,Number=1,Type=Float,Description="Phred CADD score">\n')
                 vcf_file.write('##INFO=<ID=NAME,Number=1,Type=String,Description="Variant Name">\n')
                 vcf_file.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
-                
+
                 for snp in snp_nodes:
                     d = snp['data']
                     chrom = d.get('chr', '.')
@@ -229,7 +249,7 @@ def graph_task(query_code, annotation_id, requests, result_status, species, stat
                     alt = d.get('alt', '.')
                     qual = '.'
                     filt = 'PASS'
-                    
+
                     info_parts = []
                     if 'caf_ref' in d: info_parts.append(f"CAF_REF={d['caf_ref']}")
                     if 'caf_alt' in d: info_parts.append(f"CAF_ALT={d['caf_alt']}")
@@ -238,23 +258,14 @@ def graph_task(query_code, annotation_id, requests, result_status, species, stat
                     if 'name' in d:
                         safe_name = str(d['name']).replace(';', '_').replace(' ', '_')
                         info_parts.append(f"NAME={safe_name}")
-                    
+
                     info_str = ";".join(info_parts) if info_parts else "."
                     vcf_file.write(f"{chrom}\t{pos}\t{vid}\t{ref}\t{alt}\t{qual}\t{filt}\t{info_str}\n")
-            
+
             pysam.tabix_index(str(vcf_path), preset="vcf", force=True)
 
-        graph = Graph()
-
-        if len(response['edges']) == 0 and len(response['nodes']) > 0:
-            grouped_graph = graph.group_node_only(response, requests)
-        else:
-            grouped_graph = graph.group_graph(response)
-            
-        base_graph_dir = Path(app.root_path) / "public" / "graph"
-        file_path = base_graph_dir / f"{annotation_id}.json"
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-
+        grouped_graph = graph.group_node_only(response, requests) \
+            if not response['edges'] else graph.group_graph(response)
         with open(file_path, 'w') as file:
             json.dump(grouped_graph, file)
 

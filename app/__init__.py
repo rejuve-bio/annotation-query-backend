@@ -78,10 +78,12 @@ except Exception as e:
     logger.error(f"Elasticsearch not reachable: {e}")
     es_db = None
 
-schema_manager = SchemaManager(schema_config_path='./config/schema_config.yaml',
-                               biocypher_config_path='./config/biocypher_config.yaml',
-                               config_path='./config/schema',
-                               fly_schema_config_path='./config/fly_base_schema/dmel_full_schema_config.yaml')
+schema_manager = SchemaManager(
+    schema_config_path='./config/human_schema/human_full_schema_config.yaml',
+    biocypher_config_path='./config/biocypher_config.yaml',
+    config_path='./config/schema',
+    fly_schema_config_path='./config/fly_base_schema/dmel_full_schema_config.yaml'
+)
 
 
 from app.services.mork_generator import MorkQueryGenerator
@@ -97,7 +99,8 @@ def _load_mork_cli_generators():
     for species in ('human', 'fly'):
         spec = db_config.get(species, {})
         env_key = f"{species.upper()}_MORK_DATA_DIR"
-        data_dir = os.environ.get(env_key) or spec.get('data_dir') or default_data_dir
+        species_env = os.environ.get(env_key)
+        data_dir = species_env or spec.get('data_dir') or (default_data_dir if spec else None)
         act_file = spec.get('act_file', 'annotation.act')
         if data_dir:
             try:
@@ -132,7 +135,15 @@ app.config['es_db'] = es_db
 app.config['db_type'] = database_type
 app.config['annotation_lock'] = threading.Lock()
 
-graph_info = json.load(open(GRAPH_INFO_PATH))
+_human_graph_info_path = (
+    config.get('database', {}).get('human', {}).get('graph_info_path')
+    or GRAPH_INFO_PATH
+)
+try:
+    graph_info = json.load(open(_human_graph_info_path))
+except Exception as e:
+    logger.warning(f"[App Init] Could not load graph_info from {_human_graph_info_path}: {e}")
+    graph_info = {}
 
 from app import routes
 from app.annotation_controller import handle_client_request, process_full_data, requery

@@ -160,7 +160,7 @@ class LLMHandler:
             else:
                 self.model = GeminiModel(gemini_api_key)
         else:
-            raise ValueError("Invalid model type in configuration")
+            self.model = None
 
     def generate_title(self, query, request=None, node_map=None):
         try:
