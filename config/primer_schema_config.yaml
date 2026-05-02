@@ -171,17 +171,8 @@ exon:
   kgx_properties:
     category: biolink:Exon
   properties:
-    gene_id:
-      type: str
-      biolink: id
-    transcript_id:
-      type: str
-      biolink: id
     exon_number:
       type: int
-    exon_id:
-      type: str
-      biolink: id
 
 experimental factor:
   is_a: ontology term
@@ -344,6 +335,8 @@ ontology term:
     synonym:
       type: str[]
       biolink: synonym
+    alternative_ids:
+      type: str[]
     source:
       type: str
       biolink: knowledge_source
@@ -374,9 +367,6 @@ pathway:
     evidence:
       type: str
       biolink: has_evidence
-    pubmed_url:
-      type: str
-      biolink: source_record_urls
     source:
       type: str
       biolink: knowledge_source
@@ -447,12 +437,20 @@ protein:
   biolink_category: biolink:Protein
   inherit_properties: true
   properties:
-    accession:
+    accessions:
       type: str[]
       biolink: xref
     protein_name:
       type: str
       biolink: name
+    is_canonical:
+      type: bool
+    is_isoform:
+      type: bool
+    canonical_accession:
+      type: str
+    isoform_name:
+      type: str
     source:
       type: str
       biolink: knowledge_source
@@ -624,9 +622,6 @@ transcript:
   kgx_properties:
     category: biolink:Transcript
   properties:
-    gene_name:
-      type: str
-      biolink: name
     transcript_name:
       type: str
       biolink: name
@@ -1257,12 +1252,6 @@ gene biomarker via orthology disease:
   properties:
     taxon_id:
       type: integer
-    species_name:
-      type: string
-    gene_symbol:
-      type: string
-    disease_name:
-      type: string
     evidence_code:
       type: string
     evidence_code_name:
@@ -1271,7 +1260,7 @@ gene biomarker via orthology disease:
       type: string
     date:
       type: string
-    source:
+    data_source:
       type: string
     with_ortholog:
       type: string
@@ -1300,12 +1289,6 @@ gene implicated via orthology disease:
   properties:
     taxon_id:
       type: integer
-    species_name:
-      type: string
-    gene_symbol:
-      type: string
-    disease_name:
-      type: string
     evidence_code:
       type: string
     evidence_code_name:
@@ -1314,7 +1297,7 @@ gene implicated via orthology disease:
       type: string
     date:
       type: string
-    source:
+    data_source:
       type: string
     with_ortholog:
       type: string
@@ -1362,12 +1345,6 @@ gene is implicated in disease:
   properties:
     taxon_id:
       type: integer
-    species_name:
-      type: string
-    gene_symbol:
-      type: string
-    disease_name:
-      type: string
     evidence_code:
       type: string
     evidence_code_name:
@@ -1376,7 +1353,7 @@ gene is implicated in disease:
       type: string
     date:
       type: string
-    source:
+    data_source:
       type: string
     with_ortholog:
       type: string
@@ -1439,12 +1416,6 @@ gene to disease marker association:
   properties:
     taxon_id:
       type: integer
-    species_name:
-      type: string
-    gene_symbol:
-      type: string
-    disease_name:
-      type: string
     evidence_code:
       type: string
     evidence_code_name:
@@ -1453,7 +1424,7 @@ gene to disease marker association:
       type: string
     date:
       type: string
-    source:
+    data_source:
       type: string
     with_ortholog:
       type: string
@@ -1481,12 +1452,6 @@ gene to disease model association:
   properties:
     taxon_id:
       type: integer
-    species_name:
-      type: string
-    gene_symbol:
-      type: string
-    disease_name:
-      type: string
     evidence_code:
       type: string
     evidence_code_name:
@@ -1495,7 +1460,7 @@ gene to disease model association:
       type: string
     date:
       type: string
-    source:
+    data_source:
       type: string
     with_ortholog:
       type: string
@@ -1537,15 +1502,11 @@ gene to pathway association:
   represented_as: edge
   input_label: genes_pathways
   output_label: participates_in
-  # source:
-  # - gene
-  # - transcript
-  # - protein
-  source: biolink:GeneOrGeneProduct
+  source:
+  - gene
+  - transcript
+  - protein
   target: pathway
-  pathway_url:
-    type: str
-    biolink: source_record_urls
   kgx_properties:
     subject_category: biolink:GeneOrGeneProduct
     object_category: biolink:Pathway
@@ -1633,15 +1594,15 @@ go gene:
     knowledge_level: knowledge_assertion
     agent_type: manual_agent
   properties:
-    qualifier:
-      type: str
-      biolink: qualifier
     db_reference:
-      type: str
+      type: str[]
       biolink: publication
     evidence:
       type: str
       biolink: has_evidence
+    taxon_id:
+      type: str
+      biolink: taxon
 
 go gene product:
   is_a: annotation
@@ -1657,15 +1618,15 @@ go gene product:
     knowledge_level: knowledge_assertion
     agent_type: manual_agent
   properties:
-    qualifier:
-      type: str
-      biolink: qualifier
     db_reference:
-      type: str
+      type: str[]
       biolink: publication
     evidence:
       type: str
       biolink: has_evidence
+    taxon_id:
+      type: str
+      biolink: taxon
 
 has part:
   is_a: annotation
@@ -1942,7 +1903,7 @@ part of:
     knowledge_level: knowledge_assertion
     agent_type: manual_agent
 
-pathway to biological process:
+pathway_to_biological_process:
   is_a: association
   biolink_predicate: biolink:participates_in
   source: pathway
@@ -1953,11 +1914,6 @@ pathway to biological process:
   description: An association between a pathway and a biological process, indicating
     that the pathway is involved in the process.
   properties:
-    pathway_name: str
-    go_term_id: str
-    go_term_type:
-      type: str
-      const: biological process
     source:
       type: str
       biolink: knowledge_source
@@ -1979,12 +1935,7 @@ pathway_to_cellular_component:
   input_label: pathway_to_cellular_component
   description: An association between a pathway and a cellular component, indicating
     that the pathway is associated with the component.
-  properties:
-    pathway_name: str
-    go_term_id: str
-    go_term_type:
-      type: str
-      const: cellular component
+  properties: {}
   kgx_properties:
     subject_category: biolink:Pathway
     object_category: biolink:CellularComponent
@@ -2000,12 +1951,7 @@ pathway_to_molecular_function:
   input_label: pathway_to_molecular_function
   description: An association between a pathway and a molecular function, indicating
     that the pathway is involved in the function.
-  properties:
-    pathway_name: str
-    go_term_id: str
-    go_term_type:
-      type: str
-      const: molecular function
+  properties: {}
   kgx_properties:
     subject_category: biolink:Pathway
     object_category: biolink:MolecularActivity
@@ -2218,34 +2164,6 @@ protein has_xref transcript:
     knowledge_level: knowledge_assertion
     agent_type: manual_agent
 
-reaction to biological process:
-  is_a: association
-  biolink_predicate: biolink:equivalent_to
-  source: reaction
-  target: biological process
-  represented_as: edge
-  input_label: reaction_to_biological_process
-  output_label: equivalent_to
-  description: An association between a reaction and a biological process, indicating
-    that the reaction is equivalent to the biological process.
-  properties:
-    reaction_name: str
-    go_term_id: str
-    go_term_type:
-      type: str
-      const: biological process
-    source:
-      type: str
-      biolink: knowledge_source
-    source_url:
-      type: str
-      biolink: source_web_page
-  kgx_properties:
-    subject_category: biolink:MolecularActivity
-    object_category: biolink:BiologicalProcess
-    knowledge_level: knowledge_assertion
-    agent_type: manual_agent
-
 reaction to pathway association:
   is_a: annotation
   biolink_predicate: biolink:part_of
@@ -2408,10 +2326,7 @@ subclass of:
     object_category: biolink:OntologyClass
     knowledge_level: knowledge_assertion
     agent_type: manual_agent
-  properties:
-    rel_type:
-      type: str
-      biolink: relation
+  properties: {}
 
 super enhancer to gene association:
   description: An association between a super enhancer and a gene
