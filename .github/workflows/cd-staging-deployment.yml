@@ -1,4 +1,4 @@
-name: CD - pull Docker image & build with ansible (staging only)
+name: CD - Deploy to Kubernetes (annotation-staging)
 
 on:
   repository_dispatch:
@@ -13,304 +13,69 @@ jobs:
           echo "Event Type: ${{ github.event.action }}"
           echo "Image Tag: ${{ github.event.client_payload.image_tag }}"
           echo "Triggered by: ${{ github.actor }}"
-          
-      # =====Backup current annotation version =====
-      - name: Backup current stable annotation version
-        id: backup-annotation-version
-        run: |
-          echo "[info] Backing up current annotation service version for rollback"
-          if docker ps -a --format 'table {{.Names}}\t{{.Image}}' | grep -q annotation-service-staging; then
-            CURRENT_IMAGE=$(docker inspect annotation-service-staging --format='{{.Config.Image}}')
-            echo "current_stable=$CURRENT_IMAGE" >> $GITHUB_OUTPUT
-            echo "[success] Current stable annotation version: $CURRENT_IMAGE"
-          else
-            echo "current_stable=none" >> $GITHUB_OUTPUT
-            echo "[warning] No previous annotation deployment found"
-          fi
+
       - name: Checkout current repository
         uses: actions/checkout@v4
-        
-      - name: Checkout Ansible repository
-        uses: actions/checkout@v4
-        with:
-          repository: rejuve-bio/ansible-deploy
-          path: ansible-deploy
 
-      - name: Clean up existing .env file
+      - name: Setup kubectl
         run: |
-          # Remove the .env file if it exists
-          rm -f $HOME/services/annotation-query-backend/.env || true
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_STAGING }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
 
-      - name: Create .env file for Annotation Backend
+      - name: Deploy to Kubernetes
         run: |
-          mkdir -p $HOME/services/annotation-query-backend
-          cat > $HOME/services/annotation-query-backend/.env << EOF
-          # Application
-          APP_PORT=${{secrets.APP_PORT}}
-          
-          # MongoDB
-          MONGO_URI=mongodb://mongodb:27017/annotation
-          
-          # Redis
-          REDIS_HOST=${{secrets.REDIS_HOST}}
-          REDIS_PORT=${{secrets.REDIS_PORT}}
-          REDIS_URL=redis://redis:${{secrets.REDIS_PORT}}/0
-          REDIS_EXPIRATION=3600
-        
-          
-          # Neo4j - External servers
-          NEO4J_URI=${{ secrets.NEO4J_URI }}
-          NEO4J_USERNAME=${{ secrets.NEO4J_USERNAME }}
-          NEO4J_PASSWORD=${{ secrets.NEO4J_PASSWORD }}
-          HUMAN_NEO4J_URI=${{ secrets.HUMAN_NEO4J_URI }}
-          HUMAN_NEO4J_USERNAME=${{ secrets.HUMAN_NEO4J_USERNAME }}
-          HUMAN_NEO4J_PASSWORD=${{ secrets.HUMAN_NEO4J_PASSWORD }}
-          FLY_NEO4J_URI=${{ secrets.FLY_NEO4J_URI }}
-          FLY_NEO4J_USERNAME=${{ secrets.FLY_NEO4J_USERNAME }}
-          FLY_NEO4J_PASSWORD=${{ secrets.FLY_NEO4J_PASSWORD }}
-          
-          # LLM
-          LLM_MODEL=gemini
-          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-          
-          # Security
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          SECRET_KEY=${{ secrets.SECRET_KEY }}
-          
-          # Email
-          MAIL_SERVER=${{ secrets.MAIL_SERVER }}
-          MAIL_PORT=${{ secrets.MAIL_PORT }}
-          MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
-          MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
-          MAIL_DEFAULT_SENDER=${{ secrets.MAIL_DEFAULT_SENDER }}
-          MAIL_USE_TLS=False
-          MAIL_USE_SSL=False
-          
-          # Monitoring
-          SENTRY_DSN=${{ secrets.SENTRY_DSN }}
-          AXIOM_TOKEN=${{ secrets.AXIOM_TOKEN }}
-          AXIOM_DATASET=application-logs
-          AXIOM_PERFORMANCE_LOGS=performance-metrics
-          
-          # External Services
-          MORK_URL=${{ secrets.MORK_URL }}
-          
-          # File Paths
-          PARENT_DIR=/tmp/test_data
-          
-          # Docker
-          DOCKER_HUB_REPO=${{ secrets.DOCKER_HUB_REPO }}
-          DOCKER_IMAGE_STAGING=${{ secrets.DOCKER_IMAGE_STAGING }}
-         
-          # Ports
-          MONGODB_DOCKER_PORT=${{ secrets.MONGODB_DOCKER_PORT}}
-          CADDY_PORT=${{ secrets.CADDY_PORT }}
-          CADDY_PORT_FORWARD=${{ secrets.CADDY_PORT_FORWARD }}
-          EOF
-      - name: Verify .env file content
-        run: |
-          echo "=== Verifying .env file content ==="
-          echo "Full .env content:"
-          cat $HOME/services/annotation-query-backend/.env
-          
-      - name: Create dynamic inventory
-        run: |
-          cd ansible-deploy
-          mkdir -p inventory
-          CURRENT_USER=$(whoami)
-          USER_HOME=$HOME
-          cat > inventory/hosts.ini <<EOL
-          [Annotation_Staging]
-          localhost ansible_connection=local ansible_user=$CURRENT_USER ansible_become=false ansible_user_dir=$USER_HOME
-          EOL
-          echo "Inventory created for user: $CURRENT_USER"
-          
-      - name: Create dynamic playbook
-        run: |
-          cd ansible-deploy
-          mkdir -p playbooks
-          cat > playbooks/deploy_server.yml <<EOL
-          ---
-          # deploy_Annotation_Backend
-          - name: Deploy Annotation query backend staging Service
-            hosts: Annotation_Staging
-            tags: Annotation_Staging
-            become: no
-            tasks:
-              - include_role:
-                  name: annotation-query-backend
-                  tasks_from: staging-production-deploy.yml
+          kubectl set image deployment/annotation-service-staging \
+            annotation-service-staging=abdum1964/annotation:staging \
+            -n annotation-staging || true
 
-          EOL
-          echo "Playbook created"
-          
-      - name: Ansible configuration
+          kubectl set image deployment/celery-worker-staging \
+            celery-worker-staging=abdum1964/annotation:staging \
+            -n annotation-staging || true
+
+          kubectl rollout restart deployment/annotation-service-staging -n annotation-staging
+          kubectl rollout restart deployment/celery-worker-staging -n annotation-staging
+
+      - name: Wait for rollout
         run: |
-          cd ansible-deploy
-          cat > ansible.cfg <<EOL
-          [defaults]
-          interpreter_python = /usr/bin/python3
-          host_key_checking = False
-          inventory = inventory/hosts.ini
-          become = false
-          remote_user = $(whoami)
-          [privilege_escalation]
-          become = false
-          become_method = sudo
-          become_user = root
-          become_ask_pass = false
-          EOL
-          
-      - name: Deploy Annotation Backend to Staging with Ansible
+          kubectl rollout status deployment/annotation-service-staging \
+            -n annotation-staging --timeout=120s || true
+
+      - name: Verify pods
         run: |
-          cd ansible-deploy
-          echo "Running as user: $(whoami)"
-          echo "Home directory: $HOME"
-          ansible-playbook -i inventory/hosts.ini playbooks/deploy_server.yml \
-            --tags "Annotation_Staging" \
-            --tags "local_network" \
-            -e "install_dir=$HOME/services/annotation-query-backend" \
-            -e "ansible_user_id=$(whoami)" \
-            -e "ansible_user_dir=$HOME" \
-            -e "annotation_environment=staging" \
-            -e "current_uid=$CURRENT_UID" \
-            -e "current_gid=$CURRENT_GID" \
-            -v
-      
-        
-       # ===== Monitor annotation deployment health =====
-      - name: Monitor annotation deployment health
-        id: annotation-health-check
-        run: |
-          echo "[info] Starting annotation service health monitoring..."
-          sleep 30  # Annotation service needs time to start with dependencies
-          
-          MAX_RETRIES=4
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Annotation health check attempt $i/$MAX_RETRIES on port ${{secrets.APP_PORT}}"
-            
-            #  connection test - if it has ANY HTTP response (even 404), service is up
-            if curl -s --max-time 10 http://localhost:${{secrets.APP_PORT}}/ > /dev/null; then
-              echo "[success] ANNOTATION HEALTH CHECK PASSED - Service is responding on port ${{secrets.APP_PORT}}"
-              echo "status=healthy" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            echo "[warning] Annotation service not responding, retrying in 15 seconds..."
-            sleep 15
-          done
-          
-          echo "[error] ANNOTATION HEALTH CHECK FAILED - Service not responding after $MAX_RETRIES attempts"
-          echo "status=unhealthy" >> $GITHUB_OUTPUT
-          exit 1
+          kubectl get pods -n annotation-staging
 
-         # ===== Automatic annotation service rollback =====
-      - name: Automatic Annotation Rollback
-        if: steps.annotation-health-check.outputs.status == 'unhealthy' && steps.backup-annotation-version.outputs.current_stable != 'none'
-        run: |
-          echo "[info] AUTOMATIC ANNOTATION ROLLBACK INITIATED"
-          echo "Rolling back to: ${{ steps.backup-annotation-version.outputs.current_stable }}"
-          
-          # Use Docker Compose for rollback to handle all dependencies
-          cd $HOME/services/annotation-query-backend
-          
-          # Create rollback docker-compose with previous stable image
-          cat > docker-compose-rollback.yml << 'EOF'
-          version: '3.8'
-          services:
-            annotation_service:
-              image: ${{ steps.backup-annotation-version.outputs.current_stable }}
-              container_name: annotation-service-staging
-              volumes:
-                - .:/app
-              ports:
-                - "${{secrets.APP_PORT}}:${{secrets.APP_PORT}}"
-              env_file:
-                - .env   
-              command: flask run --host=0.0.0.0 --port=${{secrets.APP_PORT}}
-              restart: always
-              depends_on:
-                - mongodb
-                - redis
-              environment:
-                - MONGO_URI=${{secrets.MONGO_URI}}
-                - APP_PORT=${{secrets.APP_PORT}}
-                - REDIS_HOST=${{secrets.REDIS_HOST}}
-                - REDIS_PORT=${{secrets.REDIS_PORT}}
-
-            mongodb:
-              image: mongo:latest
-              container_name: mongodb-staging
-              volumes:
-                - mongo_data:/data/db
-              ports:
-                - "${{secrets.MONGODB_DOCKER_PORT}}:27017"
-              restart: always
-
-            redis:
-              image: redis:latest
-              container_name: redis-staging
-              ports:
-                - "${{secrets.REDIS_HOST}}:${{secrets.REDIS_PORT}}"
-              restart: always
-              volumes:
-                - redis_data:/data
-
-            caddy:
-              image: caddy:latest
-              container_name: caddy-staging
-              ports:
-                - "${{secrets.CADDY_PORT}}:${{secrets.CADDY_PORT_FORWARD}}"
-              volumes:
-                - caddy_data:/data
-                - caddy_config:/config
-              env_file:
-                - .env   
-              command: caddy reverse-proxy --from http://0.0.0.0:${{secrets.CADDY_PORT}} --to http://annotation_service:${{secrets.APP_PORT}}
-              restart: always
-              depends_on:
-                - annotation_service
-
-          volumes:
-            mongo_data:
-            redis_data:
-            caddy_data:
-            caddy_config:
-          EOF
-          
-          # Stop current deployment and start rollback version
-          docker compose -f docker-compose-rollback.yml down || true
-          docker compose -f docker-compose-rollback.yml up -d
-          
-          echo "[success] Annotation rollback completed - Previous stable version with all dependencies restored"
-          
-          # Verify rollback worked
-          sleep 90
-          if curl -s --max-time 10 http://localhost:${{secrets.APP_PORT}}/ > /dev/null; then
-            echo "[success] Annotation rollback verification PASSED"
-          else
-            echo "[warning] Annotation rollback completed but health uncertain"
-          fi
-
-        # ===== Annotation service alerting =====
-      - name: Send annotation deployment success alert
+      - name: Send success email
         if: success()
-        run: |
-          echo "[success] ANNOTATION DEPLOYMENT SUCCESS ALERT"
-          echo "Annotation Service Staging deployment completed"
-          echo "Time: $(date)"
-          echo "Image: ${{secrets.DOCKER_IMAGE_STAGING}}"
-          echo "Commit: ${{ github.sha }}"
-          echo "Triggered by: ${{ github.actor }}"
-          echo "[success] Email notification sent to repository watchers"
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "CD SUCCESS - Annotation Service Deployed to K8s"
+          to: ${{ secrets.RECIEVER_EMAIL }}
+          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+          body: |
+            Annotation Service deployed to Kubernetes successfully!
+            Repository: ${{ github.repository }}
+            Triggered by: ${{ github.actor }}
+            Image: abdum1964/annotation:staging
+            Pods running in annotation-staging namespace.
 
-      - name: Send annotation deployment failure alert
+      - name: Send failure email
         if: failure()
-        run: |
-          echo "[error] ANNOTATION DEPLOYMENT FAILURE ALERT"
-          echo "Annotation Service Staging deployment failed"
-          echo "Time: $(date)" 
-          echo "Image: ${{secrets.DOCKER_IMAGE_STAGING}}"
-          echo "Commit: ${{ github.sha }}"
-          echo "Triggered by: ${{ github.actor }}"
-          echo "Action: Automatic rollback executed"
-          echo "URGENT: Email notification sent to repository watchers"
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "CD FAILED - Annotation Service K8s Deploy"
+          to: ${{ secrets.RECIEVER_EMAIL }}
+          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+          body: |
+            Annotation Service Kubernetes deployment failed!
+            Repository: ${{ github.repository }}
+            Triggered by: ${{ github.actor }}
+            Check logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

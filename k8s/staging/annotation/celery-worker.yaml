@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-staging
+  namespace: annotation-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: celery-worker-staging
+  template:
+    metadata:
+      labels:
+        app: celery-worker-staging
+    spec:
+      imagePullSecrets:
+        - name: dockerhub-creds
+      containers:
+        - name: celery-worker-staging
+          image: abdum1964/annotation:staging
+          envFrom:
+            - secretRef:
+                name: annotation-secrets
+          command:
+            - "celery"
+            - "-A"
+            - "app.workers.celery_app"
+            - "worker"
+            - "--loglevel=info"

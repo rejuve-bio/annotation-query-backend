@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: annotation-service-staging
+  namespace: annotation-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: annotation-service-staging
+  template:
+    metadata:
+      labels:
+        app: annotation-service-staging
+    spec:
+      imagePullSecrets:
+        - name: dockerhub-creds
+      containers:
+        - name: annotation-service-staging
+          image: abdum1964/annotation:staging
+          ports:
+            - containerPort: 5007
+          envFrom:
+            - secretRef:
+                name: annotation-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: annotation-service-staging
+  namespace: annotation-staging
+spec:
+  type: NodePort
+  selector:
+    app: annotation-service-staging
+  ports:
+    - port: 5007
+      targetPort: 5007
+      nodePort: 30501

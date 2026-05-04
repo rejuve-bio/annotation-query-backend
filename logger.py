@@ -1,14 +1,13 @@
 import os
 import logging
-import axiom_py
-from axiom_py.logging import AxiomHandler
-import sentry_sdk
-from sentry_sdk.integrations.logging import LoggingIntegration
-from dotenv import load_dotenv
-
-load_dotenv()
+import logging.handlers
+from pathlib import Path
 
 def init_logging():
+    # Create logs directory for file logging
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+    
     # --- Sentry ---
     DSN = os.getenv("SENTRY_DSN")
     sentry_logging = LoggingIntegration(
@@ -31,12 +30,31 @@ def init_logging():
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
 
-    # Add handlers
+    # File Handler for Promtail
+    app_log_file = logs_dir / "annotation-app.log"
+    file_handler = logging.handlers.RotatingFileHandler(
+        app_log_file,
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    
+    # Formatter for file logs (similar to console)
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.INFO)
+
+    # Add ALL handlers (Axiom + File + Console)
     root_logger.addHandler(axiom_handler)
+    root_logger.addHandler(file_handler)    # For Promtail scraping
+    root_logger.addHandler(console_handler)
 
     # Optional: also log to console
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
     
     PERF_LOGS_DATASET = os.getenv("AXIOM_PERFORMANCE_LOGS", "performance-metrics")
@@ -47,5 +65,16 @@ def init_logging():
     perf_logger.setLevel(logging.INFO)
     perf_logger.addHandler(perf_handler)
     perf_logger.addHandler(console_handler)
+    
+    # NEW: Also add file handler to performance logger
+    perf_log_file = logs_dir / "annotation-performance.log"
+    perf_file_handler = logging.handlers.RotatingFileHandler(
+        perf_log_file,
+        maxBytes=10*1024*1024,
+        backupCount=5,
+        encoding='utf-8'
+    )
+    perf_file_handler.setFormatter(formatter)
+    perf_logger.addHandler(perf_file_handler)
     
     return perf_logger
