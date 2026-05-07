@@ -126,7 +126,8 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
         metta_query = f'(exec 0 (I (ACT {target_space} {pattern_str})) (, {template_str}))'
         query_file = Path("/dev/shm") / f"query_{uuid.uuid4().hex}.metta"
         try:
-            with open(query_file, "w") as f:
+            fd = os.open(query_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
                 f.write(metta_query)
             session = _get_session(str(self.dataset_path))
             result = session.exec_query(str(query_file))
@@ -510,7 +511,8 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
         query_file = Path("/dev/shm") / f"query_{query_id}.metta"
 
         try:
-            with open(query_file, "w") as f:
+            fd = os.open(query_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
                 f.write(metta_query)
 
 
