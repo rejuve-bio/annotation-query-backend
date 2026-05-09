@@ -1239,7 +1239,7 @@ tissue part of anatomy:
 
 gene to pathway association:
   description: >-
-    An interaction between a gene or gene product and a biological process or pathway.
+    An interaction between a gene and a biological process or pathway.
   is_a: annotation
   mixins: [biolink:GeneToPathwayAssociation]
   biolink_predicate: "biolink:participates_in"
@@ -1247,10 +1247,46 @@ gene to pathway association:
   represented_as: edge
   input_label: genes_pathways
   output_label: participates_in
-  source: [gene, transcript, protein]
+  source: gene
   target: pathway
   kgx_properties:
-    subject_category: "biolink:GeneOrGeneProduct"
+    subject_category: "biolink:Gene"
+    object_category: "biolink:Pathway"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+protein to pathway association:
+  description: >-
+    An interaction between a protein and a biological process or pathway.
+  is_a: annotation
+  mixins: [biolink:GeneToPathwayAssociation]
+  biolink_predicate: "biolink:participates_in"
+  inherit_properties: true
+  represented_as: edge
+  input_label: genes_pathways
+  output_label: participates_in
+  source: protein
+  target: pathway
+  kgx_properties:
+    subject_category: "biolink:Protein"
+    object_category: "biolink:Pathway"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+transcript to pathway association:
+  description: >-
+    An interaction between a transcript and a biological process or pathway.
+  is_a: annotation
+  mixins: [biolink:GeneToPathwayAssociation]
+  biolink_predicate: "biolink:participates_in"
+  inherit_properties: true
+  represented_as: edge
+  input_label: genes_pathways
+  output_label: participates_in
+  source: transcript
+  target: pathway
+  kgx_properties:
+    subject_category: "biolink:Transcript"
     object_category: "biolink:Pathway"
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"

@@ -22,17 +22,43 @@ relationships:
     url: https://reactome.org
     input_label: genes_pathways
     output_label: participates_in
-    description: An interaction between a gene or gene product and a biological process
-      or pathway.
-    source: [gene, transcript, protein]
+    description: An interaction between a gene and a biological process or pathway.
+    source: gene
+    target: pathway
+  protein to pathway association:
+    url: https://reactome.org
+    input_label: genes_pathways
+    output_label: participates_in
+    description: An interaction between a protein and a biological process or pathway.
+    source: protein
+    target: pathway
+  transcript to pathway association:
+    url: https://reactome.org
+    input_label: genes_pathways
+    output_label: participates_in
+    description: An interaction between a transcript and a biological process or pathway.
+    source: transcript
     target: pathway
   gene to reaction association:
     url: https://reactome.org
     input_label: gene_or_gene_product_reaction
     output_label: involved_in
-    description: An interaction between a gene or a gene product (gogp) and a molecular
-      activity.
-    source: biolink:GeneOrGeneProduct
+    description: An interaction between a gene and a molecular activity.
+    source: gene
+    target: reaction
+  protein to reaction association:
+    url: https://reactome.org
+    input_label: gene_or_gene_product_reaction
+    output_label: involved_in
+    description: An interaction between a protein and a molecular activity.
+    source: protein
+    target: reaction
+  transcript to reaction association:
+    url: https://reactome.org
+    input_label: gene_or_gene_product_reaction
+    output_label: involved_in
+    description: An interaction between a transcript and a molecular activity.
+    source: transcript
     target: reaction
   parent pathway of:
     url: https://reactome.org
