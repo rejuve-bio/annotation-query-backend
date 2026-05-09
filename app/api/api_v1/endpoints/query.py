@@ -6,6 +6,7 @@ import datetime
 import logging
 from distutils.util import strtobool
 import os
+import re
 from app.api.deps import get_current_user, get_db_instance, get_llm_handler, get_redis_client, get_schema_manager
 from app.api.deps import LLMHandler
 from app.services.schema_data import SchemaManager
@@ -394,6 +395,11 @@ def cell_component(
     
     # get annotation id and get go term id
     annotation_id = id
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", annotation_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid annotation ID format."
+        )
 
     # parse the location
     locations = locations.split(',')
@@ -403,9 +409,18 @@ def cell_component(
     try:
         # get the graph and filter out the protein
         file_name = f'{annotation_id}.json'
-        path = Path(__file__).parent /".."/".."/".."/".."/"public" / "graph" / f"{file_name}"
+        base_graph_dir = (Path(__file__).parent / ".." / ".." / ".." / ".." / "public" / "graph").resolve()
+        candidate_path = (base_graph_dir / file_name).resolve(strict=False)
 
-        with open(path, 'r') as f:
+        base_graph_dir_str = os.path.realpath(str(base_graph_dir))
+        candidate_path_str = os.path.realpath(str(candidate_path))
+        if os.path.commonpath([base_graph_dir_str, candidate_path_str]) != base_graph_dir_str:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid annotation path."
+            )
+
+        with open(candidate_path_str, 'r') as f:
             graph = json.load(f)
 
         nodes = graph['nodes']
