@@ -124,12 +124,13 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                     logger.warning(f"SHM Symlink update failed: {e}")
 
         metta_query = f'(exec 0 (I (ACT {target_space} {pattern_str})) (, {template_str}))'
-        query_file = self.dataset_path / f"query_{uuid.uuid4().hex}.metta"
+        query_file = Path("/dev/shm") / f"query_{uuid.uuid4().hex}.metta"
         try:
-            with open(query_file, "w") as f:
+            fd = os.open(query_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
                 f.write(metta_query)
             session = _get_session(str(self.dataset_path))
-            result = session.exec_query(query_file.name)
+            result = session.exec_query(str(query_file))
             raw = result.stdout
             actual = raw.split("result:", 1)[1].strip() if "result:" in raw else raw.strip()
             return self.metta.parse_all(actual)
@@ -507,17 +508,17 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
             return self._resolve_chained_patterns(pattern_tuple, template_tuple, query, start_time)
         
         query_id = uuid.uuid4().hex
-        query_file_name = f"query_{query_id}.metta"
-        query_file = self.dataset_path / query_file_name
-        
+        query_file = Path("/dev/shm") / f"query_{query_id}.metta"
+
         try:
-            with open(query_file, "w") as f:
+            fd = os.open(query_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
                 f.write(metta_query)
-            
+
 
             try:
                 session = _get_session(str(self.dataset_path))
-                result = session.exec_query(query_file_name)
+                result = session.exec_query(str(query_file))
                 raw_output = result.stdout
             except subprocess.CalledProcessError as e:
                 logger.error(f"MORK exec error: {e.stderr}")

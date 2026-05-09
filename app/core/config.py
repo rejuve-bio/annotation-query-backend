@@ -3,7 +3,7 @@ import secrets
 from typing import List, Optional
 
 import yaml
-from pydantic import AnyHttpUrl, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -47,6 +47,13 @@ class Settings(BaseSettings):
         case_sensitive = True
         env_file = ".env"
         extra = "ignore"  # Allow extra env vars without validation error
+
+    @field_validator("MAIL_PORT", mode="before")
+    @classmethod
+    def parse_mail_port(cls, v):
+        if v == "" or v is None:
+            return None
+        return v
 
     @field_validator("DATABASE_TYPE", mode="before")
     @classmethod
