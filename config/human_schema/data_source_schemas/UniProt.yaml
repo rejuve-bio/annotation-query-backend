@@ -1,0 +1,55 @@
+name: UniProt
+website: https://www.uniprot.org
+nodes:
+  protein:
+    url: https://www.uniprot.org/
+    input_label: protein
+    properties:
+      protein_name: str
+relationships:
+  translates to:
+    url: https://www.uniprot.org/
+    input_label: translates_to
+    output_label: translates_to
+    description: x (amino acid chain/polypeptide) is the ribosomal translation of
+      y (transcript) if and only if a ribosome reads y (transcript) through a series
+      of triplet codon-amino acid adaptor activities (GO:0030533) and produces x (amino
+      acid chain/polypeptide)
+    source: transcript
+    target: protein
+  protein has_xref gene:
+    url: https://www.uniprot.org/
+    input_label: protein_has_xref_gene
+    output_label: has_xref
+    source: protein
+    target: gene
+  protein has_xref transcript:
+    url: https://www.uniprot.org/
+    input_label: protein_has_xref_transcript
+    output_label: has_xref
+    source: protein
+    target: transcript
+  protein has_xref protein:
+    url: https://www.uniprot.org/
+    input_label: protein_has_xref_protein
+    output_label: has_xref
+    source: protein
+    target: protein
+  protein has_xref biological_process:
+    url: https://www.uniprot.org/
+    input_label: protein_has_xref_biological_process
+    output_label: has_xref
+    source: protein
+    target: biological process
+  protein has_xref cellular_component:
+    url: https://www.uniprot.org/
+    input_label: protein_has_xref_cellular_component
+    output_label: has_xref
+    source: protein
+    target: cellular component
+  protein has_xref molecular_function:
+    url: https://www.uniprot.org/
+    input_label: protein_has_xref_molecular_function
+    output_label: has_xref
+    source: protein
+    target: molecular function

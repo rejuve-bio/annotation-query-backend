@@ -1,0 +1,70 @@
+name: REACTOME
+website: https://reactome.org
+nodes:
+  pathway:
+    url: https://reactome.org
+    input_label: pathway
+    properties:
+      pathway_name: str
+      taxon_id: str
+      evidence: str
+  reaction:
+    url: https://reactome.org
+    input_label: reaction
+    properties:
+      taxon_id: str
+      evidence: str
+      reaction_url: str
+relationships:
+  gene to pathway association:
+    url: https://reactome.org
+    input_label: genes_pathways
+    output_label: participates_in
+    description: An interaction between a gene or gene product and a biological process
+      or pathway.
+    source: [gene, transcript, protein]
+    target: pathway
+  gene to reaction association:
+    url: https://reactome.org
+    input_label: gene_or_gene_product_reaction
+    output_label: involved_in
+    description: An interaction between a gene or a gene product (gogp) and a molecular
+      activity.
+    source: biolink:GeneOrGeneProduct
+    target: reaction
+  parent pathway of:
+    url: https://reactome.org
+    input_label: parent_pathway_of
+    output_label: parent_pathway_of
+    description: holds between two pathways where the domain class is a parent pathway
+      of the range class
+    source: pathway
+    target: pathway
+  child pathway of:
+    url: https://reactome.org
+    input_label: child_pathway_of
+    output_label: child_pathway_of
+    description: holds between two pathways where the domain class is a child pathway
+      of the range class
+    source: pathway
+    target: pathway
+  pathway_to_biological_process:
+    url: https://reactome.org
+    input_label: pathway_to_biological_process
+    output_label: equivalent_to
+    description: An association between a pathway and a biological process, indicating
+      that the pathway is involved in the process.
+    source: pathway
+    target: biological process
+    properties:
+      pathway_name: str
+      go_term_id: str
+  post translational interaction:
+    url: https://reactome.org/
+    input_label: interacts_with
+    output_label: interacts_with
+    source: protein
+    target: protein
+    properties:
+      interaction_type: str
+      reactome_pathway: str
