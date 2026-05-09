@@ -230,6 +230,17 @@ jobs:
     - name: Validate Annotation Container (Integration Test)
       id: validate-container
       env:
+        # Neo4j - falls back to local container if secrets are not set
+        NEO4J_URI: ${{ secrets.NEO4J_URI || 'bolt://neo4j:7687' }}
+        NEO4J_USERNAME: ${{ secrets.NEO4J_USERNAME || 'neo4j' }}
+        NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD || 'testpassword' }}
+        HUMAN_NEO4J_URI: ${{ secrets.HUMAN_NEO4J_URI || 'bolt://neo4j:7687' }}
+        HUMAN_NEO4J_USERNAME: ${{ secrets.HUMAN_NEO4J_USERNAME || 'neo4j' }}
+        HUMAN_NEO4J_PASSWORD: ${{ secrets.HUMAN_NEO4J_PASSWORD || 'testpassword' }}
+        FLY_NEO4J_URI: ${{ secrets.FLY_NEO4J_URI || 'bolt://neo4j:7687' }}
+        FLY_NEO4J_USERNAME: ${{ secrets.FLY_NEO4J_USERNAME || 'neo4j' }}
+        FLY_NEO4J_PASSWORD: ${{ secrets.FLY_NEO4J_PASSWORD || 'testpassword' }}
+
         # Other environment variables
         MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
         MAIL_PORT: ${{ secrets.MAIL_PORT }}
@@ -289,16 +300,16 @@ jobs:
               - REDIS_URL_BROKER=redis://redis:6379/1
               - REDIS_EXPIRATION=$REDIS_EXPIRATION
 
-              # Neo4j - Local test container
-              - NEO4J_URI=bolt://neo4j:7687
-              - NEO4J_USERNAME=neo4j
-              - NEO4J_PASSWORD=testpassword
-              - HUMAN_NEO4J_URI=bolt://neo4j:7687
-              - HUMAN_NEO4J_USERNAME=neo4j
-              - HUMAN_NEO4J_PASSWORD=testpassword
-              - FLY_NEO4J_URI=bolt://neo4j:7687
-              - FLY_NEO4J_USERNAME=neo4j
-              - FLY_NEO4J_PASSWORD=testpassword
+              # Neo4j - uses real secrets if available, otherwise falls back to local container
+              - NEO4J_URI=$NEO4J_URI
+              - NEO4J_USERNAME=$NEO4J_USERNAME
+              - NEO4J_PASSWORD=$NEO4J_PASSWORD
+              - HUMAN_NEO4J_URI=$HUMAN_NEO4J_URI
+              - HUMAN_NEO4J_USERNAME=$HUMAN_NEO4J_USERNAME
+              - HUMAN_NEO4J_PASSWORD=$HUMAN_NEO4J_PASSWORD
+              - FLY_NEO4J_URI=$FLY_NEO4J_URI
+              - FLY_NEO4J_USERNAME=$FLY_NEO4J_USERNAME
+              - FLY_NEO4J_PASSWORD=$FLY_NEO4J_PASSWORD
 
               # LLM
               - LLM_MODEL=$LLM_MODEL
