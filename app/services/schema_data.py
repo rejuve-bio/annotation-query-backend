@@ -8,11 +8,12 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 class SchemaManager:
-    def __init__(self, schema_config_path: str,
+    def __init__(self, human_schema_config_path: str,
                  biocypher_config_path: str,
-                 config_path: str,
-                 fly_schema_config_path: str):
-        self.human_bcy = BioCypher(schema_config_path=schema_config_path, biocypher_config_path=biocypher_config_path)
+                 human_datasources_config_path: str,
+                 fly_schema_config_path: str,
+                 fly_datasources_config_path: str = None):
+        self.human_bcy = BioCypher(schema_config_path=human_schema_config_path, biocypher_config_path=biocypher_config_path)
         self.fly_bcy = BioCypher(schema_config_path=fly_schema_config_path, biocypher_config_path=biocypher_config_path)
         self.human_schema = self.process_schema(self.human_bcy._get_ontology_mapping()._extend_schema())
         self.fly_schema = self.process_schema(self.fly_bcy._get_ontology_mapping()._extend_schema())
@@ -22,7 +23,8 @@ class SchemaManager:
         self.parent_edges = self.parent_edges()
         self.graph_info = self.get_graph_info()
         self.filter_schema = self.filter_schema(self.schema)
-        self.config_path = config_path
+        self.human_datasources_config_path = human_datasources_config_path
+        self.fly_datasources_config_path = fly_datasources_config_path
         self.schema_list = self.get_schema_list()
         self.biocypher_config_path = biocypher_config_path
         self.schmea_representation = self.get_schema_represnetion_per_source(self.schema_list)
@@ -58,8 +60,10 @@ class SchemaManager:
 
     def get_schema_list(self):
         schema_list = []
-        for file in os.listdir(self.config_path):
-            schema_dir = Path(__file__).parent / ".." / ".." / "config" / "schema" / file
+        for file in os.listdir(self.human_datasources_config_path):
+            if not file.endswith('.yaml'):
+                continue
+            schema_dir = Path(self.human_datasources_config_path) / file
             with open(schema_dir, 'r') as f:
                 file_output = yaml.safe_load(f)
             url = file_output.get('website', None)
@@ -76,7 +80,7 @@ class SchemaManager:
 
     def get_schema_representation(self, schema_list: list):
         schema_representation = {"nodes": {}, "edges": {}}
-        schema_dir = Path(__file__).parent / ".." / ".." / "config" / "schema"
+        schema_dir = Path(self.human_datasources_config_path)
         to_remove_nodes = {'ontology term', 'biological process', 'molecular function', 'cellular component'}
 
         for schema in schema_list:
@@ -127,7 +131,7 @@ class SchemaManager:
     def get_schema_represnetion_per_source(self, schema_list: list):
         schema_representation = {}
         whole_schema = self.get_schema_representation(schema_list)
-        schema_dir = Path(__file__).parent / ".." / ".." / "config" / "schema"
+        schema_dir = Path(self.human_datasources_config_path)
         to_remove_node = ['ontology term', 'biological process', 'molecular function', 'cellular component']
         for schema in schema_list:
             schema_abs_path = str((schema_dir / f"{schema['file_name']}.yaml").resolve())
