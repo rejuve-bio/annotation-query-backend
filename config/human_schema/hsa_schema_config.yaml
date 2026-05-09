@@ -1263,7 +1263,7 @@ protein to pathway association:
   biolink_predicate: "biolink:participates_in"
   inherit_properties: true
   represented_as: edge
-  input_label: genes_pathways
+  input_label: protein_pathways
   output_label: participates_in
   source: protein
   target: pathway
@@ -1281,7 +1281,7 @@ transcript to pathway association:
   biolink_predicate: "biolink:participates_in"
   inherit_properties: true
   represented_as: edge
-  input_label: genes_pathways
+  input_label: transcript_pathways
   output_label: participates_in
   source: transcript
   target: pathway
@@ -1316,7 +1316,7 @@ protein to reaction association:
   biolink_predicate: "biolink:participates_in"
   inherit_properties: true
   represented_as: edge
-  input_label: gene_or_gene_product_reaction
+  input_label: protein_reaction
   output_label: involved_in
   source: protein
   target: reaction
@@ -1333,7 +1333,7 @@ transcript to reaction association:
   biolink_predicate: "biolink:participates_in"
   inherit_properties: true
   represented_as: edge
-  input_label: gene_or_gene_product_reaction
+  input_label: transcript_reaction
   output_label: involved_in
   source: transcript
   target: reaction
