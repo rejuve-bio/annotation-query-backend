@@ -410,14 +410,16 @@ def cell_component(
         # get the graph and filter out the protein
         file_name = f'{annotation_id}.json'
         base_graph_dir = (Path(__file__).parent / ".." / ".." / ".." / ".." / "public" / "graph").resolve()
-        path = (base_graph_dir / file_name).resolve()
-        if base_graph_dir not in path.parents:
+        candidate_path = (base_graph_dir / file_name).resolve(strict=False)
+        try:
+            candidate_path.relative_to(base_graph_dir)
+        except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid annotation path."
             )
 
-        with open(path, 'r') as f:
+        with open(candidate_path, 'r') as f:
             graph = json.load(f)
 
         nodes = graph['nodes']
