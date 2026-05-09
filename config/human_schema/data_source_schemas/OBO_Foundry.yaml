@@ -79,6 +79,22 @@ nodes:
     output_label: phenotype
     properties:
       description: str
+  disease:
+    url: http://www.obofoundry.org/
+    input_label: disease
+    output_label: disease
+    properties:
+      synonym: str[]
+      term_name: str
+      description: str
+  developmental_stage:
+    url: http://www.obofoundry.org/
+    input_label: developmental_stage
+    output_label: developmental_stage
+    properties:
+      synonym: str[]
+      term_name: str
+      description: str
 relationships:
   biological process subclass:
     url: http://www.obofoundry.org/
@@ -174,3 +190,11 @@ relationships:
     output_label: is_a
     source: phenotype
     target: phenotype
+  do subclass of:
+    url: http://www.obofoundry.org/
+    input_label: do_subclass_of
+    output_label: is_a
+    source: disease
+    target: disease
+    properties:
+      rel_type: str

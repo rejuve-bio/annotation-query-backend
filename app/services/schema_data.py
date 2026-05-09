@@ -161,19 +161,23 @@ class SchemaManager:
                         schema_representation[name]['edges'][edge_key]['label'] = value.get('output_label') or value.get('input_label', '')
 
                     for key in schema_representation[name]['edges'].keys():
-                        source_node_rep = schema_representation[name]['edges'][key]['source']
-                        target_node_rep = schema_representation[name]['edges'][key]['target']
-                        node_to_add_src = whole_schema['nodes'][source_node_rep]
-                        node_to_add_trgt = whole_schema['nodes'][target_node_rep]
+                        raw_src = schema_representation[name]['edges'][key]['source']
+                        raw_trgt = schema_representation[name]['edges'][key]['target']
+                        src_nodes = raw_src if isinstance(raw_src, list) else [raw_src]
+                        trgt_nodes = raw_trgt if isinstance(raw_trgt, list) else [raw_trgt]
 
-                        schema_representation[name]['nodes'][node_to_add_src['label']] = {
-                            'label': node_to_add_src['label'],
-                            'properties': node_to_add_src['properties']
-                        }
-                        schema_representation[name]['nodes'][node_to_add_trgt['label']] = {
-                            'label': node_to_add_trgt['label'],
-                            'properties': node_to_add_trgt['properties']
-                        }
+                        for src in src_nodes:
+                            node = whole_schema['nodes'][src]
+                            schema_representation[name]['nodes'][node['label']] = {
+                                'label': node['label'],
+                                'properties': node['properties']
+                            }
+                        for trgt in trgt_nodes:
+                            node = whole_schema['nodes'][trgt]
+                            schema_representation[name]['nodes'][node['label']] = {
+                                'label': node['label'],
+                                'properties': node['properties']
+                            }
 
         return schema_representation
 
