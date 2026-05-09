@@ -411,15 +411,16 @@ def cell_component(
         file_name = f'{annotation_id}.json'
         base_graph_dir = (Path(__file__).parent / ".." / ".." / ".." / ".." / "public" / "graph").resolve()
         candidate_path = (base_graph_dir / file_name).resolve(strict=False)
-        try:
-            candidate_path.relative_to(base_graph_dir)
-        except ValueError:
+
+        base_graph_dir_str = os.path.realpath(str(base_graph_dir))
+        candidate_path_str = os.path.realpath(str(candidate_path))
+        if os.path.commonpath([base_graph_dir_str, candidate_path_str]) != base_graph_dir_str:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid annotation path."
             )
 
-        with open(candidate_path, 'r') as f:
+        with open(candidate_path_str, 'r') as f:
             graph = json.load(f)
 
         nodes = graph['nodes']
