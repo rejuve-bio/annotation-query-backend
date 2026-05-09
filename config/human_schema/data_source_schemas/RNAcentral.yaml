@@ -4,6 +4,7 @@ nodes:
   non_coding_rna:
     url: https://rnacentral.org/downloads
     input_label: non_coding_rna
+    output_label: non_coding_rna
     properties:
       taxon_id: int
       rna_type: str
@@ -15,17 +16,17 @@ relationships:
     url: https://rnacentral.org/downloads
     input_label: biological_process_rna
     output_label: participates_in
-    source: non coding rna
-    target: biological process
+    source: non_coding_rna
+    target: biological_process
   molecular function rna:
     url: https://rnacentral.org/downloads
     input_label: molecular_function_rna
     output_label: enables
-    source: non coding rna
-    target: molecular function
+    source: non_coding_rna
+    target: molecular_function
   cellular component rna:
     url: https://rnacentral.org/downloads
     input_label: cellular_component_rna
     output_label: located_in
-    source: non coding rna
-    target: cellular component
+    source: non_coding_rna
+    target: cellular_component

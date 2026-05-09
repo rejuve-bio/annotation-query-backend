@@ -4,6 +4,7 @@ nodes:
   tad:
     url: https://cb.csail.mit.edu/cb/tadmap/
     input_label: tad
+    output_label: tad
     properties:
       taxon_id: int
       end: int

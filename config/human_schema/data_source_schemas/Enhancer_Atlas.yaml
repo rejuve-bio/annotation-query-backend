@@ -4,6 +4,7 @@ nodes:
   enhancer:
     url: http://enhanceratlas.org/downloadv2.php
     input_label: enhancer
+    output_label: enhancer
     properties:
       biological_context: str
       end: int

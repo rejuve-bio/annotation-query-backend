@@ -17,7 +17,7 @@ relationships:
     output_label: expressed_in
     description: holds between a gene and a developmental stage in which it is expressed
     source: gene
-    target: developmental stage
+    target: developmental_stage
     properties:
       p_value: float
       score: float

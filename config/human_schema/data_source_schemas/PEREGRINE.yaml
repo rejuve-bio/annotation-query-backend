@@ -4,6 +4,7 @@ nodes:
   enhancer:
     url: https://www.peregrineproj.org/
     input_label: enhancer
+    output_label: enhancer
     properties:
       enhancer_id: str
       end: int

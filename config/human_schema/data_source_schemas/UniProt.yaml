@@ -4,6 +4,7 @@ nodes:
   protein:
     url: https://www.uniprot.org/
     input_label: protein
+    output_label: protein
     properties:
       protein_name: str
 relationships:
@@ -40,16 +41,16 @@ relationships:
     input_label: protein_has_xref_biological_process
     output_label: has_xref
     source: protein
-    target: biological process
+    target: biological_process
   protein has_xref cellular_component:
     url: https://www.uniprot.org/
     input_label: protein_has_xref_cellular_component
     output_label: has_xref
     source: protein
-    target: cellular component
+    target: cellular_component
   protein has_xref molecular_function:
     url: https://www.uniprot.org/
     input_label: protein_has_xref_molecular_function
     output_label: has_xref
     source: protein
-    target: molecular function
+    target: molecular_function

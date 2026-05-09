@@ -4,6 +4,7 @@ nodes:
   gene:
     url: https://www.gencodegenes.org/
     input_label: gene
+    output_label: gene
     properties:
       synonym: str[]
       end: int
@@ -14,6 +15,7 @@ nodes:
   transcript:
     url: https://www.gencodegenes.org/
     input_label: transcript
+    output_label: transcript
     description: An RNA synthesized on a DNA or RNA template by an RNA polymerase.
     properties:
       transcript_type: str
@@ -23,6 +25,7 @@ nodes:
   exon:
     url: https://www.gencodegenes.org/
     input_label: exon
+    output_label: exon
     properties:
       gene_id: str
       exon_id: str

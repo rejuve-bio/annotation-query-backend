@@ -4,6 +4,7 @@ nodes:
   super_enhancer:
     url: https://asntech.org/dbsuper/download.php
     input_label: super_enhancer
+    output_label: super_enhancer
     properties:
       end: int
       biological_context: str
@@ -16,7 +17,7 @@ relationships:
     input_label: super_enhancer_gene
     output_label: associated_with
     description: An association between a super enhancer and a gene
-    source: super enhancer
+    source: super_enhancer
     target: gene
     properties:
       biological_context: str

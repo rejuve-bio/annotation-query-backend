@@ -4,6 +4,7 @@ nodes:
   pathway:
     url: https://reactome.org
     input_label: pathway
+    output_label: pathway
     properties:
       pathway_name: str
       taxon_id: str
@@ -11,6 +12,7 @@ nodes:
   reaction:
     url: https://reactome.org
     input_label: reaction
+    output_label: reaction
     properties:
       taxon_id: str
       evidence: str
@@ -55,7 +57,7 @@ relationships:
     description: An association between a pathway and a biological process, indicating
       that the pathway is involved in the process.
     source: pathway
-    target: biological process
+    target: biological_process
     properties:
       pathway_name: str
       go_term_id: str

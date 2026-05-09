@@ -4,6 +4,7 @@ nodes:
   promoter:
     url: https://epd.expasy.org/ftp/epdnew/H_sapiens/
     input_label: promoter
+    output_label: promoter
     properties:
       taxon_id: int
       end: int
