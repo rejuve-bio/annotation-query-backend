@@ -1,7 +1,8 @@
 import json
 from typing import Any, Dict
 import requests
-import openai
+import httpx
+from openai import OpenAI
 
 class LLMInterface:
     def generate(self, prompt: str) -> Dict[str, Any]:
@@ -47,12 +48,11 @@ class GeminiModel(LLMInterface):
 
 class OpenAIModel(LLMInterface):
     def __init__(self, api_key: str, model_name: str = "gpt-4o-mini"):
-        self.api_key = api_key
+        self.client = OpenAI(api_key=api_key, http_client=httpx.Client())
         self.model_name = model_name
-        openai.api_key = self.api_key
     
     def generate(self, prompt: str) -> Dict[str, Any]:
-        response = openai.chat.completions.create(
+        response = self.client.chat.completions.create(
             model=self.model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0,

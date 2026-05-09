@@ -23,12 +23,9 @@ class UserStorageService():
 
     @staticmethod
     def upsert_by_user_id(id, data):
-        print(User.find_one({"user_id": id}))
         if User.find_one({"user_id": id}):
             User.update({"user_id": id}, {"$set": data}, many=False)
         else:
-            print(data)
-            print("trying to save")
             User(user_id=id, **data).save()
 
     @staticmethod

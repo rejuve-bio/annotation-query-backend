@@ -8,6 +8,7 @@ import networkx as nx
 from networkx.readwrite import json_graph
 from copy import deepcopy
 import random
+from networkx.algorithms.isomorphism import is_isomorphic
 
 class Graph:
     def __init__(self):
@@ -265,7 +266,15 @@ class Graph:
 
     def collapse_node_nx(self, graph):
         G = self.build_graph_nx(graph)
-        node_to_id_map = {node["data"]["id"]: node["data"] for node in graph.get("nodes", [])}
+        node_to_id_map = {}
+        for node in graph.get("nodes", []):
+            data = node.get("data") if isinstance(node, dict) and "data" in node else node
+            if not isinstance(data, dict):
+                continue
+            node_id = data.get("id")
+            if not node_id:
+                continue
+            node_to_id_map[node_id] = data
         signatures = {}
 
         # Graph traversal for in/out edges
@@ -287,18 +296,18 @@ class Graph:
             merged_id = generate()  # Generate a new unique ID for the merged node
 
             if len(nodes) == 1:
-                name = G.nodes[first_node]["data"]["name"]
+                node_data = G.nodes[first_node].get("data", G.nodes[first_node])
+                name = node_data.get("name") or node_data.get("id", first_node)
             else:
                 name = f'{len(nodes)} {base_label} nodes'
 
             other_nodes = []
 
             for single_node in nodes:
-                nd = node_to_id_map[single_node]
-                data = {
-                    **nd
-                }
-                other_nodes.append(data)
+                nd = node_to_id_map.get(single_node)
+                if not nd:
+                    continue
+                other_nodes.append({**nd})
 
             merged_attrs = {
                 "type": base_label,
@@ -339,7 +348,7 @@ class Graph:
         return G
 
 
-    def convert_to_graph_json(self, graph):
+    def convert_to_graph_json(self, graph, allow_data=True):
         """
         Convert a networkx graph to a json representation.
         """
@@ -348,11 +357,9 @@ class Graph:
         # build the nodes
         for node in graph.nodes():
             if allow_data:
-                data = {
-                    "data": graph.nodes[node]  # Get the node's attributes here
-                }
+                data = {"data": graph.nodes[node]}
             else:
-                data = graph.nodes[nodes]
+                data = graph.nodes[node]
             graph_json['nodes'].append(data)
 
         # build the edges
@@ -362,7 +369,7 @@ class Graph:
                     "data": {
                         "source": u,
                         "target": v,
-                        "id": data['id'], # Any edge attributes
+                        "id": data['id'],
                         "label": data['label'],
                         "edge_id": data['edge_id']
                     }
@@ -763,3 +770,169 @@ class Graph:
             subgraphs.append(subgraph)
 
         return subgraphs
+
+    def diff_graph_structures(self, G1, G2):
+        return not is_isomorphic(G1, G2)
+
+    def diff_graphs_node_and_edges(self, G1, G2):
+        added_nodes = set(G2.nodes()) - set(G1.nodes())
+        removed_nodes = set(G1.nodes()) - set(G2.nodes())
+        edges1 = {data.get("edge_id", (u, v)) for u, v, data in G1.edges(data=True)}
+        edges2 = {data.get("edge_id", (u, v)) for u, v, data in G2.edges(data=True)}
+        added_edges = edges2 - edges1
+        removed_edges = edges1 - edges2
+        return {
+            "structurally_different": True,
+            "added_nodes": added_nodes,
+            "removed_nodes": removed_nodes,
+            "added_edges": added_edges,
+            "removed_edges": removed_edges
+        }
+
+    def merge_view(self, G1, G2, resolve_conflicts="mark", handle_reverse_edges=True):
+        """
+        Merge two graphs into one.
+        :param G1: First NetworkX MultiDiGraph
+        :param G2: Second NetworkX MultiDiGraph
+        :param resolve_conflicts: "mark" | "prefer_G1" | "prefer_G2"
+            - "mark": Flag conflicts and store both versions
+            - "prefer_G1": Use G1's version when conflicts exist
+            - "prefer_G2": Use G2's version when conflicts exist
+        :param handle_reverse_edges: If True, detect reverse edges (u->v vs v->u) and mark them
+        :return: (merged_graph, conflicts_list)
+        """
+        merged = nx.MultiDiGraph()
+        conflicts = []
+
+        # ---- Merge Nodes ----
+        all_nodes = set(G1.nodes()) | set(G2.nodes())
+        
+        for node in all_nodes:
+            if node in G1.nodes() and node in G2.nodes():
+                n1, n2 = G1.nodes[node], G2.nodes[node]
+
+                if n1 != n2:
+                    # Conflict: node exists in both with different attributes
+                    if resolve_conflicts == "mark":
+                        merged.add_node(node, **{
+                            **n1,
+                            "conflict": True,
+                            "origin": "both",
+                            "G1_data": n1,
+                            "G2_data": n2
+                        })
+                        conflicts.append({
+                            "type": "node_conflict",
+                            "id": node,
+                            "from": n1,
+                            "to": n2
+                        })
+                    elif resolve_conflicts == "prefer_G1":
+                        merged.add_node(node, **{**n1, "origin": "G1"})
+                    elif resolve_conflicts == "prefer_G2":
+                        merged.add_node(node, **{**n2, "origin": "G2"})
+                else:
+                    # No conflict: identical in both
+                    merged.add_node(node, **{**n1, "origin": "both"})
+            elif node in G1.nodes():
+                # Only in G1
+                merged.add_node(node, **{**G1.nodes[node], "origin": "G1"})
+            else:
+                # Only in G2
+                merged.add_node(node, **{**G2.nodes[node], "origin": "G2"})
+
+        # ---- Merge Edges ----
+        # Track processed edges to avoid duplicates
+        processed_edges = set()
+
+        # Collect all unique (u, v) pairs from both graphs
+        edge_pairs = set()
+        for u, v, _ in G1.edges(data=True):
+            edge_pairs.add((u, v))
+        for u, v, _ in G2.edges(data=True):
+            edge_pairs.add((u, v))
+
+        # For each (u, v) pair, merge all edges (handles multiple edges)
+        for u, v in edge_pairs:
+            if (u, v) in processed_edges:
+                continue
+
+            edge_dict1 = G1.get_edge_data(u, v) if G1.has_edge(u, v) else {}
+            edge_dict2 = G2.get_edge_data(u, v) if G2.has_edge(u, v) else {}
+
+            # Get all edge keys (for MultiDiGraph)
+            all_keys = set(edge_dict1.keys()) | set(edge_dict2.keys())
+
+            for key in all_keys:
+                data1 = edge_dict1.get(key)
+                data2 = edge_dict2.get(key)
+
+                if data1 and data2:
+                    # Edge exists in both graphs
+                    if data1 == data2:
+                        # Duplicate edge with identical attributes - only add once
+                        merged.add_edge(u, v, key=key, **{**data1, "origin": "both", "duplicate": True})
+                        processed_edges.add((u, v))
+                    else:
+                        # Different attributes - conflict
+                        if resolve_conflicts == "mark":
+                            merged.add_edge(u, v, key=f"{key}_G1", **{
+                                **data1,
+                                "conflict": False,
+                                "origin": "both",
+                                "G1_data": data1,
+                            })
+                            merged.add_edge(u, v, key=f"{key}_G2", **{
+                                **data2,
+                                "conflict": True,
+                                "origin": "both",
+                                "G2_data": data2
+                            })
+                            conflicts.append({
+                                "type": "edge_conflict",
+                                "from": u,
+                                "to": v,
+                                "edge_from": data1,
+                                "edge_to": data2
+                            })
+                        elif resolve_conflicts == "prefer_G1":
+                            merged.add_edge(u, v, key=key, **{**data1, "origin": "G1"})
+                        elif resolve_conflicts == "prefer_G2":
+                            merged.add_edge(u, v, key=key, **{**data2, "origin": "G2"})
+                elif data1:
+                    # Only in G1
+                    merged.add_edge(u, v, key=key, **{**data1, "origin": "G1"})
+                else:
+                    # Only in G2
+                    merged.add_edge(u, v, key=key, **{**data2, "origin": "G2"})
+                
+                processed_edges.add((u, v))
+
+        # ---- Handle Reverse Edges ----
+        if handle_reverse_edges:
+            reverse_conflicts = []
+            
+            # Check for reverse edge pairs (u->v in G1, v->u in G2)
+            for u, v in processed_edges:
+                reverse_pair = (v, u)
+                
+                if reverse_pair in processed_edges and (u, v) < (v, u):  # Check once
+                    edge_dict_forward = merged.get_edge_data(u, v) if merged.has_edge(u, v) else {}
+                    edge_dict_reverse = merged.get_edge_data(v, u) if merged.has_edge(v, u) else {}
+                    
+                    if edge_dict_forward and edge_dict_reverse:
+                        # Get first edge of each for simplicity
+                        edge_forward = list(edge_dict_forward.values())[0] if edge_dict_forward else None
+                        edge_reverse = list(edge_dict_reverse.values())[0] if edge_dict_reverse else None
+                        
+                        if edge_forward and edge_reverse:
+                            reverse_conflicts.append({
+                                "type": "reverse_edge_detected",
+                                "forward": {"from": u, "to": v, "label": edge_forward.get("label")},
+                                "reverse": {"from": v, "to": u, "label": edge_reverse.get("label")},
+                                "note": "Opposite direction edges detected - may represent bidirectional relationship"
+                            })
+            
+            conflicts.extend(reverse_conflicts)
+
+        return merged, conflicts
