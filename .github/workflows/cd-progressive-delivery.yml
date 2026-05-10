@@ -48,6 +48,9 @@ jobs:
         echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
         echo "Green image: $IMAGE_TAG"
 
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+
     - name: Setup kubectl
       run: |
         mkdir -p ~/.kube
@@ -205,6 +208,9 @@ jobs:
       run: |
         echo "Manual rollback triggered by: ${{ github.actor }}"
         echo "Reason: ${{ github.event.inputs.reason }}"
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
 
     - name: Setup kubectl
       run: |
