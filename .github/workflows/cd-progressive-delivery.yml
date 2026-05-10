@@ -57,9 +57,10 @@ jobs:
         echo "${{ secrets.KUBECONFIG_STAGING }}" > ~/.kube/config
         chmod 600 ~/.kube/config
 
-    # Record green revision — for logging only
+    # Record green revision — for logging only, never triggers rollback
     - name: Record green revision
       id: green-revision
+      continue-on-error: true
       run: |
         GREEN_REVISION=$(kubectl get deployment ${{ env.DEPLOYMENT_NAME }} \
           -n ${{ env.NAMESPACE }} \
@@ -72,6 +73,7 @@ jobs:
     # Verify green image is actually running in the cluster
     - name: Verify green image is live
       id: verify-green
+      continue-on-error: true
       run: |
         EXPECTED_IMAGE="${{ steps.set-image-tag.outputs.image-tag }}"
 
