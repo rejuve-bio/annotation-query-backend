@@ -54,7 +54,8 @@ jobs:
     - name: Setup kubectl
       run: |
         mkdir -p ~/.kube
-        echo "${{ secrets.KUBECONFIG_STAGING }}" > ~/.kube/config
+        echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config 2>/dev/null || \
+          echo "${{ secrets.KUBECONFIG_STAGING }}" > ~/.kube/config
         chmod 600 ~/.kube/config
 
     # Record green revision — for logging only, never triggers rollback
@@ -96,7 +97,7 @@ jobs:
     - name: Smoke test green deployment
       id: smoke-tests
       run: |
-        BASE_URL="http://localhost:30501"
+        BASE_URL="http://${{ secrets.STAGING_SERVER_IP }}:30501"
         TOKEN="${{ secrets.AUTH_TOKEN }}"
 
         echo "=== Smoke Test 1: Query gene by name (IGF1) ==="
@@ -176,29 +177,36 @@ jobs:
         echo "  Green  : $IMAGE_TAG"
         echo "  Stable : $STABLE_TAG"
 
-    # Green failed — immediately revert to blue
-    - name: Revert to blue on failure
+    # Green failed — notify operator to manually trigger rollback
+    - name: Notify manual rollback required
       if: failure()
-      run: |
-        echo "=== Green failed — reverting to Blue ==="
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: "ACTION REQUIRED — Green deployment failed, manual rollback needed"
+        to: ${{ secrets.RECIEVER_EMAIL }}
+        from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+        body: |
+          Green deployment validation failed — manual rollback required!
 
-        kubectl rollout undo deployment/${{ env.DEPLOYMENT_NAME }} \
-          -n ${{ env.NAMESPACE }}
+          Smoke tests or image verification did not pass.
+          Kubernetes has NOT been rolled back automatically.
 
-        kubectl rollout undo deployment/${{ env.CELERY_DEPLOYMENT }} \
-          -n ${{ env.NAMESPACE }}
+          Green revision : ${{ steps.green-revision.outputs.green-revision }}
+          Expected image : ${{ steps.set-image-tag.outputs.image-tag }}
 
-        echo "Waiting for blue to restore..."
-        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} \
-          -n ${{ env.NAMESPACE }} --timeout=120s
+          To roll back, go to:
+          ${{ github.server_url }}/${{ github.repository }}/actions/workflows/cd-progressive-delivery.yml
 
-        RESTORED_IMAGE=$(kubectl get deployment ${{ env.DEPLOYMENT_NAME }} \
-          -n ${{ env.NAMESPACE }} \
-          -o jsonpath='{.spec.template.spec.containers[0].image}')
+          Click "Run workflow" and select:
+            action  = rollback
+            reason  = smoke-test-failure (or describe what failed)
 
-        echo "[SUCCESS] Reverted to blue"
-        echo "  Green revision was : ${{ steps.green-revision.outputs.green-revision }}"
-        echo "  Running image      : $RESTORED_IMAGE"
+          View failure logs:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   # JOB 2: Manual rollback only — operator-triggered from GitHub UI
   rollback:
@@ -217,7 +225,8 @@ jobs:
     - name: Setup kubectl
       run: |
         mkdir -p ~/.kube
-        echo "${{ secrets.KUBECONFIG_STAGING }}" > ~/.kube/config
+        echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config 2>/dev/null || \
+          echo "${{ secrets.KUBECONFIG_STAGING }}" > ~/.kube/config
         chmod 600 ~/.kube/config
 
     - name: Record current image before rollback
@@ -257,7 +266,7 @@ jobs:
         sleep 15
         HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
           --max-time 10 \
-          "http://localhost:30501/health" 2>/dev/null || echo "000")
+          "http://${{ secrets.STAGING_SERVER_IP }}:30501/health" 2>/dev/null || echo "000")
 
         if [[ "$HTTP_CODE" == "200" ]]; then
           echo "[SUCCESS] Rollback verified — app is healthy (HTTP $HTTP_CODE)"
@@ -309,10 +318,9 @@ jobs:
         to: ${{ secrets.RECIEVER_EMAIL }}
         from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
         body: |
-          Blue-Green Deployment Failed — Reverted to Blue!
+          Blue-Green Deployment Failed or Manual Rollback Completed!
 
-          Green failed validation. Traffic has been restored
-          to the previous stable version automatically.
+          Green failed validation or a manual rollback was triggered.
 
           Repository: ${{ github.repository }}
           View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
