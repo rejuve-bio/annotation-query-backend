@@ -5,8 +5,7 @@ import yaml
 import os
 from pathlib import Path
 
-# Setup basic logging
-logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 class SchemaManager:
     def __init__(self, schema_config_path: str,
@@ -19,8 +18,8 @@ class SchemaManager:
         self.fly_schema = self.process_schema(self.fly_bcy._get_ontology_mapping()._extend_schema())
         self.fly_schema_represetnation = self.get_fly_schema_representation(self.fly_bcy._get_ontology_mapping()._extend_schema())
         self.schema = self.merge_schema(self.human_schema, self.fly_schema)
-        self.parent_nodes =self.parent_nodes()
-        self.parent_edges =self.parent_edges()
+        self.parent_nodes = self.parent_nodes()
+        self.parent_edges = self.parent_edges()
         self.graph_info = self.get_graph_info()
         self.filter_schema = self.filter_schema(self.schema)
         self.config_path = config_path
@@ -53,15 +52,12 @@ class SchemaManager:
 
     def merge_schema(self, human_schema, fly_schema):
         merged_schema = {"fly": {}, "human": {}}
-
         merged_schema["human"] = human_schema
         merged_schema["fly"] = fly_schema
-
         return merged_schema
 
     def get_schema_list(self):
         schema_list = []
-
         for file in os.listdir(self.config_path):
             schema_dir = Path(__file__).parent / ".." / ".." / "config" / "schema" / file
             with open(schema_dir, 'r') as f:
@@ -76,7 +72,6 @@ class SchemaManager:
                 'file_name': file_name
             }
             schema_list.append(data)
-
         return schema_list
 
     def get_schema_representation(self, schema_list: list):
@@ -104,16 +99,16 @@ class SchemaManager:
                 if key.lower() in to_remove_nodes:
                     continue
 
-                node_key = nodes[key].get('input_label') if nodes[key].get('input_label') else nodes[key].get('output_label')
+                node_key = value.get('output_label') or value.get('input_label')
                 if node_key not in schema_representation["nodes"]:
                     schema_representation["nodes"][node_key] = {
-                        "label": value.get("input_label", ''),
+                        "label": node_key,
                         "properties": value.get("properties", {})
                     }
 
             # Process edges
             for key, value in edges.items():
-                edge_key = value.get('input_label') or value.get('output_label')
+                edge_key = value.get('output_label') or value.get('input_label')
                 source = value.get("source", "").replace('_', ' ').lower()
                 target = value.get("target", "").replace('_', ' ').lower()
                 if source in to_remove_nodes or target in to_remove_nodes:
@@ -132,7 +127,7 @@ class SchemaManager:
     def get_schema_represnetion_per_source(self, schema_list: list):
         schema_representation = {}
         whole_schema = self.get_schema_representation(schema_list)
-        schema_dir = Path(__file__).parent /".."/ ".."/ "config" / "schema"
+        schema_dir = Path(__file__).parent / ".." / ".." / "config" / "schema"
         to_remove_node = ['ontology term', 'biological process', 'molecular function', 'cellular component']
         for schema in schema_list:
             schema_abs_path = str((schema_dir / f"{schema['file_name']}.yaml").resolve())
@@ -146,7 +141,7 @@ class SchemaManager:
                         schema_representation[name]= {'nodes': {}, 'edges': {}}
 
                     for key, value in edges.items():
-                        edge_key = value.get('input_label') or value.get('output_label')
+                        edge_key = value.get('output_label') or value.get('input_label')
                         source = value.get('source').replace('_', ' ')
                         target = value.get('target').replace('_', ' ')
                         if source in to_remove_node or target in to_remove_node:
@@ -159,7 +154,7 @@ class SchemaManager:
                         schema_representation[name]['edges'][edge_key].update(value)
                         schema_representation[name]['edges'][edge_key]['source'] = value.get('source', '')
                         schema_representation[name]['edges'][edge_key]['target'] = value.get('target', '')
-                        schema_representation[name]['edges'][edge_key]['label'] = value.get('output_label') if value.get('output_label') else value.get('input_label', '')
+                        schema_representation[name]['edges'][edge_key]['label'] = value.get('output_label') or value.get('input_label', '')
 
                     for key in schema_representation[name]['edges'].keys():
                         source_node_rep = schema_representation[name]['edges'][key]['source']
@@ -188,7 +183,7 @@ class SchemaManager:
             if value.get('represented_as') == 'node':
                 if value.get('input_label') == 'ontology term' or value.get('output_label') == 'ontology term':
                     continue
-                label = value.get('input_label') if value.get('input_label') else value.get('output_label')
+                label = value.get('output_label') or value.get('input_label')
                 fly_schema['nodes'][label] = {
                     'label': label,
                     'properties': value.get('properties', {}),
@@ -197,7 +192,7 @@ class SchemaManager:
                 if value.get('source') == 'ontology term' or value.get('target') == 'ontology term':
                     continue
                 if value.get('source') is not None and value.get('target') is not None:
-                    label = value.get('input_label') if value.get('input_label') else value.get('output_label')
+                    label = value.get('output_label') or value.get('input_label')
                     fly_schema['edges'][label] = {
                         'source': value.get('source'),
                         'target': value.get('target'),
@@ -235,10 +230,8 @@ class SchemaManager:
 
     def filter_schema(self, schema):
         filtered_schema = {'human': {}, 'fly': {}}
-
         filtered_schema['human'] = self.filter_schema_by_species(self.human_schema)
         filtered_schema['fly'] = self.filter_schema_by_species(self.fly_schema)
-
         return filtered_schema
 
     def filter_schema_by_species(self, schema):
@@ -297,10 +290,8 @@ class SchemaManager:
         parent_edges = set()
         for _, attributes in schema.items():
             is_a_attribute = attributes.get('is_a')
-
             if isinstance(is_a_attribute, list):
                 is_a_attribute = is_a_attribute[0]
-
             if 'represented_as' in attributes and attributes['represented_as'] == 'edge' \
                     and 'is_a' in attributes and is_a_attribute not in parent_edges:
                 parent_edges.add(is_a_attribute)
@@ -310,7 +301,6 @@ class SchemaManager:
         nodes = {"human": {}, "fly": {}}
         nodes["human"] = self.get_node_specied(self.human_schema, self.parent_nodes['human'])
         nodes["fly"] = self.get_node_specied(self.fly_schema, self.parent_nodes['fly'])
-
         return nodes
 
     def get_node_specied(self, schema, parent_nodes):
@@ -323,7 +313,7 @@ class SchemaManager:
                 currNode = {
                     'type': key,
                     'is_a': parent,
-                    'label': value['input_label'],
+                    'label': value.get('output_label') or value.get('input_label'),
                     'properties': value.get('properties', {})
                 }
                 if parent not in nodes:
@@ -332,13 +322,10 @@ class SchemaManager:
 
         return [{'child_nodes': nodes[key], 'parent_node': key} for key in nodes]
 
-
     def get_edges(self):
         edges = {"human": {}, "fly": {}}
-
         edges["human"] = self.get_edges_specied(self.human_schema, self.parent_edges['human'])
         edges["fly"] = self.get_edges_specied(self.fly_schema, self.parent_edges['fly'])
-
         return edges
 
     def get_edges_specied(self, schema, parent_edges):
@@ -347,7 +334,7 @@ class SchemaManager:
             if value['represented_as'] == 'edge':
                 if key in parent_edges:
                     continue
-                label = value.get('output_lable', value['input_label'])
+                label = value.get('output_label') or value.get('input_label')
                 edge = {
                     'type': key,
                     'label': label,
@@ -356,10 +343,7 @@ class SchemaManager:
                     'target': value.get('target', ''),
                     'properties': value.get('properties', {})
                 }
-                if isinstance(value['is_a'], list):
-                    parent = value['is_a'][0]
-                else:
-                    parent = value['is_a']
+                parent = value['is_a'][0] if isinstance(value['is_a'], list) else value['is_a']
                 if parent not in edges:
                     edges[parent] = []
                 edges[parent].append(edge)
@@ -382,7 +366,7 @@ class SchemaManager:
             if value['represented_as'] == 'edge':
                 if 'source' in value and 'target' in value:
                     if value['source'] == node_label or value['target'] == node_label:
-                        label = value.get('output_lable', value['input_label'])
+                        label = value.get('output_label') or value.get('input_label')
                         relation = {
                             'type': key,
                             'label': label,

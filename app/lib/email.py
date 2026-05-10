@@ -1,6 +1,8 @@
 import logging
 from flask_mail import Mail, Message
 
+logger = logging.getLogger(__name__)
+
 mail = None
 
 def init_mail(app):
@@ -21,7 +23,7 @@ def send_email(subject, recipients, body):
 
         # Send the email
         mail.send(msg)
-        logging.info("Email sent successfully!")
+        logger.info("Email sent successfully!")
     except Exception as e:
-        logging.error(f"Failed to send email: {e}")
+        logger.error(f"Failed to send email: {e}")
 

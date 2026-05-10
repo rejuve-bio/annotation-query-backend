@@ -5,7 +5,8 @@ import logging
 from .query_generator_interface import QueryGeneratorInterface
 from .metta import Metta_Ground, metta_seralizer
 # Set up logging configuration
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+logger = logging.getLogger(__name__)
 
 class MeTTa_Query_Generator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
@@ -28,14 +29,14 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         if not paths:
             raise ValueError(f"No .metta files found in dataset path '{path}'.")
         for path in paths:
-            logging.info(f"Start loading dataset from '{path}'...")
+            logger.info(f"Start loading dataset from '{path}'...")
             try:
                 self.metta.run(f'''
                     !(load-ascii &space {path})
                     ''')
             except Exception as e:
-                logging.error(f"Error loading dataset from '{path}': {e}")
-        logging.info(f"Finished loading {len(paths)} datasets.")
+                logger.error(f"Error loading dataset from '{path}': {e}")
+        logger.info(f"Finished loading {len(paths)} datasets.")
 
     def generate_id(self):
         import uuid
@@ -261,6 +262,7 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         node_to_dict = {}
         edge_to_dict = {}
         meta_data = {}
+
 
         if result_type == 'graph':
             nodes, edges, node_to_dict, edge_to_dict = self.process_result_graph(

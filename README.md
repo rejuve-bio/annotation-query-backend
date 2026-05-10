@@ -33,11 +33,9 @@ _Supported OS:_ **Linux & Mac**
    ```
 
 4. **Configure Environment Variables**:
-   Create a `.env` file in the root folder with the following content:
-   ```plaintext
-   NEO4J_URL=your_neo4j_url
-   NEO4J_USERNAME =your_neo4j_user
-   NEO4J_PASSWORD=your_neo4j_password
+   Copy `example.env` to `.env` and fill in the required values:
+   ```bash
+   cp example.env .env
    ```
 5. **Flask-Mail Configuration**:
    Add the following environment variables for email functionality:
@@ -73,16 +71,22 @@ _Supported OS:_ **Linux & Mac**
 
 
 7. **Choose Your Database Type**
-   In the config directory modify config.yaml to change between databses.
+   In the config directory modify `config.yaml` to select a backend:
 
-   - To use Metta, set the type to 'metta'.
-   - To use Neo4j, set the type to 'cypher'.
+   - `cypher` — Neo4j
+   - `metta` — MeTTa files
+   - `mork_cli` — MORK binary via Docker (recommended for production)
 
-   Example
+   For `mork_cli` see **[MORK_CLI_README.md](MORK_CLI_README.md)** for build and data-prep steps.
 
-   ```config
-   database
-    type = cypher  # Change to 'metta' if needed
+   Example:
+
+   ```yaml
+   database:
+     type: mork_cli
+     human:
+       data_dir: /path/to/metta_out
+       act_file: human_v6.act
    ```
 8. **Set Up MongoDB Database and LLM Keys**:
 

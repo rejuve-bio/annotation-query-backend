@@ -7,7 +7,7 @@ nodes:
     description: A biological process or pathway
     input_label: pathway
     properties:
-      pathway_name: str
+      name: str
       evidence: str
 
 relationships:
