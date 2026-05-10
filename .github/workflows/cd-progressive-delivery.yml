@@ -132,7 +132,7 @@ jobs:
         echo "[PASS] POST /query — HTTP $HTTP_CODE"
 
         # Extract ID from first response
-        GENE_ID=$(echo "$BODY" | jq -r '.. | .id? // empty' | head -n1)
+        GENE_ID=$(echo "$BODY" | jq -r '.annotation_id // (.. | .id? // empty)' | head -n1)
 
         if [[ -z "$GENE_ID" ]]; then
           echo "[FAIL] Could not extract gene ID from query response"
