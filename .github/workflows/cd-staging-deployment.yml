@@ -39,7 +39,9 @@ jobs:
       - name: Wait for rollout
         run: |
           kubectl rollout status deployment/annotation-service-staging \
-            -n annotation-staging --timeout=120s || true
+            -n annotation-staging --timeout=120s
+          kubectl rollout status deployment/celery-worker-staging \
+            -n annotation-staging --timeout=120s
 
       - name: Verify pods
         run: |
