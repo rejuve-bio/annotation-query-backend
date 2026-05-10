@@ -1,0 +1,108 @@
+name: CI - Caching
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: '3.10'
+    outputs:
+      pip-cache-hit:
+        description: "Whether pip dependencies were restored from cache"
+        value: ${{ jobs.warm-pip-cache.outputs.cache-hit }}
+      docker-cache-hit:
+        description: "Whether Docker layer cache was restored"
+        value: ${{ jobs.warm-docker-cache.outputs.cache-hit }}
+
+jobs:
+  # JOB 1: Warm pip dependency cache
+  warm-pip-cache:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-hit: ${{ steps.pip-cache.outputs.cache-hit }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Restore pip cache
+      id: pip-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          pip-${{ runner.os }}-py${{ inputs.python-version }}-
+          pip-${{ runner.os }}-
+
+    - name: Warm pip cache
+      if: steps.pip-cache.outputs.cache-hit != 'true'
+      run: |
+        echo "=== Cache miss — installing and warming pip cache ==="
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov pylint locust
+        echo "[SUCCESS] Pip cache warmed"
+
+    - name: Report pip cache status
+      run: |
+        if [[ "${{ steps.pip-cache.outputs.cache-hit }}" == "true" ]]; then
+          echo "[CACHE HIT] Pip dependencies restored from cache"
+        else
+          echo "[CACHE WARMED] Pip dependencies installed and saved to cache"
+        fi
+
+  # JOB 2: Warm Docker layer cache
+  warm-docker-cache:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-hit: ${{ steps.docker-cache-check.outputs.cache-hit }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Check Docker cache status
+      id: docker-cache-check
+      uses: actions/cache@v4
+      with:
+        path: /tmp/.buildx-cache
+        key: docker-${{ runner.os }}-${{ hashFiles('**/Dockerfile') }}-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          docker-${{ runner.os }}-${{ hashFiles('**/Dockerfile') }}-
+          docker-${{ runner.os }}-
+
+    - name: Warm Docker layer cache
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        tags: abdum1964/annotation:staging
+        cache-from: |
+          type=local,src=/tmp/.buildx-cache
+          type=gha
+        cache-to: |
+          type=local,dest=/tmp/.buildx-cache-new,mode=max
+          type=gha,mode=max
+
+    - name: Rotate local cache
+      run: |
+        rm -rf /tmp/.buildx-cache
+        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+    - name: Report Docker cache status
+      run: |
+        if [[ "${{ steps.docker-cache-check.outputs.cache-hit }}" == "true" ]]; then
+          echo "[CACHE HIT] Docker layers restored from cache"
+        else
+          echo "[CACHE WARMED] Docker layers built and saved to cache"
+        fi
