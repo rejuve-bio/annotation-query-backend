@@ -779,12 +779,12 @@ cellular component:
     category: "biolink:CellularComponent" 
 
 orthology association:
-  description: >-
-    Non-directional association between two genes indicating that there is an orthology relation among them:  “Historical homology that involves genes that diverged after a speciation event (http://purl.obolibrary.org/obo/RO_HOM0000017)"
+  description: Non-directional association between two genes indicating that there is an orthology relation among them. It  is a historical homology that involves genes that diverged after a speciation event (purl.obolibrary.org/obo/RO_HOM0000017)
   is_a: related to at instance level
   represented_as: edge
   input_label: orthologs_genes
-  biolink_predicate: "biolink:ortholog_of"
+  output_label: ortholog_of
+  biolink_predicate: biolink:ortholog_of
   source: gene
   target: gene
   properties:
@@ -806,19 +806,21 @@ orthology association:
     source_organism:
       type: str
       biolink: in_taxon
-    target_organism:
-      type: str
-      biolink: in_taxon
+    target_organism_taxon_id:
+      description: Taxon ID for the "target organism"
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
     taxon_id:
-      description: Taxon ID for the organism (e.g., 7227 for fruit fly, 9606 for human)
+      description: Taxon ID for the "source organism"
       type: int
       biolink: taxon
       range: biolink:OrganismTaxon
   kgx_properties:
-    subject_category: "biolink:Gene"
-    object_category: "biolink:Gene"
-    knowledge_level: "knowledge_assertion"
-    agent_type: "manual_agent"
+    subject_category: biolink:Gene
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
 
 paralogy association:
   description: >-
@@ -974,25 +976,25 @@ transcribes to:
     - RO:0002511
     - SIO:010080
 
-# transcribed from:
-#   is_a: expression
-#   mixins: [biolink:TranscriptToGeneRelationship]
-#   biolink_predicate: "biolink:transcribed_from"
-#   inherit_properties: true
-#   represented_as: edge
-#   input_label: transcribed_from
-#   source: transcript
-#   target: gene
-#   kgx_properties:
-#     subject_category: "biolink:Transcript"
-#     object_category: "biolink:Gene"
-#     knowledge_level: "knowledge_assertion"
-#     agent_type: "manual_agent"
-#   description: >-
-#     x is transcribed from y if and only if x is synthesized from template y
-#   exact_mappings:
-#     - RO:0002510
-#     - SIO:010081
+transcribed from:
+  is_a: expression
+  mixins: [biolink:TranscriptToGeneRelationship]
+  biolink_predicate: "biolink:transcribed_from"
+  inherit_properties: true
+  represented_as: edge
+  input_label: transcribed_from
+  source: transcript
+  target: gene
+  kgx_properties:
+    subject_category: "biolink:Transcript"
+    object_category: "biolink:Gene"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+  description: >-
+    x is transcribed from y if and only if x is synthesized from template y
+  exact_mappings:
+    - RO:0002510
+    - SIO:010081
 
 translates to:
   is_a: expression
@@ -1016,25 +1018,25 @@ translates to:
     - RO:0002513
     - SIO:010082
 
-# translation of:
-#   is_a: expression
-#   biolink_predicate: "biolink:translation_of"
-#   inherit_properties: true
-#   represented_as: edge
-#   input_label: translation_of
-#   source: protein
-#   target: transcript
-#   kgx_properties:
-#     subject_category: "biolink:Protein"
-#     object_category: "biolink:Transcript"
-#     knowledge_level: "knowledge_assertion"
-#     agent_type: "manual_agent"
-#   description: >-
-#     inverse of translates to
-#   inverse: translates to
-#   close_mappings:
-#     - RO:0002512
-#     - SIO:010083
+translation of:
+  is_a: expression
+  biolink_predicate: "biolink:translation_of"
+  inherit_properties: true
+  represented_as: edge
+  input_label: translation_of
+  source: protein
+  target: transcript
+  kgx_properties:
+    subject_category: "biolink:Protein"
+    object_category: "biolink:Transcript"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+  description: >-
+    inverse of translates to
+  inverse: translates to
+  close_mappings:
+    - RO:0002512
+    - SIO:010083
 
 gene to gene coexpression association:
   description: >-
@@ -1054,7 +1056,30 @@ gene to gene coexpression association:
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
   properties:
-    score:  
+    score:
+      type: float
+      biolink: has_quantitative_value
+
+protein to protein coexpression association:
+  description: >-
+    Indicates that two proteins are co-expressed,
+    generally under the same conditions, as measured
+    at the protein/transcript level (e.g. STRING coexpression channel).
+  is_a: expression
+  biolink_predicate: "biolink:coexpressed_with"
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_coexpressed_with
+  output_label: coexpressed_with
+  source: protein
+  target: protein
+  kgx_properties:
+    subject_category: "biolink:Protein"
+    object_category: "biolink:Protein"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "automated_agent"
+  properties:
+    coexpression_score:
       type: float
       biolink: has_quantitative_value
 
@@ -1079,30 +1104,6 @@ post translational interaction:
       type: str
     reactome_pathway:
       type: str
-
-expressed in:
-  description: >-
-    holds between a gene and an ontology term in which it is expressed
-  is_a: expression
-  mixins: [biolink:GeneToExpressionSiteAssociation]
-  biolink_predicate: "biolink:expressed_in"
-  inherit_properties: true
-  represented_as: edge
-  input_label: expressed_in
-  source: gene
-  target: ontology term
-  kgx_properties:
-    subject_category: "biolink:Gene"
-    object_category: "biolink:OntologyClass"
-    knowledge_level: "knowledge_assertion"
-    agent_type: "manual_agent"
-  properties:
-    score: 
-      type: float
-      biolink: has_quantitative_value
-    p_value: 
-      type: float
-      biolink: has_quantitative_value
 
 # ---
 # annotation
@@ -1238,7 +1239,7 @@ tissue part of anatomy:
 
 gene to pathway association:
   description: >-
-    An interaction between a gene or gene product and a biological process or pathway.
+    An interaction between a gene and a biological process or pathway.
   is_a: annotation
   mixins: [biolink:GeneToPathwayAssociation]
   biolink_predicate: "biolink:participates_in"
@@ -1246,10 +1247,46 @@ gene to pathway association:
   represented_as: edge
   input_label: genes_pathways
   output_label: participates_in
-  source: [gene, transcript, protein]
+  source: gene
   target: pathway
   kgx_properties:
-    subject_category: "biolink:GeneOrGeneProduct"
+    subject_category: "biolink:Gene"
+    object_category: "biolink:Pathway"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+protein to pathway association:
+  description: >-
+    An interaction between a protein and a biological process or pathway.
+  is_a: annotation
+  mixins: [biolink:GeneToPathwayAssociation]
+  biolink_predicate: "biolink:participates_in"
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_pathways
+  output_label: participates_in
+  source: protein
+  target: pathway
+  kgx_properties:
+    subject_category: "biolink:Protein"
+    object_category: "biolink:Pathway"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+transcript to pathway association:
+  description: >-
+    An interaction between a transcript and a biological process or pathway.
+  is_a: annotation
+  mixins: [biolink:GeneToPathwayAssociation]
+  biolink_predicate: "biolink:participates_in"
+  inherit_properties: true
+  represented_as: edge
+  input_label: transcript_pathways
+  output_label: participates_in
+  source: transcript
+  target: pathway
+  kgx_properties:
+    subject_category: "biolink:Transcript"
     object_category: "biolink:Pathway"
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
@@ -1257,17 +1294,51 @@ gene to pathway association:
 
 gene to reaction association:
   description: >-
-    An interaction between a gene or a gene product (gogp) and a reaction (Reactome).
+    An interaction between a gene and a reaction (Reactome).
   is_a: annotation
   biolink_predicate: "biolink:participates_in"
   inherit_properties: true
   represented_as: edge
   input_label: gene_or_gene_product_reaction
-  output_label: involved_in 
-  source: biolink:GeneOrGeneProduct     #  [gene, protein, transcript] 
+  output_label: involved_in
+  source: gene
   target: reaction
   kgx_properties:
-    subject_category: "biolink:GeneOrGeneProduct"
+    subject_category: "biolink:Gene"
+    object_category: "biolink:MolecularActivity"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+protein to reaction association:
+  description: >-
+    An interaction between a protein and a reaction (Reactome).
+  is_a: annotation
+  biolink_predicate: "biolink:participates_in"
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_reaction
+  output_label: involved_in
+  source: protein
+  target: reaction
+  kgx_properties:
+    subject_category: "biolink:Protein"
+    object_category: "biolink:MolecularActivity"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+transcript to reaction association:
+  description: >-
+    An interaction between a transcript and a reaction (Reactome).
+  is_a: annotation
+  biolink_predicate: "biolink:participates_in"
+  inherit_properties: true
+  represented_as: edge
+  input_label: transcript_reaction
+  output_label: involved_in
+  source: transcript
+  target: reaction
+  kgx_properties:
+    subject_category: "biolink:Transcript"
     object_category: "biolink:MolecularActivity"
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
@@ -1326,91 +1397,180 @@ reaction to pathway association:
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
 
-input role protein to reaction or pathway association:
+input role protein to pathway association:
   is_a: annotation
   biolink_predicate: "biolink:is_input_of"
   inherit_properties: true
-  description: >-
-    holds between a protein playing an input role in a reaction and a pathway
+  description: holds between a protein playing an input role in a pathway
   represented_as: edge
-  input_label: enables
+  input_label: protein_enables_pathway
+  output_label: enables
   source: protein
-  target: biolink:BiologicalProcessOrActivity  # [pathway, reaction]
+  target: pathway
   properties:
-    relation_ontology_term: str   # RO term for "enables" relation
+    relation_ontology_term: str
+  kgx_properties:
+    subject_category: "biolink:Protein"
+    object_category: "biolink:BiologicalProcess"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+input role protein to reaction association:
+  is_a: annotation
+  biolink_predicate: "biolink:is_input_of"
+  inherit_properties: true
+  description: holds between a protein playing an input role in a reaction
+  represented_as: edge
+  input_label: protein_enables_reaction
+  output_label: enables
+  source: protein
+  target: reaction
+  properties:
+    relation_ontology_term: str
   kgx_properties:
     subject_category: "biolink:Protein"
     object_category: "biolink:MolecularActivity"
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
 
-output role protein to reaction or pathway association:
+output role protein to pathway association:
   is_a: annotation
   biolink_predicate: "biolink:produced_by"
   inherit_properties: true
-  description: >-
-    holds between a protein playing an input role in a reaction and a pathway
+  description: holds between a protein produced by a pathway
   represented_as: edge
-  input_label: produced_by
+  input_label: protein_produced_by_pathway
+  output_label: produced_by
   source: protein
-  target: biolink:BiologicalProcessOrActivity  # [pathway, reaction]
+  target: pathway
   properties:
-    relation_ontology_term: str   # RO term for "produced_by" relation
+    relation_ontology_term: str
+  kgx_properties:
+    subject_category: "biolink:Protein"
+    object_category: "biolink:BiologicalProcess"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+output role protein to reaction association:
+  is_a: annotation
+  biolink_predicate: "biolink:produced_by"
+  inherit_properties: true
+  description: holds between a protein produced by a reaction
+  represented_as: edge
+  input_label: protein_produced_by_reaction
+  output_label: produced_by
+  source: protein
+  target: reaction
+  properties:
+    relation_ontology_term: str
   kgx_properties:
     subject_category: "biolink:Protein"
     object_category: "biolink:MolecularActivity"
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
 
-catalyst protein to reaction or pathway association:
+catalyst protein to pathway association:
   is_a: annotation
   biolink_predicate: "biolink:regulates"
   inherit_properties: true
-  description: >-
-    holds between a protein playing an input role in a reaction and a pathway
+  description: holds between a protein playing a catalyst role in a pathway
   represented_as: edge
-  input_label: regulates
+  input_label: protein_regulates_pathway
+  output_label: regulates
   source: protein
-  target: biolink:BiologicalProcessOrActivity  # [pathway, reaction]  
+  target: pathway
   properties:
-    relation_ontology_term: str   # RO term for "regulates" relation
+    relation_ontology_term: str
+  kgx_properties:
+    subject_category: "biolink:Protein"
+    object_category: "biolink:BiologicalProcess"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+catalyst protein to reaction association:
+  is_a: annotation
+  biolink_predicate: "biolink:regulates"
+  inherit_properties: true
+  description: holds between a protein playing a catalyst role in a reaction
+  represented_as: edge
+  input_label: protein_regulates_reaction
+  output_label: regulates
+  source: protein
+  target: reaction
+  properties:
+    relation_ontology_term: str
   kgx_properties:
     subject_category: "biolink:Protein"
     object_category: "biolink:MolecularActivity"
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
 
-
-negative role protein to reaction or pathway association:
+negative role protein to pathway association:
   is_a: annotation
   biolink_predicate: "biolink:regulates"
   inherit_properties: true
-  description: >-
-    holds between a protein playing an input role in a reaction and a pathway
+  description: holds between a protein negatively regulating a pathway
   represented_as: edge
-  input_label: negatively_regulates
+  input_label: protein_negatively_regulates_pathway
+  output_label: negatively_regulates
   source: protein
-  target: biolink:BiologicalProcessOrActivity  # [pathway, reaction]
+  target: pathway
   properties:
-    relation_ontology_term: str   # RO term for "negatively regulates" relation  
+    relation_ontology_term: str
+  kgx_properties:
+    subject_category: "biolink:Protein"
+    object_category: "biolink:BiologicalProcess"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+negative role protein to reaction association:
+  is_a: annotation
+  biolink_predicate: "biolink:regulates"
+  inherit_properties: true
+  description: holds between a protein negatively regulating a reaction
+  represented_as: edge
+  input_label: protein_negatively_regulates_reaction
+  output_label: negatively_regulates
+  source: protein
+  target: reaction
+  properties:
+    relation_ontology_term: str
   kgx_properties:
     subject_category: "biolink:Protein"
     object_category: "biolink:MolecularActivity"
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
 
-positive role protein to reaction or pathway association:
+positive role protein to pathway association:
   is_a: annotation
   biolink_predicate: "biolink:regulates"
   inherit_properties: true
-  description: >-
-    holds between a protein playing an input role in a reaction and a pathway
+  description: holds between a protein positively regulating a pathway
   represented_as: edge
-  input_label: positively_regulates
+  input_label: protein_positively_regulates_pathway
+  output_label: positively_regulates
   source: protein
-  target: biolink:BiologicalProcessOrActivity  # [pathway, reaction]
+  target: pathway
   properties:
-    relation_ontology_term: str   # RO term for "positively regulates" relation
+    relation_ontology_term: str
+  kgx_properties:
+    subject_category: "biolink:Protein"
+    object_category: "biolink:BiologicalProcess"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+positive role protein to reaction association:
+  is_a: annotation
+  biolink_predicate: "biolink:regulates"
+  inherit_properties: true
+  description: holds between a protein positively regulating a reaction
+  represented_as: edge
+  input_label: protein_positively_regulates_reaction
+  output_label: positively_regulates
+  source: protein
+  target: reaction
+  properties:
+    relation_ontology_term: str
   kgx_properties:
     subject_category: "biolink:Protein"
     object_category: "biolink:MolecularActivity"
@@ -2276,17 +2436,18 @@ located on chain:
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
 
-transcription factor to snp association:
+snp to motif association:
   is_a: association
   biolink_predicate: "biolink:affects"
-  description: holds between a transcription factor and a snp if the snp occurs in a transcription factor binding site (tfbs)
+  description: holds between a snp and a HOCOMOCO motif where the snp causes a gain or loss of transcription factor binding affinity at that motif site
   represented_as: edge
   input_label: tf_snp
-  source: gene
-  target: snp
+  output_label: alters_binding
+  source: snp
+  target: motif
   kgx_properties:
-    subject_category: "biolink:Gene"
-    object_category: "biolink:Snv"
+    subject_category: "biolink:Snv"
+    object_category: "biolink:TranscriptionFactorBindingSite"
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
   properties:
@@ -2410,71 +2571,169 @@ enhancer activity by contact:
       type: str
       description: Taxon ID for the organism (e.g., 9606 for human)
 
-promoter activity by contact:
-  description: >-
-    An association between a promoter cCRE and a gene predicted by the ABC model
-    (Activity-By-Contact, Fulco et al. 2019) using CATLAS single-cell chromatin
-    accessibility data.
-  is_a: regulatory association
-  mixins: [biolink:association]
-  biolink_predicate: "biolink:affects"
-  inherit_properties: true
-  represented_as: edge
-  input_label: promoter_activity_by_contact
-  output_label: activity_by_contact
-  source: promoter
-  target: gene
-  kgx_properties:
-    subject_category: "biolink:RegulatoryRegion"
-    object_category: "biolink:Gene"
-    knowledge_level: "knowledge_assertion"
-    agent_type: "manual_agent"
-  properties:
-    abc_score:
-      type: float
-      biolink: has_quantitative_value
-    distance:
-      type: int
-      biolink: has_quantitative_value
-    biological_context:
-      type: str
-      biolink: has_biological_sequence
-
-chromatin state:
+chromatin state snp to anatomy:
   is_a: association
   mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
-  biolink_predicate: "biolink:has_phenotype" 
+  biolink_predicate: "biolink:has_phenotype"
   represented_as: edge
   input_label: chromatin_state
   source: snp
-  target: anatomy #TODO replace by cell ontology
+  target: anatomy
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:GrossAnatomicalStructure"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+  properties:
+    state:
+      type: str
+      biolink: phenotypic_state
+
+chromatin state snp to cell type:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: chromatin_state
+  source: snp
+  target: cell type
   kgx_properties:
     subject_category: "biolink:Snv"
     object_category: "biolink:Cell"
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
   properties:
-    state: 
+    state:
       type: str
       biolink: phenotypic_state
 
-dnase I hotspot:
+chromatin state snp to cell line:
   is_a: association
   mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
-  biolink_predicate: "biolink:has_phenotype" 
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: chromatin_state
+  source: snp
+  target: cell line
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:CellLine"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+  properties:
+    state:
+      type: str
+      biolink: phenotypic_state
+
+chromatin state snp to experimental factor:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: chromatin_state
+  source: snp
+  target: experimental factor
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:BiologicalEntity"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+  properties:
+    state:
+      type: str
+      biolink: phenotypic_state
+
+chromatin state snp to tissue:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: chromatin_state
+  source: snp
+  target: tissue
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:GrossAnatomicalStructure"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+  properties:
+    state:
+      type: str
+      biolink: phenotypic_state
+
+dnase I hotspot snp to anatomy:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
   description: >-
     A region of chromatin that is sensitive to cleavage by the enzyme DNase I
   represented_as: edge
   input_label: in_dnase_I_hotspot
   source: snp
-  target: anatomy #TODO replace by cell ontology
+  target: anatomy
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:GrossAnatomicalStructure"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+dnase I hotspot snp to cell type:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: in_dnase_I_hotspot
+  source: snp
+  target: cell type
   kgx_properties:
     subject_category: "biolink:Snv"
     object_category: "biolink:Cell"
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
 
-histone modification:
+dnase I hotspot snp to cell line:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: in_dnase_I_hotspot
+  source: snp
+  target: cell line
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:CellLine"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+dnase I hotspot snp to experimental factor:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: in_dnase_I_hotspot
+  source: snp
+  target: experimental factor
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:BiologicalEntity"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+dnase I hotspot snp to tissue:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: in_dnase_I_hotspot
+  source: snp
+  target: tissue
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:GrossAnatomicalStructure"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+
+histone modification snp to anatomy:
   is_a: association
   mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
   biolink_predicate: "biolink:has_phenotype"
@@ -2483,14 +2742,86 @@ histone modification:
   represented_as: edge
   input_label: histone_modification
   source: snp
-  target: anatomy #TODO replace by cell ontology
+  target: anatomy
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:GrossAnatomicalStructure"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+  properties:
+    modification:
+      type: str
+      biolink: phenotypic_state
+
+histone modification snp to cell type:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: histone_modification
+  source: snp
+  target: cell type
   kgx_properties:
     subject_category: "biolink:Snv"
     object_category: "biolink:Cell"
     knowledge_level: "knowledge_assertion"
     agent_type: "manual_agent"
   properties:
-    modification: 
+    modification:
+      type: str
+      biolink: phenotypic_state
+
+histone modification snp to cell line:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: histone_modification
+  source: snp
+  target: cell line
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:CellLine"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+  properties:
+    modification:
+      type: str
+      biolink: phenotypic_state
+
+histone modification snp to experimental factor:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: histone_modification
+  source: snp
+  target: experimental factor
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:BiologicalEntity"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+  properties:
+    modification:
+      type: str
+      biolink: phenotypic_state
+
+histone modification snp to tissue:
+  is_a: association
+  mixins: [biolink:GenotypeToPhenotypicFeatureAssociation]
+  biolink_predicate: "biolink:has_phenotype"
+  represented_as: edge
+  input_label: histone_modification
+  source: snp
+  target: tissue
+  kgx_properties:
+    subject_category: "biolink:Snv"
+    object_category: "biolink:GrossAnatomicalStructure"
+    knowledge_level: "knowledge_assertion"
+    agent_type: "manual_agent"
+  properties:
+    modification:
       type: str
       biolink: phenotypic_state
 

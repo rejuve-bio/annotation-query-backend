@@ -42,8 +42,10 @@ def node_list():
 @pytest.fixture
 def schema():
     schema_manager = SchemaManager(
-        schema_config_path='./config/schema_config.yaml',
-        biocypher_config_path='./config/biocypher_config.yaml'
+        human_schema_config_path='./config/human_schema/human_full_schema_config.yaml',
+        biocypher_config_path='./config/biocypher_config.yaml',
+        human_datasources_config_path='./config/human_schema/data_source_schemas',
+        fly_schema_config_path='./config/fly_base_schema/dmel_full_schema_config.yaml',
     )
     return schema_manager.schema
 
