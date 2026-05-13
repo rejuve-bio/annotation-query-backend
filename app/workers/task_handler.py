@@ -443,7 +443,7 @@ def graph_task(
         }
         redis_client.publish("socket_event", json.dumps(socket_event))
         AnnotationStorageService.update(
-            annotation_id, {"status": TaskStatus.FAILED.value}
+            annotation_id, {"status": TaskStatus.FAILED.value, "error_message": str(e)}
         )
         logger.error("Error generating result graph %s", e)
 
@@ -586,7 +586,7 @@ def total_count_task(
         update_task(annotation_id, "total_count", 0)
         AnnotationStorageService.update(
             annotation_id,
-            {"status": TaskStatus.FAILED.value, "node_count": 0, "edge_count": 0},
+            {"status": TaskStatus.FAILED.value, "node_count": 0, "edge_count": 0, "error_message": str(e)},
         )
         socket_event = {
             "status": TaskStatus.FAILED.value,
@@ -736,6 +736,7 @@ def label_count_task(
                 "status": TaskStatus.FAILED.value,
                 "node_count_by_label": update["node_count_by_label"],
                 "edge_count_by_label": update["edge_count_by_label"],
+                "error_message": str(e),
             },
         )
         socket_event = {
