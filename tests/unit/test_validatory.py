@@ -1,6 +1,13 @@
 import pytest
-from app.lib.validator import validate_request 
-from app import schema_manager
+from app.lib.validator import validate_request
+from app.services.schema_data import SchemaManager
+
+schema_manager = SchemaManager(
+    human_schema_config_path='./config/human_schema/human_full_schema_config.yaml',
+    biocypher_config_path='./config/biocypher_config.yaml',
+    human_datasources_config_path='./config/human_schema/data_source_schemas',
+    fly_schema_config_path='./config/fly_base_schema/dmel_full_schema_config.yaml',
+)
 
 def test_node_is_missing():
     # assert validate raises an exeption with no node key in request dict
