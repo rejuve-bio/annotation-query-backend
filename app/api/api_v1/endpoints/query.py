@@ -383,12 +383,18 @@ def get_annotation_by_id(
         elif status == TaskStatus.PENDING.value:
             # Recovery: graph was computed (e.g. before a worker restart) but
             # summary_task never ran to flip the status to COMPLETE.
+            # Guards:
+            #   1. node_count must be set — total_count_task populates this,
+            #      confirming the chord header tasks (not just graph_task) finished.
+            #   2. Graph file must exist on disk.
+            # The DB update uses complete_if_pending (conditional $set) so
+            # concurrent GET requests don't race to overwrite each other.
             default_path = f"/app/public/graph/{id}.json"
             resolved_path = file_path if (file_path and os.path.exists(file_path)) else (
                 default_path if os.path.exists(default_path) else None
             )
-            if resolved_path:
-                AnnotationStorageService.update(
+            if resolved_path and node_count is not None:
+                AnnotationStorageService.complete_if_pending(
                     annotation_id,
                     {"status": TaskStatus.COMPLETE.value, "path_url": resolved_path},
                 )
