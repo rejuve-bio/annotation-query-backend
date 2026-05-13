@@ -50,7 +50,7 @@ jobs:
 
       - name: Start Redis
         run: |
-          docker run --name redis -p 6379:6379 -d redis:latest
+          docker run --name redis -p 6379:6379 -d redis:7.2
           sleep 3
 
       - name: Run tests with pytest
