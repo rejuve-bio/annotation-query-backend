@@ -75,8 +75,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     raise TaskCancelledException()
                 results.append(record)
         return results
+    
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
+        if self.is_gene_list_request(requests):
+            return self.gene_list_query_generator(requests, limit)
+        
         nodes = requests['nodes']
         predicate_map = {}
 
@@ -313,6 +317,79 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         '''
 
         return [total_count, label_count_query]
+    
+    def is_gene_list_request(self, requests):
+        """
+        Returns True if any node in the request has a 'ids' list property,
+        indicating this is a gene list vs gene list query.
+        """
+        for node in requests['nodes']:
+            if isinstance(node.get('ids'), list) and len(node['ids']) > 0:
+                return True
+        return False
+
+    def gene_list_query_generator(self, requests, limit=None):
+        nodes = requests['nodes']
+        predicates = requests.get('predicates', [])
+
+        if len(nodes) != 2 or not predicates:
+            raise ValueError("gene_list_query_generator requires exactly 2 nodes and 1 predicate.")
+
+        predicate = predicates[0]
+        predicate_type = predicate['type'].replace(" ", "_").lower()
+
+        source_node = next(n for n in nodes if n['node_id'] == predicate['source'])
+        target_node = next(n for n in nodes if n['node_id'] == predicate['target'])
+
+        source_var = source_node['node_id']
+        target_var = target_node['node_id']
+        source_ids = source_node['ids']
+        target_ids = target_node['ids']
+
+        predicate_id = predicate.get('predicate_id', 'r')
+
+        with_clause = (
+            f"WITH {source_ids} AS listA, {target_ids} AS listB"
+        )
+        match_clause = (
+            f"MATCH ({source_var}:{source_node['type']})"
+            f"-[{predicate_id}:{predicate_type}]->"
+            f"({target_var}:{target_node['type']})"
+        )
+        where_clause = (
+            f"WHERE {source_var}.id IN listA AND {target_var}.id IN listB"
+        )
+        return_clause = (
+            f"RETURN {source_var}, {predicate_id}, {target_var}"
+        )
+
+        query = f"{with_clause} {match_clause} {where_clause} {return_clause}"
+
+        if limit:
+            query += f" LIMIT {limit}"
+
+        # Total count query — mirrors construct_count_clause total count output
+        total_count_query = (
+            f"{with_clause} {match_clause} {where_clause} "
+            f"RETURN "
+            f"COUNT(DISTINCT {source_var}) + COUNT(DISTINCT {target_var}) AS total_nodes, "
+            f"COUNT(DISTINCT {predicate_id}) AS total_edges"
+        )
+
+        # Count by label query — mirrors construct_count_clause label count output
+        source_type = source_node['type']
+        target_type = target_node['type']
+        pred_type_label = predicate['type'].replace(' ', '_')
+
+        label_count_query = (
+            f"{with_clause} {match_clause} {where_clause} "
+            f"RETURN "
+            f"COUNT(DISTINCT {source_var}) AS {source_var}_{source_type}, "
+            f"COUNT(DISTINCT {target_var}) AS {target_var}_{target_type}, "
+            f"COUNT(DISTINCT {predicate_id}) AS {predicate_id}_{pred_type_label}"
+        )
+
+        return [query, total_count_query, label_count_query]
 
     def limit_query(self, limit):
         '''
