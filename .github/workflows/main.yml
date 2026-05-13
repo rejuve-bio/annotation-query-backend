@@ -48,6 +48,27 @@ jobs:
           docker run --name mongodb -p 27017:27017 -d mongo:latest
           sleep 5
 
-      - name: Run tests with pytest
+      - name: Start Redis
         run: |
+          docker run --name redis -p 6379:6379 -d redis:latest
+          sleep 3
+
+      - name: Run tests with pytest
+        env:
+          MONGO_URI: mongodb://localhost:27017/test
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET: test-jwt-secret
+          SECRET_KEY: test-secret-key
+          LLM_MODEL: gemini
+          GEMINI_API_KEY: dummy-key-for-testing
+          MAIL_SERVER: localhost
+          MAIL_PORT: 1025
+          MAIL_USERNAME: test
+          MAIL_PASSWORD: test
+          MAIL_DEFAULT_SENDER: test@example.com
+          MAIL_USE_TLS: "false"
+          MAIL_USE_SSL: "false"
+          PARENT_DIR: /tmp/test_data
+        run: |
+          mkdir -p /tmp/test_data
           pytest
