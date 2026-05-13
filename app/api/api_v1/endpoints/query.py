@@ -180,7 +180,7 @@ def process_query(
 
     except Exception as e:
         logger.error(f"Error processing query: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/email-query/{id}")
 def process_email_query(
@@ -337,6 +337,10 @@ def get_annotation_by_id(
     species = cursor.species
     source = cursor.data_source
     files = cursor.files
+    retrieval_duration = cursor.retrieval_duration
+    processing_duration = cursor.processing_duration
+    total_duration = cursor.total_duration
+    error_message = cursor.error_message
 
     response_data = {
         "annotation_id": str(annotation_id),
@@ -351,9 +355,13 @@ def get_annotation_by_id(
     
     if summary: response_data["summary"] = summary
     if node_count: response_data["node_count"] = node_count; response_data["edge_count"] = edge_count
-    if node_count_by_label: 
+    if node_count_by_label:
         response_data["node_count_by_label"] = node_count_by_label
         response_data["edge_count_by_label"] = edge_count_by_label
+    if retrieval_duration: response_data["retrieval_duration"] = retrieval_duration
+    if processing_duration: response_data["processing_duration"] = processing_duration
+    if total_duration: response_data["total_duration"] = total_duration
+    if error_message: response_data["error_message"] = error_message
         
     if cursor.data_source == 'ai-assistant':
          return {"annotation_id": str(annotation_id), "question": question, "answer": answer}
