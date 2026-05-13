@@ -73,10 +73,11 @@ def check_for_cancellation(annotation_id):
     """
     Checks for the cancellation flag.
     If cancelled, raises an exception to abort the flow.
+    A missing Redis key (e.g. after a worker restart) is NOT treated as cancellation.
     """
     current_status = get_status(annotation_id)
 
-    if current_status is None or current_status == TaskStatus.CANCELLED.value:
+    if current_status == TaskStatus.CANCELLED.value:
         raise TaskCancelledException()
 
 
@@ -210,6 +211,9 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
         redis_state.expire(f"annotation:{annotation_id}", 60)
     except TaskCancelledException as e:
         set_status(annotation_id, TaskStatus.CANCELLED.value)
+        AnnotationStorageService.update(
+            annotation_id, {"status": TaskStatus.CANCELLED.value}
+        )
         socket_event = {
             "status": TaskStatus.CANCELLED.value,
             "update": {"summary": "Summary cancelled"},
