@@ -22,7 +22,9 @@ class AnnotationStorageService():
             edge_count_by_label=annotation.get("edge_count_by_label", None),
             status=annotation.get('status', 'PENDING'),
             species=annotation.get('species', 'human'),
-            data_source=annotation.get('data_source', 'all')
+            data_source=annotation.get('data_source', 'all'),
+            query_fingerprint=annotation.get('query_fingerprint', None),
+            participant_user_ids=annotation.get('participant_user_ids', [])
         )
 
         id = data.save()
@@ -35,7 +37,7 @@ class AnnotationStorageService():
 
     @staticmethod
     def get_all(user_id, page_number):
-        data = Annotation.find({"user_id": user_id}).sort(
+        data = Annotation.find({"$or": [{"user_id": user_id}, {"participant_user_ids": user_id}]}).sort(
             '_id', -1).skip((page_number - 1) * 10).limit(10)
         return data
 
@@ -58,6 +60,15 @@ class AnnotationStorageService():
     @staticmethod
     def update(id, data):
         data = Annotation.update({"_id": id}, {"$set": data}, many=False)
+
+    @staticmethod
+    def get_by_fingerprint(fingerprint):
+        data = Annotation.find({"query_fingerprint": fingerprint, "status": "COMPLETE"}, one=True)
+        return data
+
+    @staticmethod
+    def add_participant(id, user_id):
+        Annotation.update({"_id": id}, {"$addToSet": {"participant_user_ids": user_id}}, many=False)
 
     @staticmethod
     def delete(id):

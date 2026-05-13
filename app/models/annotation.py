@@ -1,6 +1,6 @@
-from pymongoose.mongo_types import Types, Schema
 import datetime
 
+from pymongoose.mongo_types import Schema, Types
 
 class Annotation(Schema):
     schema_name = 'annotation'
@@ -26,6 +26,11 @@ class Annotation(Schema):
     files = None
     species = None
     path_url = None
+    retrieval_duration = None
+    processing_duration = None
+    total_duration = None
+    query_fingerprint = None
+    participant_user_ids = None
 
     def __init__(self, **kwargs):
         self.schema = {
@@ -44,10 +49,12 @@ class Annotation(Schema):
             "edge_count": {
                 "type": Types.Number,
             },
-            "node_types": [{
-                "type": Types.String,
-                "required": True,
-            }],
+            "node_types": [
+                {
+                    "type": Types.String,
+                    "required": True,
+                }
+            ],
             "node_count_by_label": any,
             "edge_count_by_label": any,
             "title": {
@@ -57,34 +64,34 @@ class Annotation(Schema):
             "summary": {
                 "type": Types.String,
             },
-            "question": {
-                "type": Types.String
-            },
-            "answer": {
-                "type": Types.String
-            },
-            "status": {
-                "type": Types.String,
-                "required": True
-            },
+            "question": {"type": Types.String},
+            "answer": {"type": Types.String},
+            "status": {"type": Types.String, "required": True},
             "path_url": Types.String,
-            "species": {
-                "type": Types.String,
-                "required": True,
-                "default": "human"
-            },
+            "retrieval_duration": Types.String,
+            "processing_duration": Types.String,
+            "total_duration": Types.String,
+            "species": {"type": Types.String, "required": True, "default": "human"},
             "data_source": any,
             "files": any,
+            "query_fingerprint": {"type": Types.String, "index": True},
+            "participant_user_ids": [
+                {
+                    "type": Types.String,
+                    "index": True
+                }
+            ],
+
             "created_at": {
                 "type": Types.Date,
                 "required": True,
-                "default": datetime.datetime.now()
+                "default": datetime.datetime.now(),
             },
             "updated_at": {
                 "type": Types.Date,
                 "required": True,
-                "default": datetime.datetime.now()
-            }
+                "default": datetime.datetime.now(),
+            },
         }
 
         super().__init__(self.schema_name, self.schema, kwargs)
