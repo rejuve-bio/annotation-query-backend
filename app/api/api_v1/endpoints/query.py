@@ -180,7 +180,7 @@ def process_query(
 
     except Exception as e:
         logger.error(f"Error processing query: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Query processing failed. Check server logs for details.")
 
 @router.post("/email-query/{id}")
 def process_email_query(
@@ -340,7 +340,9 @@ def get_annotation_by_id(
     retrieval_duration = cursor.retrieval_duration
     processing_duration = cursor.processing_duration
     total_duration = cursor.total_duration
-    error_message = cursor.error_message
+    graph_error_message = cursor.graph_error_message
+    count_error_message = cursor.count_error_message
+    label_count_error_message = cursor.label_count_error_message
 
     response_data = {
         "annotation_id": str(annotation_id),
@@ -361,7 +363,9 @@ def get_annotation_by_id(
     if retrieval_duration: response_data["retrieval_duration"] = retrieval_duration
     if processing_duration: response_data["processing_duration"] = processing_duration
     if total_duration: response_data["total_duration"] = total_duration
-    if error_message: response_data["error_message"] = error_message
+    if graph_error_message: response_data["graph_error_message"] = graph_error_message
+    if count_error_message: response_data["count_error_message"] = count_error_message
+    if label_count_error_message: response_data["label_count_error_message"] = label_count_error_message
         
     if cursor.data_source == 'ai-assistant':
          return {"annotation_id": str(annotation_id), "question": question, "answer": answer}
