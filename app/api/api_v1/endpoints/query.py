@@ -90,7 +90,10 @@ def process_query(
         
         # schema for validation
         schema_for_species = schema_manager.schema.get(species, {})
-        node_map = validate_request(requests, schema_for_species, source)
+        try:
+            node_map = validate_request(requests, schema_for_species, source)
+        except Exception as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
         if node_map is None:
              raise HTTPException(status_code=400, detail="Invalid node_map returned by validate_request")
 
@@ -178,6 +181,8 @@ def process_query(
         }
         return response
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing query: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Query processing failed. Check server logs for details.")
