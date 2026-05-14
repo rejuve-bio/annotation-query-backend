@@ -9,26 +9,42 @@ import os
 from neo4j.graph import Node, Relationship
 from app.error import TaskCancelledException
 
+# Import the resilience layer
+from app.services.db_resilience import ResilientDriver, RetryPolicy
+
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Shared retry policy (tune here once, used everywhere)
+_DEFAULT_POLICY = RetryPolicy(
+    max_attempts=5,
+    base_delay_s=0.5,
+    max_delay_s=30.0,
+    backoff_factor=2.0,
+    jitter=True,
+    retry_on_unknown=True,
+)
+
 
 class CypherQueryGenerator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
-        self.human_driver = GraphDatabase.driver(
-            os.getenv('HUMAN_NEO4J_URI'),
-            auth=(os.getenv('HUMAN_NEO4J_USERNAME'), os.getenv('HUMAN_NEO4J_PASSWORD'))
+        self.human_driver = ResilientDriver(
+            uri=os.getenv('HUMAN_NEO4J_URI'),
+            auth=(os.getenv('HUMAN_NEO4J_USERNAME'), os.getenv('HUMAN_NEO4J_PASSWORD')),
+            retry_policy=_DEFAULT_POLICY,
         )
-        self.fly_driver = GraphDatabase.driver(
-            os.getenv('FLY_NEO4J_URI'),
-            auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD'))
+        self.fly_driver = ResilientDriver(
+            uri=os.getenv('FLY_NEO4J_URI'),
+            auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD')),
+            retry_policy=_DEFAULT_POLICY,
         )
 
     def close(self):
-        self.driver.close()
+        self.human_driver.close()
+        self.fly_driver.close()
 
     def load_dataset(self, path: str) -> None:
         if not os.path.exists(path):
@@ -65,16 +81,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
     def run_query(self, query_code, stop_event=None,  species="human"):
-        results = []
         driver = self.human_driver if species == "human" else self.fly_driver
         # use lazy loading for improved performance
-        with driver.session() as session:
-            result = session.run(query_code)
-            for record in result:
-                if stop_event is not None and stop_event.is_set():
-                    raise TaskCancelledException()
-                results.append(record)
-        return results
+        return driver.run_with_retry(query_code, stop_event=stop_event)
     
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):

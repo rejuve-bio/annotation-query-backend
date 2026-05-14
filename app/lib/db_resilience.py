@@ -1,0 +1,426 @@
+"""
+Intelligent failure detection and classification system for Neo4j connections.
+Provides:
+  - FailureClassifier  – classifies exceptions as transient or permanent
+  - RetryPolicy        – configures back-off strategy
+  - ResilientDriver    – wraps a Neo4j driver with auto-reconnect logic
+  - resilient_query    – decorator that applies retry logic to any query method
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+import functools
+import threading
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Callable, Optional
+
+from neo4j import GraphDatabase
+from neo4j.exceptions import (
+    ServiceUnavailable,
+    SessionExpired,
+    TransientError,
+    AuthError,
+    ClientError,
+    CypherSyntaxError,
+    CypherTypeError,
+    ConstraintError,
+    DatabaseError,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# 1. Failure classification
+# ---------------------------------------------------------------------------
+
+class FailureKind(Enum):
+    TRANSIENT = auto()   # Worth retrying (network blip, overload, lock timeout)
+    PERMANENT = auto()   # Not worth retrying (bad credentials, bad query, …)
+    UNKNOWN   = auto()   # Cannot determine – treat conservatively as transient
+
+
+# Neo4j status-code prefixes that signal a transient condition
+_TRANSIENT_STATUS_PREFIXES = (
+    "Neo.TransientError",
+    "Neo.ClientError.Transaction.DeadlockDetected",
+    "Neo.ClientError.Transaction.LockClientStopped",
+)
+
+# Neo4j status-code prefixes that signal a permanent condition
+_PERMANENT_STATUS_PREFIXES = (
+    "Neo.ClientError.Security",          # auth / permission failures
+    "Neo.ClientError.Schema",            # constraint / index mismatches
+    "Neo.ClientError.Statement.SyntaxError",
+    "Neo.ClientError.Statement.TypeError",
+    "Neo.ClientError.Statement.EntityNotFound",
+    "Neo.ClientError.Statement.ParameterMissing",
+)
+
+# Python exception types that map directly to a kind
+_TRANSIENT_EXCEPTION_TYPES = (
+    ServiceUnavailable,
+    SessionExpired,
+    TransientError,
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
+
+_PERMANENT_EXCEPTION_TYPES = (
+    AuthError,
+    CypherSyntaxError,
+    CypherTypeError,
+    ConstraintError,
+)
+
+
+class FailureClassifier:
+    """Classifies a raw exception into TRANSIENT, PERMANENT, or UNKNOWN."""
+
+    @staticmethod
+    def classify(exc: Exception) -> FailureKind:
+        # --- check status code on Neo4j errors first (most precise) ---
+        status_code: Optional[str] = getattr(exc, "code", None)
+        if status_code:
+            for prefix in _TRANSIENT_STATUS_PREFIXES:
+                if status_code.startswith(prefix):
+                    return FailureKind.TRANSIENT
+            for prefix in _PERMANENT_STATUS_PREFIXES:
+                if status_code.startswith(prefix):
+                    return FailureKind.PERMANENT
+
+        # --- fall back to Python type hierarchy ---
+        if isinstance(exc, _TRANSIENT_EXCEPTION_TYPES):
+            return FailureKind.TRANSIENT
+        if isinstance(exc, _PERMANENT_EXCEPTION_TYPES):
+            return FailureKind.PERMANENT
+
+        # --- heuristic: look for network-related message keywords ---
+        msg = str(exc).lower()
+        transient_keywords = ("connection refused", "timed out", "broken pipe",
+                              "reset by peer", "unreachable", "unavailable",
+                              "pool is closed", "failed to establish")
+        permanent_keywords = ("unauthorized", "forbidden", "authentication",
+                              "syntax error", "invalid cypher")
+        if any(k in msg for k in transient_keywords):
+            return FailureKind.TRANSIENT
+        if any(k in msg for k in permanent_keywords):
+            return FailureKind.PERMANENT
+
+        return FailureKind.UNKNOWN
+
+
+# ---------------------------------------------------------------------------
+# 2. Retry policy
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RetryPolicy:
+    """
+    Controls how many times to retry and how long to wait between attempts.
+
+    Attributes
+    ----------
+    max_attempts:
+        Total number of *attempts* (including the first). 1 means no retry.
+    base_delay_s:
+        Initial sleep duration in seconds before the first retry.
+    max_delay_s:
+        Upper cap on any individual sleep interval.
+    backoff_factor:
+        Multiplier applied to the previous delay on each successive retry
+        (exponential back-off when > 1).
+    jitter:
+        When True, adds a small random component to each delay to reduce
+        thundering-herd effects under concurrent load.
+    retry_on_unknown:
+        When True, UNKNOWN failures are treated like TRANSIENT and retried.
+    """
+    max_attempts:     int   = 5
+    base_delay_s:     float = 0.5
+    max_delay_s:      float = 30.0
+    backoff_factor:   float = 2.0
+    jitter:           bool  = True
+    retry_on_unknown: bool  = True
+
+    def should_retry(self, kind: FailureKind, attempt: int) -> bool:
+        """Return True if another attempt is warranted."""
+        if attempt >= self.max_attempts:
+            return False
+        if kind == FailureKind.PERMANENT:
+            return False
+        if kind == FailureKind.UNKNOWN and not self.retry_on_unknown:
+            return False
+        return True
+
+    def delay_for(self, attempt: int) -> float:
+        """Compute the sleep duration before *attempt* (0-indexed)."""
+        import random
+        delay = min(self.base_delay_s * (self.backoff_factor ** attempt),
+                    self.max_delay_s)
+        if self.jitter:
+            delay *= (0.75 + random.random() * 0.5)   # ±25 % jitter
+        return delay
+
+
+# ---------------------------------------------------------------------------
+# 3. Resilient driver
+# ---------------------------------------------------------------------------
+
+class ResilientDriver:
+    """
+    Thread-safe Neo4j driver wrapper with automatic reconnection.
+
+    Drop-in replacement for ``GraphDatabase.driver(…)``.  Exposes the same
+    ``.session()`` context-manager and ``.close()`` interface, plus a
+    ``.run_with_retry()`` helper used by ``CypherQueryGenerator.run_query``.
+    """
+
+    def __init__(
+        self,
+        uri: str,
+        auth: tuple[str, str],
+        retry_policy: Optional[RetryPolicy] = None,
+        *,
+        driver_kwargs: Optional[dict] = None,
+    ):
+        self._uri    = uri
+        self._auth   = auth
+        self._policy = retry_policy or RetryPolicy()
+        self._driver_kwargs = driver_kwargs or {}
+
+        self._lock   = threading.Lock()
+        self._driver = None
+        self._closed = False
+
+        self._connect()   # eager initial connection
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _connect(self) -> None:
+        """(Re-)create the underlying Neo4j driver."""
+        if self._closed:
+            raise RuntimeError("ResilientDriver has been permanently closed.")
+        logger.info("Connecting to Neo4j at %s …", self._uri)
+        self._driver = GraphDatabase.driver(
+            self._uri, auth=self._auth, **self._driver_kwargs
+        )
+        logger.info("Connected to Neo4j at %s.", self._uri)
+
+    def _reconnect(self) -> None:
+        """Close the stale driver and open a fresh one (called inside lock)."""
+        try:
+            if self._driver is not None:
+                self._driver.close()
+        except Exception:
+            pass
+        self._driver = None
+        self._connect()
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    def session(self, **kwargs):
+        """Return a Neo4j session from the current driver."""
+        with self._lock:
+            if self._driver is None:
+                self._connect()
+            return self._driver.session(**kwargs)
+
+    def close(self) -> None:
+        """Permanently close the driver – no further reconnection."""
+        with self._lock:
+            self._closed = True
+            if self._driver is not None:
+                self._driver.close()
+                self._driver = None
+        logger.info("ResilientDriver closed for %s.", self._uri)
+
+    def run_with_retry(
+        self,
+        query_code: str,
+        stop_event=None,
+    ):
+        """
+        Execute *query_code* against this driver, retrying transient failures
+        with exponential back-off and automatic reconnection as needed.
+
+        Parameters
+        ----------
+        query_code:
+            The Cypher query string.
+        stop_event:
+            Optional ``threading.Event``; if set, the loop is aborted and
+            ``TaskCancelledException`` is raised immediately.
+
+        Returns
+        -------
+        list
+            All records returned by the query.
+
+        Raises
+        ------
+        TaskCancelledException
+            When *stop_event* is set.
+        Exception
+            The last exception raised after all retry attempts are exhausted,
+            or any PERMANENT failure on the first occurrence.
+        """
+        from app.error import TaskCancelledException
+
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(self._policy.max_attempts):
+            # Honour cancellation at the start of every attempt
+            if stop_event is not None and stop_event.is_set():
+                raise TaskCancelledException()
+
+            try:
+                results = []
+                with self.session() as session:
+                    result = session.run(query_code)
+                    for record in result:
+                        if stop_event is not None and stop_event.is_set():
+                            raise TaskCancelledException()
+                        results.append(record)
+                return results
+
+            except TaskCancelledException:
+                raise
+
+            except Exception as exc:
+                last_exc = exc
+                kind     = FailureClassifier.classify(exc)
+
+                logger.warning(
+                    "Query attempt %d/%d failed [%s – %s]: %s",
+                    attempt + 1,
+                    self._policy.max_attempts,
+                    kind.name,
+                    type(exc).__name__,
+                    exc,
+                )
+
+                if not self._policy.should_retry(kind, attempt + 1):
+                    logger.error(
+                        "Non-retryable failure (%s). Aborting query.", kind.name
+                    )
+                    raise
+
+                # For connectivity failures, try to reconnect before sleeping
+                if kind in (FailureKind.TRANSIENT, FailureKind.UNKNOWN) and \
+                        isinstance(exc, (ServiceUnavailable, SessionExpired,
+                                         ConnectionError, OSError)):
+                    with self._lock:
+                        try:
+                            logger.info("Attempting to reconnect …")
+                            self._reconnect()
+                        except Exception as reconnect_exc:
+                            logger.warning(
+                                "Reconnection failed: %s. Will retry after delay.",
+                                reconnect_exc,
+                            )
+
+                delay = self._policy.delay_for(attempt)
+                logger.info(
+                    "Retrying in %.2f s (attempt %d/%d) …",
+                    delay,
+                    attempt + 2,
+                    self._policy.max_attempts,
+                )
+                time.sleep(delay)
+
+        raise last_exc   # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# 4. Decorator for existing methods
+# ---------------------------------------------------------------------------
+
+def resilient_query(
+    policy: Optional[RetryPolicy] = None,
+    driver_attr: str = "driver",
+) -> Callable:
+    """
+    Method decorator that wraps any function whose first argument is *self*
+    with retry-on-transient-failure logic.
+
+    Usage
+    -----
+    class MyClass:
+        @resilient_query(policy=RetryPolicy(max_attempts=4))
+        def run_query(self, query_code, stop_event=None, species="human"):
+            ...
+
+    The decorator injects ``attempt`` and ``last_exc`` context into the
+    re-raised exception's ``__context__`` chain for easier debugging.
+    """
+    _policy = policy or RetryPolicy()
+
+    def decorator(fn: Callable) -> Callable:
+        @functools.wraps(fn)
+        def wrapper(self, *args, **kwargs):
+            last_exc: Optional[Exception] = None
+            stop_event = kwargs.get("stop_event") or (
+                args[1] if len(args) > 1 else None
+            )
+
+            for attempt in range(_policy.max_attempts):
+                try:
+                    return fn(self, *args, **kwargs)
+                except Exception as exc:
+                    # Re-raise cancellations immediately
+                    try:
+                        from app.error import TaskCancelledException
+                        if isinstance(exc, TaskCancelledException):
+                            raise
+                    except ImportError:
+                        pass
+
+                    last_exc = exc
+                    kind     = FailureClassifier.classify(exc)
+
+                    logger.warning(
+                        "[resilient_query] %s attempt %d/%d failed [%s]: %s",
+                        fn.__qualname__,
+                        attempt + 1,
+                        _policy.max_attempts,
+                        kind.name,
+                        exc,
+                    )
+
+                    if not _policy.should_retry(kind, attempt + 1):
+                        raise
+
+                    # Attempt reconnection if the object exposes a
+                    # ``_reconnect`` or ``reconnect`` method
+                    if isinstance(exc, (ServiceUnavailable, SessionExpired,
+                                         ConnectionError, OSError)):
+                        reconnect = (getattr(self, "_reconnect", None) or
+                                     getattr(self, "reconnect", None))
+                        if callable(reconnect):
+                            try:
+                                reconnect()
+                            except Exception as r_exc:
+                                logger.warning(
+                                    "Reconnect in decorator failed: %s", r_exc
+                                )
+
+                    delay = _policy.delay_for(attempt)
+                    logger.info(
+                        "[resilient_query] Retrying %s in %.2f s …",
+                        fn.__qualname__,
+                        delay,
+                    )
+                    time.sleep(delay)
+
+            raise last_exc  # type: ignore[misc]
+        return wrapper
+    return decorator
