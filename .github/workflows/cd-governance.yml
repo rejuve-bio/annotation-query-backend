@@ -136,7 +136,7 @@ jobs:
         echo ""
         echo "=== SLO Results ==="
         echo "  Avg latency : ${AVG_TIME}s  (SLO threshold: 2.0s)"
-        echo "  Error rate  : ${ERROR_RATE}%  (SLO threshold: 10%)"
+        echo "  Error rate  : ${ERROR_RATE}%  (SLO threshold: 0% — no failures allowed)"
 
         # SLO thresholds
         LATENCY_BREACHED=$(echo "$AVG_TIME > 2.0" | bc)
@@ -147,7 +147,7 @@ jobs:
         fi
 
         if [[ "$FAILED" -ge "1" ]]; then
-          echo "[SLO BREACH] Error rate ${ERROR_RATE}% exceeds 10% threshold"
+          echo "[SLO BREACH] Error rate ${ERROR_RATE}% — any failure exceeds threshold"
           exit 1
         fi
 
