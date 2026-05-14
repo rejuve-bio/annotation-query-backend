@@ -74,7 +74,6 @@ jobs:
     # Verify green image is actually running in the cluster
     - name: Verify green image is live
       id: verify-green
-      continue-on-error: true
       run: |
         EXPECTED_IMAGE="${{ steps.set-image-tag.outputs.image-tag }}"
 
