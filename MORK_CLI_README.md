@@ -100,6 +100,28 @@ curl -s -X POST "http://localhost:5000/query" \
 | `metta` | MeTTa files |
 | `mork_cli` | MORK binary via Docker (recommended) |
 
+## Performance & Resource Limits
+
+**Celery concurrency** (`docker-compose.yml`):
+- `--concurrency 4` — limits peak MORK containers to 4 (one per worker per
+  dataset). Reduces container overhead and resource contention at typical load.
+  Trade-off: lower parallel throughput at very high arrival rates.
+- `--max-tasks-per-child 50` — forces worker process restart every 50 tasks,
+  flushing accumulated Python/MeTTa heap objects. Keeps Celery memory bounded
+  regardless of run duration.
+
+**Container lifecycle**:
+- Containers are labelled `mork.worker=1` for monitoring and recovery:
+  ```bash
+  docker ps -f label=mork.worker=1
+  docker ps -q -f label=mork.worker=1 | xargs -r docker stop
+  ```
+- SIGTERM and SIGINT handlers call `_cleanup_sessions()` on worker shutdown,
+  stopping all owned containers cleanly. Without this, containers are orphaned
+  when Celery is restarted via `docker restart`.
+- `_alive()` uses a 5-second TTL cache to skip redundant `docker inspect` calls
+  between pattern invocations within the same query.
+
 ## Troubleshooting
 
 - **`Missing ACT file`**: run `python scripts/build_act.py`.
