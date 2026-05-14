@@ -60,7 +60,7 @@ class _MorkSession:
         labels = ["--label", "mork.worker=1"]
         project = os.environ.get("COMPOSE_PROJECT_NAME")
         if project:
-            labels += ["--label", f"com.docker.compose.project={project}"]
+            labels += ["--label", f"mork.project={project}"]
         try:
             r = subprocess.run([
                 "docker", "run", "-d", "--rm",
@@ -141,8 +141,9 @@ def _make_signal_handler(sig: int):
                 os.kill(os.getpid(), sig)
     return _handler
 
-_signal.signal(_signal.SIGTERM, _make_signal_handler(_signal.SIGTERM))
-_signal.signal(_signal.SIGINT,  _make_signal_handler(_signal.SIGINT))
+if threading.current_thread() is threading.main_thread():
+    _signal.signal(_signal.SIGTERM, _make_signal_handler(_signal.SIGTERM))
+    _signal.signal(_signal.SIGINT,  _make_signal_handler(_signal.SIGINT))
 
 
 # ---------------------------------------------------------------------------

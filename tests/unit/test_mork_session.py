@@ -89,6 +89,51 @@ class TestExecQueryRetry:
 
 
 # ---------------------------------------------------------------------------
+# _MorkSession._start() — label assertions
+# ---------------------------------------------------------------------------
+
+class TestStartLabels:
+    def _docker_run_args(self, mock_run):
+        return mock_run.call_args_list[0][0][0]
+
+    def test_mork_worker_label_always_present(self, tmp_path):
+        s = _MorkSession(str(tmp_path))
+        with patch("subprocess.run", return_value=MagicMock(stdout="cid\n")) as mock_run:
+            with patch.dict(os.environ, {}, clear=False):
+                s._start()
+        args = self._docker_run_args(mock_run)
+        assert "--label" in args
+        assert "mork.worker=1" in args
+
+    def test_project_label_added_when_env_set(self, tmp_path):
+        s = _MorkSession(str(tmp_path))
+        with patch("subprocess.run", return_value=MagicMock(stdout="cid\n")) as mock_run:
+            with patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "myproject"}):
+                s._start()
+        args = self._docker_run_args(mock_run)
+        assert "mork.project=myproject" in args
+
+    def test_project_label_absent_when_env_unset(self, tmp_path):
+        s = _MorkSession(str(tmp_path))
+        env = {k: v for k, v in os.environ.items() if k != "COMPOSE_PROJECT_NAME"}
+        with patch("subprocess.run", return_value=MagicMock(stdout="cid\n")) as mock_run:
+            with patch.dict(os.environ, env, clear=True):
+                s._start()
+        args = self._docker_run_args(mock_run)
+        assert not any("mork.project" in a for a in args)
+
+    def test_compose_project_label_not_used(self, tmp_path):
+        """Must not use com.docker.compose.project — that label triggers orphan
+        detection in docker compose down --remove-orphans."""
+        s = _MorkSession(str(tmp_path))
+        with patch("subprocess.run", return_value=MagicMock(stdout="cid\n")) as mock_run:
+            with patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "myproject"}):
+                s._start()
+        args = self._docker_run_args(mock_run)
+        assert not any("com.docker.compose.project" in a for a in args)
+
+
+# ---------------------------------------------------------------------------
 # _make_signal_handler — chaining and edge cases
 # ---------------------------------------------------------------------------
 
