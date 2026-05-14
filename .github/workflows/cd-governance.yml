@@ -194,7 +194,7 @@ jobs:
 
         $(cat workflow_runs.json | jq -r '
           .workflow_runs[] |
-          "| \(.name) | \(.head_branch) | \(.conclusion // "in_progress") | \(.created_at) |"
+          "| " + .name + " | " + .head_branch + " | " + (.conclusion // "in_progress") + " | " + .created_at + " |"
         ' | head -20)
 
         ---
