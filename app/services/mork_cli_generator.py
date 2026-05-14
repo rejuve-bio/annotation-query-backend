@@ -32,26 +32,36 @@ class _MorkSession:
 
     MORK_BIN = "/app/MORK/target/release/mork"
 
+    _ALIVE_TTL = 5.0
+
     def __init__(self, dataset_path: str):
         self._path = dataset_path
         self._uid_gid = f"{os.getuid()}:{os.getgid()}"
         self._cid: str | None = None
         self._lock = threading.Lock()
+        self._last_alive_check: float = 0.0
 
     def _alive(self) -> bool:
         if not self._cid:
             return False
+        now = time.time()
+        if now - self._last_alive_check < self._ALIVE_TTL:
+            return True
         r = subprocess.run(
             ["docker", "inspect", "--format={{.State.Running}}", self._cid],
             capture_output=True, text=True,
         )
-        return r.returncode == 0 and r.stdout.strip() == "true"
+        alive = r.returncode == 0 and r.stdout.strip() == "true"
+        if alive:
+            self._last_alive_check = now
+        return alive
 
     def _start(self):
         try:
             r = subprocess.run([
                 "docker", "run", "-d", "--rm",
                 "-u", self._uid_gid,
+                "--label", "mork.worker=1",
                 "-v", f"{self._path}:{self._path}:rw",
                 "-v", "/dev/shm:/dev/shm",
                 "-w", self._path,
@@ -95,6 +105,10 @@ def _cleanup_sessions():
 
 
 atexit.register(_cleanup_sessions)
+
+import signal as _signal
+_signal.signal(_signal.SIGTERM, lambda *_: _cleanup_sessions())
+_signal.signal(_signal.SIGINT,  lambda *_: _cleanup_sessions())
 
 
 # ---------------------------------------------------------------------------
