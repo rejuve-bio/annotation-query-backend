@@ -313,13 +313,14 @@ jobs:
         server_port: 587
         username: ${{ secrets.EMAIL_USERNAME }}
         password: ${{ secrets.EMAIL_PASSWORD }}
-        subject: "CD Blue-Green FAILED - Reverted to Blue"
+        subject: "CD Blue-Green FAILED - Manual Rollback Required"
         to: ${{ secrets.RECIEVER_EMAIL }}
         from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
         body: |
-          Blue-Green Deployment Failed or Manual Rollback Completed!
+          Blue-Green Deployment Validation Failed!
 
-          Green failed validation or a manual rollback was triggered.
+          Green failed validation. No automatic rollback has occurred.
+          Review the logs and trigger a manual rollback if required.
 
           Repository: ${{ github.repository }}
           View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
