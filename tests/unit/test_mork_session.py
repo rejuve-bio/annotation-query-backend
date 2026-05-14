@@ -8,7 +8,11 @@ for _dep in ("biocypher", "hyperon", "neo4j", "neo4j.exceptions",
              "flask", "flask_mail", "celery", "celery.utils.log",
              "anthropic", "openai", "tiktoken", "nanoid", "socketio",
              "elasticsearch", "pymongo", "motor"):
-    sys.modules.setdefault(_dep, MagicMock())
+    if _dep not in sys.modules:
+        try:
+            __import__(_dep)
+        except ImportError:
+            sys.modules[_dep] = MagicMock()
 
 import os
 import signal as _signal

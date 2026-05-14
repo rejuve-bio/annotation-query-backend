@@ -116,8 +116,8 @@ curl -s -X POST "http://localhost:5000/query" \
 - Containers are labelled `mork.worker=1` for monitoring. **Note:** filtering on
   this label alone is host-wide and matches every MORK container on the Docker
   host, including other deployments. When `COMPOSE_PROJECT_NAME` is set in the
-  environment, `_start()` also adds a `com.docker.compose.project` label so you
-  can scope recovery to one deployment:
+  environment, `_start()` also adds `mork.project=<project>` so you can scope
+  recovery to one deployment without using Docker Compose's reserved labels:
   ```bash
   docker ps -f label=mork.worker=1
   # Scoped stop (COMPOSE_PROJECT_NAME is set via docker-compose.yml, default: annotation-query-backend):
