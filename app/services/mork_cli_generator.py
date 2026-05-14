@@ -44,7 +44,7 @@ class _MorkSession:
     def _alive(self) -> bool:
         if not self._cid:
             return False
-        now = time.time()
+        now = time.monotonic()
         if now - self._last_alive_check < self._ALIVE_TTL:
             return True
         r = subprocess.run(

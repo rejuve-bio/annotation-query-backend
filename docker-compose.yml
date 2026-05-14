@@ -51,6 +51,7 @@ services:
     environment:
       <<: *app_env
       C_FORCE_ROOT: "1"
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-annotation-query-backend}
 
   mongodb:
     image: mongo:latest
