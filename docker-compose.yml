@@ -42,7 +42,7 @@ services:
       - /dev/shm:/dev/shm
       - /var/run/docker.sock:/var/run/docker.sock
     # Worker command
-    command: celery -A app.workers.celery_app worker --loglevel=info
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency 4 --max-tasks-per-child 50
     restart: always
     depends_on:
       - annotation_service
