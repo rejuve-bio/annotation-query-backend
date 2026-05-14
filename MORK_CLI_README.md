@@ -120,7 +120,7 @@ curl -s -X POST "http://localhost:5000/query" \
   can scope recovery to one deployment:
   ```bash
   docker ps -f label=mork.worker=1
-  # Scoped stop (requires COMPOSE_PROJECT_NAME to have been set at worker startup):
+  # Scoped stop (COMPOSE_PROJECT_NAME is set via docker-compose.yml, default: annotation-query-backend):
   docker ps -q -f label=mork.worker=1 -f label=com.docker.compose.project=<project> | xargs -r docker stop
   ```
 - SIGTERM and SIGINT handlers call `_cleanup_sessions()` on worker shutdown,
