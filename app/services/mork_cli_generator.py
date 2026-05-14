@@ -80,10 +80,22 @@ class _MorkSession:
         with self._lock:
             if not self._alive():
                 self._start()
-            return subprocess.run([
-                "docker", "exec", self._cid,
-                self.MORK_BIN, "run", query_file_name,
-            ], capture_output=True, text=True, check=True)
+            try:
+                return subprocess.run([
+                    "docker", "exec", self._cid,
+                    self.MORK_BIN, "run", query_file_name,
+                ], capture_output=True, text=True, check=True)
+            except subprocess.CalledProcessError:
+                # Invalidate TTL cache; if the container actually died within the
+                # TTL window, restart and retry once to preserve self-healing.
+                self._last_alive_check = 0.0
+                if not self._alive():
+                    self._start()
+                    return subprocess.run([
+                        "docker", "exec", self._cid,
+                        self.MORK_BIN, "run", query_file_name,
+                    ], capture_output=True, text=True, check=True)
+                raise
 
     def stop(self):
         if self._cid:
@@ -107,8 +119,21 @@ def _cleanup_sessions():
 atexit.register(_cleanup_sessions)
 
 import signal as _signal
-_signal.signal(_signal.SIGTERM, lambda *_: _cleanup_sessions())
-_signal.signal(_signal.SIGINT,  lambda *_: _cleanup_sessions())
+
+def _make_signal_handler(sig: int):
+    _prev = _signal.getsignal(sig)
+    def _handler(signum: int, frame) -> None:
+        _cleanup_sessions()
+        if callable(_prev):
+            _prev(signum, frame)
+        else:
+            # No previous handler; re-raise via default so the process actually exits
+            _signal.signal(sig, _signal.SIG_DFL)
+            os.kill(os.getpid(), sig)
+    return _handler
+
+_signal.signal(_signal.SIGTERM, _make_signal_handler(_signal.SIGTERM))
+_signal.signal(_signal.SIGINT,  _make_signal_handler(_signal.SIGINT))
 
 
 # ---------------------------------------------------------------------------
