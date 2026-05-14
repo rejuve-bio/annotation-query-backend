@@ -72,3 +72,8 @@ jobs:
         run: |
           mkdir -p /tmp/test_data
           pytest
+
+      - name: Run MORK session unit tests
+        run: |
+          pytest tests/unit/test_mork_session.py \
+            --import-mode=importlib --noconftest -v
