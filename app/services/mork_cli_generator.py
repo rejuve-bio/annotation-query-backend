@@ -57,11 +57,15 @@ class _MorkSession:
         return alive
 
     def _start(self):
+        labels = ["--label", "mork.worker=1"]
+        project = os.environ.get("COMPOSE_PROJECT_NAME")
+        if project:
+            labels += ["--label", f"com.docker.compose.project={project}"]
         try:
             r = subprocess.run([
                 "docker", "run", "-d", "--rm",
                 "-u", self._uid_gid,
-                "--label", "mork.worker=1",
+                *labels,
                 "-v", f"{self._path}:{self._path}:rw",
                 "-v", "/dev/shm:/dev/shm",
                 "-w", self._path,
@@ -123,13 +127,18 @@ import signal as _signal
 def _make_signal_handler(sig: int):
     _prev = _signal.getsignal(sig)
     def _handler(signum: int, frame) -> None:
-        _cleanup_sessions()
-        if callable(_prev):
-            _prev(signum, frame)
-        else:
-            # No previous handler; re-raise via default so the process actually exits
-            _signal.signal(sig, _signal.SIG_DFL)
-            os.kill(os.getpid(), sig)
+        try:
+            _cleanup_sessions()
+        except Exception:
+            logger.exception("Error during MORK session cleanup")
+        finally:
+            if callable(_prev):
+                _prev(signum, frame)
+            elif _prev == _signal.SIG_IGN:
+                return
+            else:
+                _signal.signal(sig, _signal.SIG_DFL)
+                os.kill(os.getpid(), sig)
     return _handler
 
 _signal.signal(_signal.SIGTERM, _make_signal_handler(_signal.SIGTERM))

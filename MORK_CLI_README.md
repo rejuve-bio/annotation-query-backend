@@ -115,10 +115,12 @@ curl -s -X POST "http://localhost:5000/query" \
 **Container lifecycle**:
 - Containers are labelled `mork.worker=1` for monitoring. **Note:** filtering on
   this label alone is host-wide and matches every MORK container on the Docker
-  host, including other deployments. For targeted recovery, combine with the
-  Compose project label (replace `<project>` with your `COMPOSE_PROJECT_NAME`):
+  host, including other deployments. When `COMPOSE_PROJECT_NAME` is set in the
+  environment, `_start()` also adds a `com.docker.compose.project` label so you
+  can scope recovery to one deployment:
   ```bash
   docker ps -f label=mork.worker=1
+  # Scoped stop (requires COMPOSE_PROJECT_NAME to have been set at worker startup):
   docker ps -q -f label=mork.worker=1 -f label=com.docker.compose.project=<project> | xargs -r docker stop
   ```
 - SIGTERM and SIGINT handlers call `_cleanup_sessions()` on worker shutdown,
