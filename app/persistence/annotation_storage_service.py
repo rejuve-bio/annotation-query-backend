@@ -60,6 +60,12 @@ class AnnotationStorageService():
         data = Annotation.update({"_id": id}, {"$set": data}, many=False)
 
     @staticmethod
+    def complete_if_pending(id, data):
+        """Conditional update: only applies when status is still PENDING.
+        Prevents concurrent GET requests from racing to overwrite each other."""
+        Annotation.update({"_id": id, "status": "PENDING"}, {"$set": data}, many=False)
+
+    @staticmethod
     def delete(id):
         data = Annotation.delete({"_id": id})
         return data

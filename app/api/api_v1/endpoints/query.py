@@ -380,6 +380,29 @@ def get_annotation_by_id(
                  response_data['status'] = TaskStatus.PENDING.value
                  from app.annotation_controller import requery
                  requery(annotation_id, query, json_request, species)
+        elif status == TaskStatus.PENDING.value:
+            # Recovery: graph was computed (e.g. before a worker restart) but
+            # summary_task never ran to flip the status to COMPLETE.
+            # Guards:
+            #   1. node_count must be set — total_count_task populates this,
+            #      confirming the chord header tasks (not just graph_task) finished.
+            #   2. Graph file must exist on disk.
+            # The DB update uses complete_if_pending (conditional $set) so
+            # concurrent GET requests don't race to overwrite each other.
+            default_path = f"/app/public/graph/{id}.json"
+            resolved_path = file_path if (file_path and os.path.exists(file_path)) else (
+                default_path if os.path.exists(default_path) else None
+            )
+            if resolved_path and node_count is not None:
+                AnnotationStorageService.complete_if_pending(
+                    annotation_id,
+                    {"status": TaskStatus.COMPLETE.value, "path_url": resolved_path},
+                )
+                response_data['status'] = TaskStatus.COMPLETE.value
+                with open(resolved_path, 'r') as f:
+                    graph = json.load(f)
+                response_data['nodes'] = graph.get('nodes')
+                response_data['edges'] = graph.get('edges')
         return response_data
 
     return response_data

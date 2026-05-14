@@ -73,10 +73,11 @@ def check_for_cancellation(annotation_id):
     """
     Checks for the cancellation flag.
     If cancelled, raises an exception to abort the flow.
+    A missing Redis key (e.g. after a worker restart) is NOT treated as cancellation.
     """
     current_status = get_status(annotation_id)
 
-    if current_status is None or current_status == TaskStatus.CANCELLED.value:
+    if current_status == TaskStatus.CANCELLED.value:
         raise TaskCancelledException()
 
 
@@ -137,6 +138,8 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
 
         check_for_cancellation(annotation_id)
 
+        meta_data = AnnotationStorageService.get_by_id(annotation_id)
+
         if summary is not None:
             created_at = getattr(meta_data, 'created_at', None)
             total_ms = round((dt.datetime.now() - created_at).total_seconds() * 1000) if created_at else None
@@ -156,8 +159,6 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
         # 1. Fetch Existing Cache (Populated by graph_task)
         cache = get_annotation_redis(annotation_id)
         check_for_cancellation(annotation_id)
-
-        meta_data = AnnotationStorageService.get_by_id(annotation_id)
 
         response = {"nodes": [], "edges": []}
         if cache is not None:
@@ -210,6 +211,9 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
         redis_state.expire(f"annotation:{annotation_id}", 60)
     except TaskCancelledException as e:
         set_status(annotation_id, TaskStatus.CANCELLED.value)
+        AnnotationStorageService.update(
+            annotation_id, {"status": TaskStatus.CANCELLED.value}
+        )
         socket_event = {
             "status": TaskStatus.CANCELLED.value,
             "update": {"summary": "Summary cancelled"},
