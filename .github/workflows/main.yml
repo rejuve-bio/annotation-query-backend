@@ -75,5 +75,5 @@ jobs:
 
       - name: Run MORK session unit tests
         run: |
-          pytest tests/unit/test_mork_session.py \
+          PYTHONPATH=. pytest tests/unit/test_mork_session.py \
             --import-mode=importlib --noconftest -v
