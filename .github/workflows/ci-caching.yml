@@ -87,6 +87,7 @@ jobs:
         context: .
         push: false
         tags: abdum1964/annotation:staging
+        build-args: APP_PORT=5006
         cache-from: |
           type=local,src=/tmp/.buildx-cache
           type=gha
