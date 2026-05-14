@@ -77,7 +77,7 @@ jobs:
 
         conftest test k8s/staging/annotation/ \
           --policy policy/ \
-          --output json 2>/dev/null > policy-report.json || true
+          --output json 2>/dev/null > policy-report.json
 
         echo "=== Policy Check Results ==="
         cat policy-report.json | jq -r '
