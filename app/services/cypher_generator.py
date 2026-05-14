@@ -10,7 +10,7 @@ from neo4j.graph import Node, Relationship
 from app.error import TaskCancelledException
 
 # Import the resilience layer
-from app.services.db_resilience import ResilientDriver, RetryPolicy
+from app.services.db_resilience import ResilientDriver, RetryPolicy, QueryType, QueryTimeoutConfig
 
 load_dotenv()
 
@@ -28,6 +28,25 @@ _DEFAULT_POLICY = RetryPolicy(
     retry_on_unknown=True,
 )
 
+# Per-query-type timeout configuration.
+# All timeouts default to None (indefinite) — original behaviour is preserved.
+# Set values here (or at app startup) to enable timeouts, e.g.:
+#   _TIMEOUT_CONFIG.timeouts[QueryType.COUNT] = 30.0
+#   _TIMEOUT_CONFIG.timeouts[QueryType.GRAPH] = 120.0
+#   _TIMEOUT_CONFIG.fallback_results[QueryType.COUNT] = []
+_TIMEOUT_CONFIG = QueryTimeoutConfig(
+    timeouts={
+        QueryType.DEFAULT:   None,   # indefinite
+        QueryType.GRAPH:     None,   # indefinite
+        QueryType.COUNT:     None,   # indefinite
+        QueryType.GENE_LIST: None,   # indefinite
+        QueryType.LOAD:      None,   # indefinite
+        QueryType.SCHEMA:    None,   # indefinite
+    },
+    fallback_results={},
+    warn_threshold_s=None,           # set e.g. to 10.0 to log slow queries
+)
+
 
 class CypherQueryGenerator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
@@ -35,11 +54,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             uri=os.getenv('HUMAN_NEO4J_URI'),
             auth=(os.getenv('HUMAN_NEO4J_USERNAME'), os.getenv('HUMAN_NEO4J_PASSWORD')),
             retry_policy=_DEFAULT_POLICY,
+            timeout_config=_TIMEOUT_CONFIG,
         )
         self.fly_driver = ResilientDriver(
             uri=os.getenv('FLY_NEO4J_URI'),
             auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD')),
             retry_policy=_DEFAULT_POLICY,
+            timeout_config=_TIMEOUT_CONFIG,
         )
 
     def close(self):
@@ -68,7 +89,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     with open(file_path, 'r') as file:
                         data = file.read()
                         for line in data.splitlines():
-                            self.run_query(line)
+                            self.run_query(line, query_type=QueryType.LOAD)
                 except Exception as e:
                     logger.error(
                         f"Error loading {file_type} dataset from '{file_path}': {e}")
@@ -80,10 +101,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         logger.info(
             f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code, stop_event=None,  species="human"):
+    def run_query(self, query_code, stop_event=None, species="human", query_type: QueryType = QueryType.DEFAULT):
         driver = self.human_driver if species == "human" else self.fly_driver
         # use lazy loading for improved performance
-        return driver.run_with_retry(query_code, stop_event=stop_event)
+        return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type)
     
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
