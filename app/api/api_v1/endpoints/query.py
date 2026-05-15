@@ -675,6 +675,14 @@ def cell_component(
             detail="Invalid annotation id",
         )
 
+    # sanitize again as a filename component before path construction
+    safe_annotation_id = Path(annotation_id).name
+    if safe_annotation_id != annotation_id or not re.fullmatch(r"[A-Za-z0-9_-]+", safe_annotation_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid annotation id",
+        )
+
     # parse the location
     locations = locations.split(",")
 
@@ -683,7 +691,7 @@ def cell_component(
     
     # get the graph and filter out the protein
         
-    file_name = f"{annotation_id}.json"
+    file_name = f"{safe_annotation_id}.json"
     base_dir = (
         Path(__file__).parent
         / ".."
