@@ -13,9 +13,7 @@ try:
     import graph_native
 except ImportError:
     graph_native = None
-    
-    
-print("Graph native module loaded:", bool(graph_native))
+
 
 class Graph:
     def __init__(self):
