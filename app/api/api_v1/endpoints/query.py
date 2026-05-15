@@ -33,6 +33,7 @@ import threading
 from app.core.config import settings
 from app.api.deps import oauth2_scheme
 import jwt
+import re
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -539,6 +540,11 @@ def cell_component(
 
     # get annotation id and get go term id
     annotation_id = id
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", annotation_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid annotation id",
+        )
 
     # parse the location
     locations = locations.split(",")
