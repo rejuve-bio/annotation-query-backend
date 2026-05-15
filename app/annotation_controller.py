@@ -20,7 +20,7 @@ schema_manager = get_schema_manager()
 llm = get_llm_handler()
 EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
 
-def handle_client_request(query, request, current_user_id, node_types, species, data_source, node_map):
+def handle_client_request(query, request, current_user_id, node_types, species, data_source, node_map, fingerprint=None):
     annotation_id = request.get('annotation_id', None)
     # --- 1. Check for existing Annotation ---
     if annotation_id:
@@ -73,7 +73,8 @@ def handle_client_request(query, request, current_user_id, node_types, species, 
                       "query": str(query[0]), "request": request,
                       "title": title, "node_types": node_types,
                       "status": TaskStatus.PENDING.value,
-                      "data_source": data_source, "species": species}
+                      "data_source": data_source, "species": species,
+                      "query_fingerprint": fingerprint}
 
         annotation_id = AnnotationStorageService.save(annotation)
         init_request_state(annotation_id)
@@ -106,7 +107,8 @@ def handle_client_request(query, request, current_user_id, node_types, species, 
                       "title": title, "node_types": node_types,
                       'status': TaskStatus.PENDING.value, 'node_count': None,
                       'edge_count': None, 'node_count_by_label': None,
-                      'edge_count_by_label': None, 'species': species, 'data_source': data_source}
+                      'edge_count_by_label': None, 'species': species, 'data_source': data_source,
+                      'query_fingerprint': fingerprint}
 
         AnnotationStorageService.update(annotation_id, annotation)
         reset_task(annotation_id)
