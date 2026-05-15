@@ -73,10 +73,11 @@ def check_for_cancellation(annotation_id):
     """
     Checks for the cancellation flag.
     If cancelled, raises an exception to abort the flow.
+    A missing Redis key (e.g. after a worker restart) is NOT treated as cancellation.
     """
     current_status = get_status(annotation_id)
 
-    if current_status is None or current_status == TaskStatus.CANCELLED.value:
+    if current_status == TaskStatus.CANCELLED.value:
         raise TaskCancelledException()
 
 
@@ -137,6 +138,8 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
 
         check_for_cancellation(annotation_id)
 
+        meta_data = AnnotationStorageService.get_by_id(annotation_id)
+
         if summary is not None:
             created_at = getattr(meta_data, 'created_at', None)
             total_ms = round((dt.datetime.now() - created_at).total_seconds() * 1000) if created_at else None
@@ -156,8 +159,6 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
         # 1. Fetch Existing Cache (Populated by graph_task)
         cache = get_annotation_redis(annotation_id)
         check_for_cancellation(annotation_id)
-
-        meta_data = AnnotationStorageService.get_by_id(annotation_id)
 
         response = {"nodes": [], "edges": []}
         if cache is not None:
@@ -210,6 +211,9 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
         redis_state.expire(f"annotation:{annotation_id}", 60)
     except TaskCancelledException as e:
         set_status(annotation_id, TaskStatus.CANCELLED.value)
+        AnnotationStorageService.update(
+            annotation_id, {"status": TaskStatus.CANCELLED.value}
+        )
         socket_event = {
             "status": TaskStatus.CANCELLED.value,
             "update": {"summary": "Summary cancelled"},
@@ -443,7 +447,7 @@ def graph_task(
         }
         redis_client.publish("socket_event", json.dumps(socket_event))
         AnnotationStorageService.update(
-            annotation_id, {"status": TaskStatus.FAILED.value}
+            annotation_id, {"status": TaskStatus.FAILED.value, "graph_error_message": str(e)}
         )
         logger.error("Error generating result graph %s", e)
 
@@ -586,7 +590,7 @@ def total_count_task(
         update_task(annotation_id, "total_count", 0)
         AnnotationStorageService.update(
             annotation_id,
-            {"status": TaskStatus.FAILED.value, "node_count": 0, "edge_count": 0},
+            {"status": TaskStatus.FAILED.value, "node_count": 0, "edge_count": 0, "count_error_message": str(e)},
         )
         socket_event = {
             "status": TaskStatus.FAILED.value,
@@ -736,6 +740,7 @@ def label_count_task(
                 "status": TaskStatus.FAILED.value,
                 "node_count_by_label": update["node_count_by_label"],
                 "edge_count_by_label": update["edge_count_by_label"],
+                "label_count_error_message": str(e),
             },
         )
         socket_event = {

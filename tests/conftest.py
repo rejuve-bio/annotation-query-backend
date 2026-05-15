@@ -1,6 +1,7 @@
 import pytest
 import logging
-from app import app
+from app.main import app
+from starlette.testclient import TestClient
 from app.services.schema_data import SchemaManager
 import time
 
@@ -26,7 +27,7 @@ def wait_for_db_connection():
 # Initializes a test client
 @pytest.fixture
 def client():
-    with app.test_client() as client:
+    with TestClient(app) as client:
         yield client  # Provides the test client for use in tests
 
 # List of nodes

@@ -32,26 +32,40 @@ class _MorkSession:
 
     MORK_BIN = "/app/MORK/target/release/mork"
 
+    _ALIVE_TTL = 5.0
+
     def __init__(self, dataset_path: str):
         self._path = dataset_path
         self._uid_gid = f"{os.getuid()}:{os.getgid()}"
         self._cid: str | None = None
         self._lock = threading.Lock()
+        self._last_alive_check: float = 0.0
 
     def _alive(self) -> bool:
         if not self._cid:
             return False
+        now = time.monotonic()
+        if now - self._last_alive_check < self._ALIVE_TTL:
+            return True
         r = subprocess.run(
             ["docker", "inspect", "--format={{.State.Running}}", self._cid],
             capture_output=True, text=True,
         )
-        return r.returncode == 0 and r.stdout.strip() == "true"
+        alive = r.returncode == 0 and r.stdout.strip() == "true"
+        if alive:
+            self._last_alive_check = now
+        return alive
 
     def _start(self):
+        labels = ["--label", "mork.worker=1"]
+        project = os.environ.get("COMPOSE_PROJECT_NAME")
+        if project:
+            labels += ["--label", f"mork.project={project}"]
         try:
             r = subprocess.run([
                 "docker", "run", "-d", "--rm",
                 "-u", self._uid_gid,
+                *labels,
                 "-v", f"{self._path}:{self._path}:rw",
                 "-v", "/dev/shm:/dev/shm",
                 "-w", self._path,
@@ -70,10 +84,22 @@ class _MorkSession:
         with self._lock:
             if not self._alive():
                 self._start()
-            return subprocess.run([
-                "docker", "exec", self._cid,
-                self.MORK_BIN, "run", query_file_name,
-            ], capture_output=True, text=True, check=True)
+            try:
+                return subprocess.run([
+                    "docker", "exec", self._cid,
+                    self.MORK_BIN, "run", query_file_name,
+                ], capture_output=True, text=True, check=True)
+            except subprocess.CalledProcessError:
+                # Invalidate TTL cache; if the container actually died within the
+                # TTL window, restart and retry once to preserve self-healing.
+                self._last_alive_check = 0.0
+                if not self._alive():
+                    self._start()
+                    return subprocess.run([
+                        "docker", "exec", self._cid,
+                        self.MORK_BIN, "run", query_file_name,
+                    ], capture_output=True, text=True, check=True)
+                raise
 
     def stop(self):
         if self._cid:
@@ -95,6 +121,52 @@ def _cleanup_sessions():
 
 
 atexit.register(_cleanup_sessions)
+
+import signal as _signal
+
+def _make_signal_handler(sig: int):
+    _prev = _signal.getsignal(sig)
+    def _handler(signum: int, frame) -> None:
+        try:
+            _cleanup_sessions()
+        except Exception:
+            logger.exception("Error during MORK session cleanup")
+        finally:
+            if callable(_prev):
+                _prev(signum, frame)
+            elif _prev == _signal.SIG_IGN:
+                return
+            else:
+                _signal.signal(sig, _signal.SIG_DFL)
+                os.kill(os.getpid(), sig)
+    return _handler
+
+_signals_registered = False
+
+def _register_cleanup_signals() -> None:
+    """Register SIGTERM/SIGINT handlers that stop MORK containers on shutdown.
+
+    Idempotent — safe to call from both the module-level guard and from a
+    process-startup hook (e.g. FastAPI lifespan, Celery worker_init signal).
+    Must be called from the main thread.
+
+    Note: the module-level call below only fires when the module is first imported
+    from the main thread.  When first imported via the FastAPI sync-dependency
+    threadpool path (app.api.deps._make_mork_cli_generator) the guard is skipped
+    and the module is then cached — so handlers are never installed for that
+    worker process on that import path.  The lifespan call in app/main.py covers
+    this gap.  atexit(_cleanup_sessions) still runs on normal (sys.exit) shutdown.
+    """
+    global _signals_registered
+    if _signals_registered:
+        return
+    _signal.signal(_signal.SIGTERM, _make_signal_handler(_signal.SIGTERM))
+    _signal.signal(_signal.SIGINT,  _make_signal_handler(_signal.SIGINT))
+    _signals_registered = True
+
+
+if threading.current_thread() is threading.main_thread():
+    _register_cleanup_signals()
 
 
 # ---------------------------------------------------------------------------

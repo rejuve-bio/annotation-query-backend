@@ -71,7 +71,7 @@ class MorkQueryGenerator:
             escaped = raw.replace("\\", "\\\\").replace('"', '\\"')
             return f'"{escaped}"'
         if isinstance(value, str):
-            if " " in value or "\n" in value:
+            if any(c in value for c in (' ', '\n', '(', ')', '[', ']', '{', '}')):
                 escaped = value.replace("\\", "\\\\").replace('"', '\\"')
                 return f'"{escaped}"'
             else:
@@ -83,7 +83,8 @@ class MorkQueryGenerator:
         node_type = node["type"]
         node_representation = ""
         for key, value in node["properties"].items():
-            node_representation += f" ({key} ({node_type + ' ' + identifier}) {value})"
+            serialized = self._serialize_metta_value(value)
+            node_representation += f" ({key} ({node_type + ' ' + identifier}) {serialized})"
         return node_representation
 
     def run_query(self, query, stop_event=None, species="human"):
@@ -642,7 +643,7 @@ class MorkQueryGenerator:
             key = list(source["properties"].keys())[0]
             value = list(source["properties"].values())[0]
 
-            pattern.append(f"({key} ({source_type} ${go_id}) {value}) ")
+            pattern.append(f"({key} ({source_type} ${go_id}) {self._serialize_metta_value(value)}) ")
             pattern.append(
                 f"({relationship} ({source_type} ${go_id}) ({target_type} {target_id}))"
             )
