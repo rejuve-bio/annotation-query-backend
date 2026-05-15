@@ -125,9 +125,10 @@ def process_query(
 
         # Validate request
         user = UserStorageService.get(current_user_id)
-        data_source = user.data_source if user else "all"
-        species = user.species if user else "human"
-
+        data_source = user.data_source if user else 'all'
+        species = requests.get('species') or (user.species if user else 'human')
+        db_instance = get_db_instance(species)
+        
         # schema for validation
         schema_for_species = schema_manager.schema.get(species, {})
         try:
