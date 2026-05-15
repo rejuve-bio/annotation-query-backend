@@ -252,9 +252,6 @@ Graph collapse_node_nx(const Graph& graph) {
     unordered_map<string, py::dict> node_data_map;
     unordered_map<string, string> original_to_group;
 
-    fprintf(stderr, "[collapse_node_nx] nodes=%zu edges=%zu\n",
-            graph.nodes.size(), graph.edges.size());
-
     for (const auto& n : graph.nodes) {
         py::dict data;
         for (auto const& [k, v] : n.attrs) data[py::str(k)] = v;
@@ -275,17 +272,11 @@ Graph collapse_node_nx(const Graph& graph) {
         original_to_group[n.id] = n.id;
     }
 
-    fprintf(stderr, "[collapse_node_nx] original_to_group size=%zu\n",
-            original_to_group.size());
-
     int dbg = 0;
     for (const auto& e : graph.edges) {
         if (dbg++ >= 3) break;
         bool src_found = original_to_group.count(e.source) > 0;
         bool tgt_found = original_to_group.count(e.target) > 0;
-        fprintf(stderr, "[edge] source='%s' found=%d  target='%s' found=%d\n",
-                e.source.c_str(), src_found,
-                e.target.c_str(), tgt_found);
     }
 
     for (const auto& e : graph.edges) {
@@ -303,8 +294,6 @@ Graph collapse_node_nx(const Graph& graph) {
         for (auto const& p : adj[n.id].out) sig += "|" + p.first + ":" + p.second;
         groups[sig].push_back(n.id);
     }
-
-    fprintf(stderr, "[collapse_node_nx] groups=%zu\n", groups.size());
 
     Graph result;
     unordered_map<string, string> old_to_new;
@@ -350,9 +339,6 @@ Graph collapse_node_nx(const Graph& graph) {
             added_edges.insert(key);
         }
     }
-
-    fprintf(stderr, "[collapse_node_nx] result nodes=%zu edges=%zu\n",
-            result.nodes.size(), result.edges.size());
 
     return result;
 }
