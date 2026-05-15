@@ -645,7 +645,7 @@ vector<Graph> build_subgraph_nx(const Graph& graph) {
             
             Graph cg;
             for (const auto& node : graph.nodes) if (component_nodes.count(node.id)) cg.nodes.push_back(node);
-            for (const auto& edge : graph.edges) if (component_nodes.count(edge.source)) cg.edges.push_back(edge);
+            for (const auto& edge : graph.edges) if (component_nodes.count(edge.source) && component_nodes.count(edge.target)) cg.edges.push_back(edge);
             components.push_back(cg);
         }
     }
