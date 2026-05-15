@@ -11,3 +11,4 @@ Data/
 elastic-start-local
 .secrets
 docker-compose.ci.yml
+.zed

@@ -1,0 +1,3155 @@
+Title: BioCypher graph schema configuration file (Biolink-adapted for dmel)
+
+3d genome structure:
+  represented_as: node
+  is_a: position entity
+  mixins:
+  - biolink:GenomicEntity
+  biolink_category: biolink:GenomicEntity
+  input_label: 3d_genome_structure
+  inherit_properties: true
+  description: A region of the genome that is associated with 3D genome structure
+  properties:
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+anatomy:
+  is_a: ontology term
+  represented_as: node
+  input_label: anatomy
+  mixins:
+  - biolink:AnatomicalEntity
+  biolink_category: biolink:AnatomicalEntity
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:AnatomicalEntity
+
+biological process:
+  is_a: ontology term
+  mixins:
+  - biolink:BiologicalProcess
+  biolink_category: biolink:BiologicalProcess
+  represented_as: node
+  input_label: biological_process
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:BiologicalProcess
+
+cell line:
+  is_a: ontology term
+  represented_as: node
+  input_label: cell_line
+  mixins:
+  - biolink:CellLine
+  biolink_category: biolink:CellLine
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:CellLine
+
+cell type:
+  is_a: ontology term
+  represented_as: node
+  input_label: cell_type
+  mixins:
+  - biolink:Cell
+  biolink_category: biolink:Cell
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:Cell
+
+cellular component:
+  is_a: ontology term
+  mixins:
+  - biolink:CellularComponent
+  biolink_category: biolink:CellularComponent
+  represented_as: node
+  input_label: cellular_component
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:CellularComponent
+
+chromosome chain:
+  represented_as: node
+  is_a: position entity
+  mixins:
+  - biolink:GenomicEntity
+  biolink_category: biolink:GenomicEntity
+  inherit_properties: true
+  input_label: chromosome_chain
+  properties:
+    chain_id:
+      type: str
+      biolink: id
+    next_start:
+      type: int
+    resolution:
+      type: str
+
+coding element:
+  represented_as: node
+  is_a: biological entity
+  mixins:
+  - biolink:GenomicEntity
+  - biolink:BiologicalEntity
+  biolink_category: biolink:GenomicEntity
+  input_label: coding_element
+  description: A region of a gene that codes for a protein or peptide
+  properties:
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+    taxon_id:
+      description: Taxon ID for the organism (e.g., 7227 for fruit fly, 9606 for human)
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+
+developmental stage:
+  is_a: ontology term
+  represented_as: node
+  input_label: developmental_stage
+  mixins:
+  - biolink:LifeStage
+  biolink_category: biolink:LifeStage
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:LifeStage
+
+disease:
+  is_a: ontology term
+  represented_as: node
+  input_label: disease
+  mixins:
+  - biolink:Disease
+  biolink_category: biolink:Disease
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:Disease
+
+epigenomic feature:
+  represented_as: node
+  is_a: position entity
+  mixins:
+  - biolink:EpigenomicEntity
+  biolink_category: biolink:EpigenomicEntity
+  inherit_properties: true
+  input_label: epigenomic_feature
+  description: A region of the genome that is associated with epigenetic modifications
+  properties:
+    biological_context:
+      type: str
+      biolink: has_biological_sequence
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+exon:
+  represented_as: node
+  preferred_id: ensemble
+  input_label: exon
+  is_a:
+  - coding element
+  - position entity
+  mixins:
+  - biolink:Exon
+  biolink_category: biolink:Exon
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:Exon
+  properties:
+    exon_number:
+      type: int
+
+experimental factor:
+  is_a: ontology term
+  represented_as: node
+  input_label: experimental_factor
+  mixins:
+  - biolink:OntologyClass
+  biolink_category: biolink:OntologyClass
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:OntologyClass
+
+gene:
+  represented_as: node
+  preferred_id: ensemble
+  input_label: gene
+  is_a:
+  - coding element
+  - position entity
+  mixins:
+  - biolink:Gene
+  inherit_properties: true
+  properties:
+    gene_name:
+      type: str
+      biolink: name
+    gene_type:
+      type: str
+    synonym:
+      type: str[]
+      biolink: synonym
+  kgx_properties:
+    category: biolink:Gene
+
+genomic variant:
+  represented_as: node
+  is_a: position entity
+  mixins:
+  - biolink:SequenceVariant
+  biolink_category: biolink:SequenceVariant
+  inherit_properties: true
+  input_label: genomic_variant
+  description: A genomic variant is a change in one or more sequence of a genome
+  properties:
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+molecular function:
+  is_a: ontology term
+  mixins:
+  - biolink:MolecularActivity
+  biolink_category: biolink:MolecularActivity
+  represented_as: node
+  input_label: molecular_function
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:MolecularActivity
+
+molecular interaction:
+  is_a: ontology term
+  represented_as: node
+  input_label: molecular_interaction
+  mixins:
+  - biolink:OntologyClass
+  biolink_category: biolink:OntologyClass
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:OntologyClass
+
+motif:
+  represented_as: node
+  is_a: epigenomic feature
+  mixins:
+  - biolink:TranscriptionFactorBindingSite
+  biolink_category: biolink:TranscriptionFactorBindingSite
+  input_label: motif
+  inherit_properties: true
+  accessible_via:
+    name: motifs
+    description: TF binding motifs.
+    fuzzy_text_search: tf_name
+    return: _id, tf_name, source, source_url, pwm, length
+  kgx_properties:
+    category: biolink:TranscriptionFactorBindingSite
+  properties:
+    tf_name:
+      type: str
+      biolink: name
+    pwm_A:
+      type: float[]
+    pwm_C:
+      type: float[]
+    pwm_G:
+      type: float[]
+    pwm_T:
+      type: float[]
+    length:
+      type: int
+
+non coding element:
+  represented_as: node
+  is_a: position entity
+  mixins:
+  - biolink:RNAProduct
+  biolink_category: biolink:RNAProduct
+  inherit_properties: true
+  input_label: non_coding_element
+  description: A region of a gene that does not code for a protein or peptide
+  properties:
+    biological_context:
+      type: str
+      biolink: has_biological_sequence
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+non coding rna:
+  represented_as: node
+  input_label: non_coding_rna
+  is_a: non coding element
+  mixins:
+  - biolink:RNAProduct
+  biolink_category: biolink:RNAProduct
+  inherit_properties: true
+  properties:
+    rna_type:
+      type: str
+    taxon_id:
+      description: Taxon ID for the organism (e.g., 7227 for fruit fly, 9606 for human)
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    category: biolink:RNAProduct
+
+ontology term:
+  is_a: ontology class
+  mixins:
+  - biolink:OntologyClass
+  biolink_category: biolink:OntologyClass
+  represented_as: node
+  input_label: ontology term
+  properties:
+    id:
+      type: str
+      biolink: id
+    term_name:
+      type: str
+      biolink: name
+    description:
+      type: str
+      biolink: description
+    synonym:
+      type: str[]
+      biolink: synonym
+    alternative_ids:
+      type: str[]
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+pathway:
+  is_a: biological process
+  exact_mappings:
+  - PW:0000001
+  - WIKIDATA:Q4915012
+  narrow_mappings:
+  - SIO:010526
+  - GO:0007165
+  represented_as: node
+  input_label: pathway
+  mixins:
+  - biolink:Pathway
+  biolink_category: biolink:Pathway
+  properties:
+    pathway_name:
+      type: str
+      biolink: name
+    pathway_url:
+      type: str
+      biolink: source_record_urls
+    evidence:
+      type: str
+      biolink: has_evidence
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+    taxon_id:
+      description: Taxon ID for the organism (e.g., 7227 for fruit fly, 9606 for human)
+      type: str
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    category: biolink:Pathway
+
+phenotype:
+  is_a: ontology term
+  represented_as: node
+  input_label: phenotype
+  mixins:
+  - biolink:OntologyClass
+  biolink_category: biolink:OntologyClass
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:OntologyClass
+
+position entity:
+  represented_as: node
+  is_a: biological entity
+  mixins:
+  - biolink:GenomicEntity
+  - biolink:BiologicalEntity
+  biolink_category: biolink:GenomicEntity
+  input_label: position_entity
+  description: A biological entity that is defined by its position in the genome
+  properties:
+    chr:
+      type: str
+    start:
+      type: int
+      biolink: start_interbase_coordinate
+    end:
+      type: int
+      biolink: end_interbase_coordinate
+    taxon_id:
+      description: Taxon ID for the organism (e.g., 7227 for fruit fly, 9606 for human)
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+
+promoter:
+  represented_as: node
+  input_label: promoter
+  is_a: non coding element
+  mixins:
+  - biolink:RegulatoryRegion
+  biolink_category: biolink:RegulatoryRegion
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:RegulatoryRegion
+
+protein:
+  represented_as: node
+  preferred_id: uniprot
+  input_label: protein
+  is_a: coding element
+  mixins:
+  - biolink:Protein
+  biolink_category: biolink:Protein
+  inherit_properties: true
+  properties:
+    accessions:
+      type: str[]
+      biolink: xref
+    protein_name:
+      type: str
+      biolink: name
+    is_canonical:
+      type: bool
+    is_isoform:
+      type: bool
+    canonical_accession:
+      type: str
+    isoform_name:
+      type: str
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+  kgx_properties:
+    category: biolink:Protein
+
+reaction:
+  is_a: molecular function
+  narrow_mappings:
+  - GO:0003674
+  represented_as: node
+  input_label: reaction
+  mixins:
+  - biolink:MolecularActivity
+  biolink_category: biolink:MolecularActivity
+  properties:
+    reaction_name:
+      type: str
+      biolink: name
+    reaction_url:
+      type: str
+      biolink: source_record_urls
+    evidence:
+      type: str
+      biolink: has_evidence
+    pubmed_url:
+      type: str
+      biolink: source_record_urls
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+    taxon_id:
+      description: Taxon ID for the organism (e.g., 7227 for fruit fly, 9606 for human)
+      type: str
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    category: biolink:MolecularActivity
+
+regulatory region:
+  represented_as: node
+  input_label: regulatory_region
+  is_a: non coding element
+  mixins:
+  - biolink:RegulatoryRegion
+  biolink_category: biolink:RegulatoryRegion
+  inherit_properties: true
+  description: A region of the genome that is involved in gene regulation.
+  kgx_properties:
+    category: biolink:RegulatoryRegion
+  properties:
+    cell:
+      type: str
+    biochemical_activity:
+      type: str
+      biolink: has_biological_sequence
+    biological_context:
+      type: str
+      biolink: has_gene_or_gene_product
+
+sequence type:
+  is_a: ontology term
+  represented_as: node
+  input_label: sequence_type
+  mixins:
+  - biolink:OntologyClass
+  biolink_category: biolink:OntologyClass
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:OntologyClass
+
+sequence variant:
+  represented_as: node
+  input_label: sequence_variant
+  is_a: genomic variant
+  mixins:
+  - biolink:SequenceVariant
+  biolink_category: biolink:SequenceVariant
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:SequenceVariant
+  description: A change in the nucleotide sequence of a genome compared to a reference
+    sequence.
+  properties:
+    rsid:
+      type: str
+      biolink: id
+    ref:
+      type: str
+    alt:
+      type: str
+    raw_cadd_score:
+      type: float
+    phred_score:
+      type: float
+
+small molecule:
+  is_a: ontology term
+  represented_as: node
+  input_label: small_molecule
+  mixins:
+  - biolink:ChemicalEntity
+  biolink_category: biolink:ChemicalEntity
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:ChemicalEntity
+
+structural variant:
+  represented_as: node
+  input_label: structural_variant
+  is_a: genomic variant
+  mixins:
+  - biolink:SequenceVariant
+  biolink_category: biolink:SequenceVariant
+  description: A structural variant is a larger scale genomic alteration that affects
+    the structure of chromosomes, such as deletions, duplications, inversions, and
+    translocations.
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:SequenceVariant
+  properties:
+    variant_accession:
+      type: str
+      biolink: id
+    variant_type:
+      type: str
+    evidence:
+      type: str
+      biolink: has_evidence
+
+tad:
+  represented_as: node
+  input_label: tad
+  is_a: 3d genome structure
+  mixins:
+  - biolink:GenomicEntity
+  biolink_category: biolink:GenomicEntity
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:GenomicEntity
+
+tissue:
+  is_a: ontology term
+  mixins:
+  - biolink:AnatomicalEntity
+  biolink_category: biolink:AnatomicalEntity
+  represented_as: node
+  input_label: tissue
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:AnatomicalEntity
+
+transcript:
+  represented_as: node
+  input_label: transcript
+  is_a:
+  - coding element
+  - position entity
+  mixins:
+  - biolink:Transcript
+  biolink_category: biolink:Transcript
+  inherit_properties: true
+  kgx_properties:
+    category: biolink:Transcript
+  properties:
+    transcript_name:
+      type: str
+      biolink: name
+    transcript_id:
+      type: str
+      biolink: id
+    transcript_type:
+      type: str
+  description: An RNA synthesized on a DNA or RNA template by an RNA polymerase.
+  exact_mappings:
+  - SO:0000673
+  - SIO:010450
+  - WIKIDATA:Q7243183
+  - dcid:RNATranscript
+  in_subset:
+  - model_organism_database
+
+transcription binding site:
+  represented_as: node
+  input_label: tfbs
+  is_a: position entity
+  mixins:
+  - biolink:RegulatoryRegion
+  biolink_category: biolink:RegulatoryRegion
+  inherit_properties: true
+  description: A region of DNA where a transcription factor binds to regulate gene
+    expression
+  kgx_properties:
+    category: biolink:RegulatoryRegion
+
+annotation:
+  is_a: related to at concept level
+  mixins:
+  - biolink:Association
+  biolink_predicate: biolink:related_to
+  represented_as: edge
+  input_label: annotation
+  kgx_properties:
+    subject_category: biolink:OntologyClass
+    object_category: biolink:NamedThing
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  description: An association between a gene/ontology term and another entity
+  properties:
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+association:
+  description: A typed association between two entities that represents some form
+    of  relationship or connection in a biomedical context.
+  abstract: true
+  represented_as: edge
+  properties:
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+    knowledge_level:
+      type: str
+      const: knowledge_assertion
+    agent_type:
+      type: str
+      const: manual_agent
+  kgx_properties:
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+biological process gene:
+  is_a: go gene
+  biolink_predicate: biolink:involved_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: biological_process_gene
+  output_label: involved_in
+  source: gene
+  target: biological process
+  gx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:BiologicalProcess
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+biological process gene product:
+  is_a: go gene product
+  biolink_predicate: biolink:involved_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: biological_process_gene_product
+  output_label: involved_in
+  source: protein
+  target: biological process
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:BiologicalProcess
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+biological process rna:
+  is_a: annotation
+  mixins:
+  - biolink:annotation
+  biolink_predicate: biolink:participates_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: biological_process_rna
+  output_label: participates_in
+  source: non coding rna
+  target: biological process
+  kgx_properties:
+    subject_category: biolink:RNAProduct
+    object_category: biolink:BiologicalProcess
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+biological process subclass:
+  is_a: subclass of
+  biolink_predicate: biolink:subclass_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: biological_process_subclass_of
+  output_label: is_a
+  source: biological process
+  target: biological process
+  kgx_properties:
+    subject_category: biolink:BiologicalProcess
+    object_category: biolink:BiologicalProcess
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+bto subclass of:
+  is_a: subclass of
+  mixins:
+  - biolink:AnatomicalEntityToAnatomicalEntityAssociation
+  biolink_predicate: biolink:subclass_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: bto_subclass_of
+  output_label: is_a
+  source: tissue
+  target: tissue
+  kgx_properties:
+    subject_category: biolink:AnatomicalEntity
+    object_category: biolink:AnatomicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+catalyst protein to reaction or pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:regulates
+  inherit_properties: true
+  description: holds between a protein playing an input role in a reaction and a pathway
+  represented_as: edge
+  input_label: regulates
+  source: protein
+  target: biolink:BiologicalProcessOrActivity
+  properties:
+    relation_ontology_term: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+cell line is a cell type:
+  is_a: subclass of
+  biolink_predicate: biolink:subclass_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: cell_line_is_a_cell_type
+  output_label: is_a
+  kgx_properties:
+    subject_category: biolink:CellLine
+    object_category: biolink:Cell
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  description: Cross-ontology relation linking a Cell Line Ontology (CLO) term to
+    a Cell Ontology (CL) term.
+  source: cell line
+  target: cell type
+
+cell type part of tissue:
+  is_a: part of
+  biolink_predicate: biolink:part_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: cell_type_part_of_tissue
+  output_label: part_of
+  kgx_properties:
+    subject_category: biolink:Cell
+    object_category: biolink:AnatomicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  description: Cross-ontology relation linking a CL cell type to a BTO tissue term.
+  source: cell type
+  target: tissue
+
+cellular component gene:
+  is_a: go gene
+  biolink_predicate: biolink:CellularComponent
+  inherit_properties: true
+  represented_as: edge
+  input_label: cellular_component_gene
+  source: gene
+  target: cellular component
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+cellular component gene located in:
+  is_a: cellular component gene
+  biolink_predicate: biolink:located_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: cellular_component_gene_located_in
+  output_label: located_in
+  source: gene
+  target: cellular component
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+cellular component gene part of:
+  is_a: cellular component gene
+  biolink_predicate: biolink:part_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: cellular_component_gene_part_of
+  output_label: part_of
+  source: gene
+  target: cellular component
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+cellular component gene product:
+  is_a: go gene product
+  biolink_predicate: biolink:located_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: cellular_component_gene_product
+  source: protein
+  target: cellular component
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+cellular component gene product located in:
+  is_a: cellular component gene product
+  biolink_predicate: biolink:located_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: cellular_component_gene_product_located_in
+  output_label: located_in
+  source: protein
+  target: cellular component
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+cellular component gene product part of:
+  is_a: cellular component gene product
+  biolink_predicate: biolink:part_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: cellular_component_gene_product_part_of
+  output_label: part_of
+  source: protein
+  target: cellular component
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+cellular component rna:
+  is_a: annotation
+  mixins:
+  - biolink:annotation
+  biolink_predicate: biolink:located_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: cellular_component_rna
+  output_label: located_in
+  source: non coding rna
+  target: cellular component
+  kgx_properties:
+    subject_category: biolink:RNAProduct
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+cellular component subclass:
+  is_a: subclass of
+  biolink_predicate: biolink:subclass_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: cellular_component_subclass_of
+  output_label: is_a
+  source: cellular component
+  target: cellular component
+  kgx_properties:
+    subject_category: biolink:CellularComponent
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+chebi subclass of:
+  is_a: subclass of
+  inherit_properties: true
+  represented_as: edge
+  input_label: chebi_subclass_of
+  output_label: is_a
+  biolink_predicate: biolink:subclass_of
+  source: small molecule
+  target: small molecule
+  kgx_properties:
+    subject_category: biolink:ChemicalEntity
+    object_category: biolink:ChemicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+chemical_substance part_of chemical_substance:
+  is_a: association
+  biolink_predicate: biolink:part_of
+  represented_as: edge
+  input_label: chemical_substance_part_of_chemical_substance
+  output_label: part_of
+  source: small molecule
+  target: small molecule
+  properties:
+    evidence:
+      type: str[]
+      biolink: has_evidence
+  kgx_properties:
+    subject_category: biolink:ChemicalEntity
+    object_category: biolink:ChemicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+child pathway of:
+  is_a: annotation
+  biolink_predicate: biolink:part_of
+  inherit_properties: true
+  description: holds between two pathways where the domain class is a child pathway
+    of the range class
+  represented_as: edge
+  input_label: child_pathway_of
+  source: pathway
+  target: pathway
+  kgx_properties:
+    subject_category: biolink:Pathway
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+cl capable of:
+  is_a: annotation
+  biolink_predicate: biolink:capable_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: cl_capable_of
+  output_label: capable_of
+  kgx_properties:
+    subject_category: biolink:Cell
+    object_category: biolink:BiologicalProcess
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  description: Represents the capability of a cell type (CL term) to carry out or
+    be involved in a specific biological process.
+  source: cell type
+  target: biological process
+
+cl part of:
+  is_a: part of
+  biolink_predicate: biolink:part_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: cl_part_of
+  output_label: part_of
+  kgx_properties:
+    subject_category: biolink:Cell
+    object_category: biolink:AnatomicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  description: Represents a part-whole relationship between a CL term and an UBERON
+    term.
+  source: cell type
+  target: anatomy
+
+cl subclass of:
+  is_a: subclass of
+  biolink_predicate: biolink:subclass_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: cl_subclass_of
+  output_label: is_a
+  source: cell type
+  target: cell type
+  kgx_properties:
+    subject_category: biolink:Cell
+    object_category: biolink:Cell
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+clo subclass of:
+  is_a: subclass of
+  biolink_predicate: biolink:subclass_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: clo_subclass_of
+  output_label: is_a
+  source: cell line
+  target: cell line
+  kgx_properties:
+    subject_category: biolink:CellLine
+    object_category: biolink:CellLine
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+do subclass of:
+  is_a: subclass of
+  inherit_properties: true
+  represented_as: edge
+  input_label: do_subclass_of
+  output_label: is_a
+  biolink_predicate: biolink:subclass_of
+  source: disease
+  target: disease
+  kgx_properties:
+    subject_category: biolink:Disease
+    object_category: biolink:Disease
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+efo subclass of:
+  is_a: subclass of
+  biolink_predicate: biolink:subclass_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: efo_subclass_of
+  output_label: is_a
+  source: experimental factor
+  target: experimental factor
+  kgx_properties:
+    subject_category: biolink:OntologyClass
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+enhancer to gene association:
+  description: An association between an enhancer and a gene
+  is_a: regulatory association
+  mixins:
+  - biolink:association
+  biolink_predicate: biolink:associated_with
+  inherit_properties: true
+  represented_as: edge
+  input_label: enhancer_gene
+  output_label: associated_with
+  source: enhancer
+  target: gene
+  kgx_properties:
+    subject_category: biolink:RegulatoryRegion
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    score:
+      type: float
+      biolink: has_quantitative_value
+    biological_context:
+      type: str
+      biolink: has_biological_sequence
+
+exon part_of gene:
+  is_a: related to at instance
+  mixins:
+  - biolink:SequenceFeatureRelationship
+  biolink_predicate: biolink:part_of
+  description: 'Description: For example, a particular exon is part of a particular
+    transcript or gene    '
+  represented_as: edge
+  input_label: part_of_gene
+  output_label: part_of
+  source: exon
+  target: gene
+  properties:
+    source:
+      type: str
+      biolink: provided_by
+    source_url:
+      type: str
+      biolink: source_web_page
+    taxon_id:
+      description: Taxon ID for the organism (e.g., 7227 for fruit fly, 9606 for human)
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Transcript
+    object_category: biolink:Exon
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+exon part_of transcript:
+  is_a: related to at instance
+  mixins:
+  - biolink:ExonToTranscriptRelationship
+  biolink_predicate: biolink:has_part
+  description: An association between an exon and its gene
+  represented_as: edge
+  input_label: part_of_transcript
+  output_label: part_of
+  source: exon
+  target: transcript
+  properties:
+    source:
+      type: str
+      biolink: provided_by
+    source_url:
+      type: str
+      biolink: source_web_page
+    taxon_id:
+      description: Taxon ID for the organism (e.g., 7227 for fruit fly, 9606 for human)
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Transcript
+    object_category: biolink:Exon
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+expressed in:
+  description: holds between a gene and an ontology term in which it is expressed
+  is_a: expression
+  mixins:
+  - biolink:GeneToExpressionSiteAssociation
+  biolink_predicate: biolink:expressed_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: expressed_in
+  source: gene
+  target: ontology term
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    score:
+      type: float
+      biolink: has_quantitative_value
+    p_value:
+      type: float
+      biolink: has_quantitative_value
+
+expression:
+  is_a: association
+  biolink_predicate: biolink:related_to
+  represented_as: edge
+  input_label: expression
+  description: An association between a gene and its expression
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:GeneOrGeneProduct
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+feature overlaps structural_variant:
+  is_a: association
+  biolink_predicate: biolink:overlaps
+  represented_as: edge
+  input_label: feature_overlaps_structural_variant
+  output_label: overlaps
+  source: biological entity
+  target: structural variant
+  kgx_properties:
+    subject_category: biolink:GenomicEntity
+    object_category: biolink:SequenceVariant
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene biomarker via orthology disease:
+  description: A gene is a biomarker for a disease via orthology relationship. From
+    Alliance for Genome Resources.
+  is_a: association
+  mixins:
+  - biolink:Association
+  biolink_predicate: biolink:biomarker_for
+  inherit_properties: true
+  represented_as: edge
+  input_label: biomarker_via_orthology
+  source: gene
+  target: disease
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Disease
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    taxon_id:
+      type: integer
+    evidence_code:
+      type: string
+    evidence_code_name:
+      type: string
+    reference:
+      type: string
+    date:
+      type: string
+    data_source:
+      type: string
+    with_ortholog:
+      type: string
+    inferred_from_id:
+      type: string
+    inferred_from_symbol:
+      type: string
+
+gene implicated via orthology disease:
+  description: A gene is implicated in a disease via orthology relationship. From
+    Alliance for Genome Resources.
+  is_a: association
+  mixins:
+  - biolink:Association
+  biolink_predicate: biolink:implicated_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: implicated_via_orthology
+  source: gene
+  target: disease
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Disease
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    taxon_id:
+      type: integer
+    evidence_code:
+      type: string
+    evidence_code_name:
+      type: string
+    reference:
+      type: string
+    date:
+      type: string
+    data_source:
+      type: string
+    with_ortholog:
+      type: string
+    inferred_from_id:
+      type: string
+    inferred_from_symbol:
+      type: string
+
+gene in tad region:
+  is_a: association
+  biolink_predicate: biolink:located_in
+  description: holds between a tad and a gene that is in the tad region
+  represented_as: edge
+  input_label: in_tad_region
+  source: gene
+  target: tad
+  properties:
+    taxon_id:
+      description: Taxon ID for the organism (e.g., 7227 for fruit fly, 9606 for human)
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:GenomicEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene is implicated in disease:
+  description: A gene is implicated in a disease. From Alliance for Genome Resources.
+  is_a: association
+  mixins:
+  - biolink:Association
+  biolink_predicate: biolink:implicated_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: is_implicated_in
+  source: gene
+  target: disease
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Disease
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    taxon_id:
+      type: integer
+    evidence_code:
+      type: string
+    evidence_code_name:
+      type: string
+    reference:
+      type: string
+    date:
+      type: string
+    data_source:
+      type: string
+    with_ortholog:
+      type: string
+    inferred_from_id:
+      type: string
+    inferred_from_symbol:
+      type: string
+
+gene overlaps structural_variant:
+  is_a: association
+  biolink_predicate: biolink:overlaps
+  represented_as: edge
+  input_label: gene_overlaps_structural_variant
+  output_label: overlaps
+  source: gene
+  target: structural variant
+
+gene to disease association:
+  description: An association between a gene and a disease identifier (e.g., OMIM,
+    ORPHA).
+  is_a: association
+  mixins:
+  - biolink:GeneToDiseaseAssociation
+  biolink_predicate: biolink:associated_with
+  inherit_properties: true
+  represented_as: edge
+  input_label: gene_disease
+  output_label: associated_with
+  source: gene
+  target: disease
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Disease
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    gene_symbol:
+      type: str
+    association_type:
+      type: str
+    source_ref:
+      type: str
+
+gene to disease marker association:
+  description: Gene is a marker for a disease
+  is_a: association
+  mixins:
+  - biolink:Association
+  biolink_predicate: biolink:model_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: is_marker_for
+  source: gene
+  target: disease
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Disease
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    taxon_id:
+      type: integer
+    evidence_code:
+      type: string
+    evidence_code_name:
+      type: string
+    reference:
+      type: string
+    date:
+      type: string
+    data_source:
+      type: string
+    with_ortholog:
+      type: string
+    inferred_from_id:
+      type: string
+    inferred_from_symbol:
+      type: string
+
+gene to disease model association:
+  description: Gene is a model for disease
+  is_a: association
+  mixins:
+  - biolink:Association
+  biolink_predicate: biolink:model_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: is_model_of
+  source: gene
+  target: disease
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Disease
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    taxon_id:
+      type: integer
+    evidence_code:
+      type: string
+    evidence_code_name:
+      type: string
+    reference:
+      type: string
+    date:
+      type: string
+    data_source:
+      type: string
+    with_ortholog:
+      type: string
+    inferred_from_id:
+      type: string
+    inferred_from_symbol:
+      type: string
+
+gene to gene coexpression association:
+  description: Indicates that two genes are co-expressed, generally under the same
+    conditions.
+  is_a: expression
+  mixins:
+  - biolink:GeneToGeneCoexpressionAssociation
+  biolink_predicate: biolink:coexpressed_with
+  inherit_properties: true
+  represented_as: edge
+  input_label: coexpressed_with
+  source: gene
+  target: gene
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    score:
+      type: float
+      biolink: has_quantitative_value
+
+gene to pathway association:
+  description: An interaction between a gene or gene product and a biological process
+    or pathway.
+  is_a: annotation
+  mixins:
+  - biolink:GeneToPathwayAssociation
+  biolink_predicate: biolink:participates_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: genes_pathways
+  output_label: participates_in
+  source:
+  - gene
+  - transcript
+  - protein
+  target: pathway
+  kgx_properties:
+    subject_category: biolink:GeneOrGeneProduct
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene to phenotype association:
+  description: An association between a gene and a phenotype (HPO term).
+  is_a: association
+  mixins:
+  - biolink:GeneToPhenotypicFeatureAssociation
+  biolink_predicate: biolink:has_phenotype
+  inherit_properties: true
+  represented_as: edge
+  input_label: gene_phenotype
+  output_label: involved_in
+  source: gene
+  target: phenotype
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:PhenotypicFeature
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    gene_symbol:
+      type: str
+    phenotype_name:
+      type: str
+    frequency:
+      type: str
+    disease_id:
+      type: str
+
+gene to reaction association:
+  description: An interaction between a gene or a gene product (gogp) and a reaction
+    (Reactome).
+  is_a: annotation
+  biolink_predicate: biolink:participates_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: gene_or_gene_product_reaction
+  output_label: involved_in
+  source: biolink:GeneOrGeneProduct
+  target: reaction
+  kgx_properties:
+    subject_category: biolink:GeneOrGeneProduct
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene to transcription binding site association:
+  represented_as: edge
+  is_a: related at instance level
+  biolink_predicate: biolink:interacts_with
+  input_label: gene_tfbs
+  output_label: binds_to
+  description: An association between a transcription factor and its binding site
+  source: gene
+  target: tfbs
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:RegulatoryRegion
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    score:
+      type: float
+      biolink: has_quantitative_value
+    source:
+      type: str
+      biolink: primary_knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+go gene:
+  is_a: annotation
+  biolink_predicate: biolink:has_gene_product
+  inherit_properties: true
+  represented_as: edge
+  input_label: go_gene
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    db_reference:
+      type: str[]
+      biolink: publication
+    evidence:
+      type: str
+      biolink: has_evidence
+    taxon_id:
+      type: str
+      biolink: taxon
+
+go gene product:
+  is_a: annotation
+  mixins:
+  - biolink:GeneToGoTermAssociation
+  biolink_predicate: biolink:has_gene_product
+  inherit_properties: true
+  represented_as: edge
+  input_label: go_gene_product
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    db_reference:
+      type: str[]
+      biolink: publication
+    evidence:
+      type: str
+      biolink: has_evidence
+    taxon_id:
+      type: str
+      biolink: taxon
+
+has part:
+  is_a: annotation
+  biolink_predicate: biolink:has_part
+  inherit_properties: true
+  represented_as: edge
+  input_label: has_part
+  source: ontology term
+  target: ontology term
+  kgx_properties:
+    subject_category: biolink:OntologyClass
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+has xref:
+  is_a: annotation
+  mixins:
+  - biolink:Association
+  biolink_predicate: biolink:xref
+  represented_as: edge
+  input_label: has_xref
+  output_label: has_xref
+  source: biological entity
+  target: biological entity
+  kgx_properties:
+    subject_category: biolink:NamedThing
+    object_category: biolink:NamedThing
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    xref_db:
+      type: str
+      biolink: knowledge_source
+    evidence:
+      type: str[]
+      biolink: has_evidence
+
+input role protein to reaction or pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:is_input_of
+  inherit_properties: true
+  description: holds between a protein playing an input role in a reaction and a pathway
+  represented_as: edge
+  input_label: enables
+  source: protein
+  target: biolink:BiologicalProcessOrActivity
+  properties:
+    relation_ontology_term: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+mi subclass of:
+  is_a: subclass of
+  inherit_properties: true
+  represented_as: edge
+  input_label: mi_subclass_of
+  output_label: is_a
+  biolink_predicate: biolink:subclass_of
+  source: molecular interaction
+  target: molecular interaction
+  kgx_properties:
+    subject_category: biolink:OntologyClass
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+molecular function gene:
+  is_a: go gene
+  biolink_predicate: biolink:enables
+  inherit_properties: true
+  represented_as: edge
+  input_label: molecular_function_gene
+  output_label: enables
+  source: gene
+  target: molecular function
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+molecular function gene product:
+  is_a: go gene product
+  biolink_predicate: biolink:enables
+  inherit_properties: true
+  represented_as: edge
+  input_label: molecular_function_gene_product
+  output_label: enables
+  source: protein
+  target: molecular function
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+molecular function rna:
+  is_a: annotation
+  mixins:
+  - biolink:annotation
+  biolink_predicate: biolink:enables
+  inherit_properties: true
+  represented_as: edge
+  input_label: molecular_function_rna
+  output_label: enables
+  source: non coding rna
+  target: molecular function
+  kgx_properties:
+    subject_category: biolink:RNAProduct
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+molecular function subclass:
+  is_a: subclass of
+  mixins:
+  - biolink:MolecularActivityToMolecularActivityAssociation
+  biolink_predicate: biolink:subclass_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: molecular_function_subclass_of
+  output_label: is_a
+  source: molecular function
+  target: molecular function
+  kgx_properties:
+    subject_category: biolink:MolecularActivity
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+negative role protein to reaction or pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:regulates
+  inherit_properties: true
+  description: holds between a protein playing an input role in a reaction and a pathway
+  represented_as: edge
+  input_label: negatively_regulates
+  source: protein
+  target: biolink:BiologicalProcessOrActivity
+  properties:
+    relation_ontology_term: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+non_coding_rna overlaps structural_variant:
+  is_a: association
+  biolink_predicate: biolink:overlaps
+  represented_as: edge
+  input_label: non_coding_rna_overlaps_structural_variant
+  output_label: overlaps
+  source: non_coding_rna
+  target: structural variant
+
+orthology association:
+  description: Non-directional association between two genes indicating that there
+    is an orthology relation among them. It  is a historical homology that involves
+    genes that diverged after a speciation event (purl.obolibrary.org/obo/RO_HOM0000017)
+  is_a: related to at instance level
+  represented_as: edge
+  input_label: orthologs_genes
+  biolink_predicate: biolink:ortholog_of
+  source: gene
+  target: gene
+  properties:
+    DIOPT_score:
+      type: int
+      biolink: has_quantitative_value
+    hsa_hgnc_id:
+      type: str
+      biolink: id
+    hsa_omim_id:
+      type: str
+      biolink: id
+    hsa_omim_phenotype_ids:
+      type: str
+      biolink: has_phenotype
+    hsa_omim_phenotype_ids_names:
+      type: str
+      biolink: has_phenotype_label
+    source_organism:
+      type: str
+      biolink: in_taxon
+    target_organism:
+      type: str
+      biolink: in_taxon
+    taxon_id:
+      description: Taxon ID for the organism (e.g., 7227 for fruit fly, 9606 for human)
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+output role protein to reaction or pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:produced_by
+  inherit_properties: true
+  description: holds between a protein playing an input role in a reaction and a pathway
+  represented_as: edge
+  input_label: produced_by
+  source: protein
+  target: biolink:BiologicalProcessOrActivity
+  properties:
+    relation_ontology_term: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+paralogy association:
+  description: Non-directional association between two genes indicating that there
+    is an paralogy relation among them. It is a historical homology that involves
+    genes that diverged after a duplication event (purl.obolibrary.org/obo/RO_HOM0000011)
+  is_a: related to at instance level
+  represented_as: edge
+  input_label: paralogs_genes
+  biolink_predicate: biolink:paralog_of
+  source: gene
+  target: gene
+  properties:
+    source_symbol:
+      type: str
+      biolink: symbol
+    target_symbol:
+      type: str
+      biolink: symbol
+    DIOPT_score:
+      type: int
+      biolink: has_quantitative_value
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+parent pathway of:
+  is_a: annotation
+  biolink_predicate: biolink:has_part
+  inherit_properties: true
+  description: holds between two pathways where the domain class is a parent pathway
+    of the range class
+  represented_as: edge
+  input_label: parent_pathway_of
+  source: pathway
+  target: pathway
+  kgx_properties:
+    subject_category: biolink:Pathway
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+part of:
+  is_a: annotation
+  biolink_predicate: biolink:part_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: part_of
+  source: ontology term
+  target: ontology term
+  kgx_properties:
+    subject_category: biolink:OntologyClass
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+pathway_to_biological_process:
+  is_a: association
+  biolink_predicate: biolink:participates_in
+  source: pathway
+  target: biological process
+  represented_as: edge
+  input_label: pathway_to_biological_process
+  output_label: equivalent_to
+  description: An association between a pathway and a biological process, indicating
+    that the pathway is involved in the process.
+  properties:
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+  kgx_properties:
+    subject_category: biolink:Pathway
+    object_category: biolink:BiologicalProcess
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+pathway_to_cellular_component:
+  is_a: association
+  source: pathway
+  target: cellular component
+  biolink_predicate: biolink:related_to
+  represented_as: edge
+  input_label: pathway_to_cellular_component
+  description: An association between a pathway and a cellular component, indicating
+    that the pathway is associated with the component.
+  properties: {}
+  kgx_properties:
+    subject_category: biolink:Pathway
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+pathway_to_molecular_function:
+  is_a: association
+  source: pathway
+  target: molecular function
+  biolink_predicate: biolink:related_to
+  represented_as: edge
+  input_label: pathway_to_molecular_function
+  description: An association between a pathway and a molecular function, indicating
+    that the pathway is involved in the function.
+  properties: {}
+  kgx_properties:
+    subject_category: biolink:Pathway
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+positive role protein to reaction or pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:regulates
+  inherit_properties: true
+  description: holds between a protein playing an input role in a reaction and a pathway
+  represented_as: edge
+  input_label: positively_regulates
+  source: protein
+  target: biolink:BiologicalProcessOrActivity
+  properties:
+    relation_ontology_term: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+post translational interaction:
+  is_a: expression
+  biolink_predicate: biolink:interacts_with
+  inherit_properties: true
+  represented_as: edge
+  input_label: interacts_with
+  source: protein
+  target: protein
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Protein
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    score:
+      type: float
+      biolink: has_quantitative_value
+    interaction_type:
+      type: str
+    reactome_pathway:
+      type: str
+
+promoter overlaps structural_variant:
+  is_a: association
+  biolink_predicate: biolink:overlaps
+  represented_as: edge
+  input_label: promoter_overlaps_structural_variant
+  output_label: overlaps
+  source: promoter
+  target: structural variant
+
+promoter to gene association:
+  description: An association between a promoter and a gene
+  is_a: regulatory association
+  biolink_predicate: biolink:associated_with
+  inherit_properties: true
+  represented_as: edge
+  input_label: promoter_gene
+  output_label: associated_with
+  source: promoter
+  target: gene
+  kgx_properties:
+    subject_category: biolink:RegulatoryRegion
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    score:
+      type: float
+      biolink: has_quantitative_value
+    biological_context:
+      type: str
+      biolink: has_biological_sequence
+
+protein has_xref binding_site_ligand:
+  is_a: has xref
+  biolink_predicate: biolink:xref
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_has_xref_binding_site_ligand
+  output_label: has_xref
+  source: protein
+  target: small molecule
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:ChemicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+protein has_xref biological_process:
+  is_a: has xref
+  biolink_predicate: biolink:xref
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_has_xref_biological_process
+  output_label: has_xref
+  source: protein
+  target: biological process
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:BiologicalProcess
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+protein has_xref catalytic_activity:
+  is_a: has xref
+  biolink_predicate: biolink:xref
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_has_xref_catalytic_activity
+  output_label: has_xref
+  source: protein
+  target: small molecule
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:ChemicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+protein has_xref cellular_component:
+  is_a: has xref
+  biolink_predicate: biolink:xref
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_has_xref_cellular_component
+  output_label: has_xref
+  source: protein
+  target: cellular component
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+protein has_xref cofactor:
+  is_a: has xref
+  biolink_predicate: biolink:xref
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_has_xref_cofactor
+  output_label: has_xref
+  source: protein
+  target: small molecule
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:ChemicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+protein has_xref gene:
+  is_a: has xref
+  biolink_predicate: biolink:xref
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_has_xref_gene
+  output_label: has_xref
+  source: protein
+  target: gene
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+protein has_xref molecular_function:
+  is_a: has xref
+  biolink_predicate: biolink:xref
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_has_xref_molecular_function
+  output_label: has_xref
+  source: protein
+  target: molecular function
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+protein has_xref protein:
+  is_a: has xref
+  biolink_predicate: biolink:xref
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_has_xref_protein
+  output_label: has_xref
+  source: protein
+  target: protein
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Protein
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+protein has_xref transcript:
+  is_a: has xref
+  biolink_predicate: biolink:xref
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_has_xref_transcript
+  output_label: has_xref
+  source: protein
+  target: transcript
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Transcript
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+reaction to pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:part_of
+  inherit_properties: true
+  description: holds between a reaction and a pathway
+  represented_as: edge
+  input_label: reaction_to_pathway
+  output_label: part_of
+  source: reaction
+  target: pathway
+  kgx_properties:
+    subject_category: biolink:MolecularActivity
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+regulatory association:
+  is_a: association
+  biolink_predicate: biolink:related_to
+  represented_as: edge
+  input_label: regulatory_association
+  kgx_properties:
+    subject_category: biolink:GenomicEntity
+    object_category: biolink:GenomicEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+regulatory region to gene association:
+  description: An association between a regulatory region and a gene it regulates
+  is_a: regulatory association
+  mixins:
+  - biolink:Association
+  biolink_predicate: biolink:regulates
+  inherit_properties: true
+  represented_as: edge
+  input_label: regulatory_region_gene
+  output_label: regulates
+  source: regulatory_region
+  target: gene
+  kgx_properties:
+    subject_category: biolink:RegulatoryRegion
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    score: float
+    biological_context: str
+
+small molecule to pathway association:
+  description: An interaction between a small molecule (ChEBI) and a pathway (Reactome).
+  is_a: annotation
+  mixins:
+  - biolink:MolecularActivityToPathwayAssociation
+  biolink_predicate: biolink:participates_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: small_molecule_to_pathway
+  output_label: participates_in
+  source: small molecule
+  target: pathway
+  kgx_properties:
+    subject_category: biolink:SmallMolecule
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+small molecule to reaction association:
+  description: An interaction between a small molecule (ChEBI) and a reaction (Reactome).
+  is_a: annotation
+  mixins:
+  - biolink:MolecularActivityToPathwayAssociation
+  biolink_predicate: biolink:participates_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: small_molecule_to_reaction
+  output_label: participates_in
+  source: small molecule
+  target: reaction
+  kgx_properties:
+    subject_category: biolink:SmallMolecule
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+so subclass of:
+  is_a: subclass of
+  inherit_properties: true
+  represented_as: edge
+  input_label: so_subclass_of
+  output_label: is_a
+  biolink_predicate: biolink:subclass_of
+  source: sequence type
+  target: sequence type
+  kgx_properties:
+    subject_category: biolink:OntologyClass
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+structural_variant overlaps feature:
+  is_a: association
+  biolink_predicate: biolink:overlaps
+  represented_as: edge
+  input_label: structural_variant_overlaps_feature
+  output_label: overlaps
+  source: structural variant
+  target: biological entity
+  kgx_properties:
+    subject_category: biolink:SequenceVariant
+    object_category: biolink:GenomicEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+structural_variant overlaps gene:
+  is_a: association
+  biolink_predicate: biolink:overlaps
+  represented_as: edge
+  input_label: structural_variant_overlaps_gene
+  output_label: overlaps
+  source: structural variant
+  target: gene
+
+structural_variant overlaps non_coding_rna:
+  is_a: association
+  biolink_predicate: biolink:overlaps
+  represented_as: edge
+  input_label: structural_variant_overlaps_non_coding_rna
+  output_label: overlaps
+  source: structural variant
+  target: non_coding_rna
+
+structural_variant overlaps promoter:
+  is_a: association
+  biolink_predicate: biolink:overlaps
+  represented_as: edge
+  input_label: structural_variant_overlaps_promoter
+  output_label: overlaps
+  source: structural variant
+  target: promoter
+
+subclass of:
+  is_a: annotation
+  mixins:
+  - biolink:SubclassOf
+  biolink_predicate: biolink:subclass_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: subclass_of
+  source: ontology term
+  target: ontology term
+  kgx_properties:
+    subject_category: biolink:OntologyClass
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties: {}
+
+super enhancer to gene association:
+  description: An association between a super enhancer and a gene
+  is_a: regulatory association
+  biolink_predicate: biolink:associated_with
+  inherit_properties: true
+  represented_as: edge
+  input_label: super_enhancer_gene
+  output_label: associated_with
+  source: super enhancer
+  target: gene
+  kgx_properties:
+    subject_category: biolink:RegulatoryRegion
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    score: float
+    biological_context: str
+
+tissue part of anatomy:
+  is_a: part of
+  biolink_predicate: biolink:part_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: tissue_part_of_anatomy
+  output_label: part_of
+  kgx_properties:
+    subject_category: biolink:AnatomicalEntity
+    object_category: biolink:AnatomicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  description: Cross-ontology relation linking a BRENDA Tissue Ontology (BTO) term
+    to an UBERON anatomy term.
+  source: tissue
+  target: anatomy
+
+transcribes to:
+  represented_as: edge
+  is_a: expression
+  biolink_predicate: biolink:TranscriptToGeneRelationship
+  inherit_properties: true
+  input_label: transcribes_to
+  source: gene
+  target: transcript
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Transcript
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+    category: biolink:Association
+  description: inverse of transcribed from
+  exact_mappings:
+  - RO:0002511
+  - SIO:010080
+
+transcription factor to gene association:
+  description: An regulatory association between a transcription factor and its target
+    gene
+  is_a: regulatory association
+  biolink_predicate: biolink:regulates
+  inherit_properties: true
+  represented_as: edge
+  input_label: tf_gene
+  output_label: regulates
+  source: gene
+  target: gene
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    evidence: str[]
+    detection_method: str
+    database: str[]
+    evidence_type: str
+
+translates to:
+  is_a: expression
+  biolink_predicate: biolink:translates_to
+  inherit_properties: true
+  represented_as: edge
+  input_label: translates_to
+  source: transcript
+  target: protein
+  inverse: translation of
+  kgx_properties:
+    subject_category: biolink:Transcript
+    object_category: biolink:Protein
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  description: x (amino acid chain/polypeptide) is the ribosomal translation of y
+    (transcript) if and only if a ribosome reads y (transcript) through a series of
+    triplet codon-amino acid adaptor activities (GO:0030533) and produces x (amino
+    acid chain/polypeptide)
+  close_mappings:
+  - RO:0002513
+  - SIO:010082
+
+uberon subclass of:
+  is_a: subclass of
+  mixins:
+  - biolink:AnatomicalEntityToAnatomicalEntityAssociation
+  biolink_predicate: biolink:subclass_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: uberon_subclass_of
+  output_label: is_a
+  source: anatomy
+  target: anatomy
+  kgx_properties:
+    subject_category: biolink:AnatomicalEntity
+    object_category: biolink:AnatomicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+allele:
+  represented_as: node
+  input_label: allele
+  is_a: genomic variant
+  mixins:
+  - biolink:Allele
+  - biolink:SequenceVariant
+  biolink_category: biolink:Allele
+  inherit_properties: true
+  properties:
+    allele_symbol:
+      type: str
+      biolink: symbol
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  description: Different versions of the same variant (in a specific  locus) are called
+    alleles[1, 2]. Most commonly used referring to genes.
+  kgx_properties:
+    category: biolink:Allele
+
+dmel disease model:
+  represented_as: node
+  input_label: dmel_disease_model
+  is_a: biological entity
+  mixins:
+  - biolink:DiseaseModel
+  - biolink:OrganismalEntity
+  biolink_category: biolink:DiseaseModel
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    gene:
+      type: str
+      biolink: has_gene_or_gene_product
+    do_qualifier:
+      type: str
+      biolink: qualifier
+    do_term_id:
+      type: str
+      biolink: in_disease
+    do_term_name:
+      type: str
+      biolink: name
+    allele:
+      type: str
+      biolink: has_attribute
+    ortholog_hgnc_id:
+      type: str
+      biolink: id
+    ortholog_hgnc_symbol:
+      type: str
+      biolink: symbol
+    evidence_code:
+      type: str
+      biolink: has_evidence
+    interacting_alleles:
+      type: str[]
+      biolink: has_attribute
+    ev_code_interact_alleles:
+      type: str
+      biolink: has_evidence
+    reference_FBrf_id:
+      type: str
+      biolink: publication
+  kgx_properties:
+    category: biolink:DiseaseModel
+
+gene group:
+  represented_as: node
+  input_label: gene_group
+  is_a: biological entity
+  mixins:
+  - biolink:GeneGroup
+  biolink_category: biolink:GeneGroup
+  properties:
+    genes:
+      type: str[]
+      biolink: has_gene_or_gene_product
+    group_symbol:
+      type: str
+      biolink: symbol
+    group_name:
+      type: str
+      biolink: name
+    parent_groups:
+      type: str[]
+      biolink: subclass_of
+    HGNC_family_ID:
+      type: str[]
+      biolink: id
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    category: biolink:GeneGroup
+
+genotype:
+  represented_as: node
+  input_label: genotype
+  is_a: biological entity
+  mixins:
+  - biolink:Genotype
+  biolink_category: biolink:Genotype
+  properties:
+    genotype_ids:
+      type: str
+      biolink: id
+    genotype_symbols:
+      type: str
+      biolink: symbol
+    reference:
+      type: str
+      biolink: publication
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    category: biolink:Genotype
+
+metabolic pathway gene group:
+  represented_as: node
+  input_label: metabolic_pathway_gene_group
+  is_a: biological entity
+  mixins:
+  - biolink:Pathway
+  - biolink:GeneGroup
+  biolink_category: biolink:Pathway
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    genes:
+      type: str[]
+      biolink: has_gene_or_gene_product
+    group_symbol:
+      type: str
+      biolink: symbol
+    group_name:
+      type: str
+      biolink: name
+    parent_groups:
+      type: str[]
+      biolink: subclass_of
+    HGNC_family_ID:
+      type: str[]
+      biolink: id
+  kgx_properties:
+    category: biolink:Pathway
+
+phenotype_set:
+  represented_as: node
+  input_label: phenotype_set
+  is_a: biological entity
+  mixins:
+  - biolink:PhenotypicFeature
+  biolink_category: biolink:PhenotypicFeature
+  properties:
+    phenotype_ontology_id:
+      type: str
+      biolink: has_attribute
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    category: biolink:PhenotypicFeature
+
+rnaseq library:
+  is_a: entity
+  represented_as: node
+  inherit_properties: false
+  input_label: rnaseq_library
+  mixins:
+  - biolink:DataSet
+  biolink_category: biolink:DataSet
+  description: A library/cluster/sample that is a set of genes and their expression
+    values.
+  properties:
+    name:
+      type: str
+      biolink: name
+    experiment_info:
+      type: str[]
+      biolink: has_attribute
+    tissue_info:
+      type: str[]
+      biolink: has_attribute
+    cell_type_id:
+      type: str
+      biolink: has_cell_type
+    anatomy_entity_id:
+      type: str[]
+      biolink: anatomical_entity
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+  kgx_properties:
+    category: biolink:DataSet
+
+signaling pathway gene group:
+  represented_as: node
+  input_label: signaling_pathway_gene_group
+  is_a: biological entity
+  mixins:
+  - biolink:Pathway
+  - biolink:GeneGroup
+  biolink_category: biolink:Pathway
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    genes:
+      type: str[]
+      biolink: has_gene_or_gene_product
+    group_symbol:
+      type: str
+      biolink: symbol
+    group_name:
+      type: str
+      biolink: name
+    parent_groups:
+      type: str[]
+      biolink: subclass_of
+    HGNC_family_ID:
+      type: str[]
+      biolink: id
+  kgx_properties:
+    category: biolink:Pathway
+
+allele to allele genetic interaction:
+  represented_as: edge
+  input_label: allele_to_allele_genetic_interaction
+  is_a: annotation
+  biolink_predicate: biolink:interacts_with
+  source: allele
+  target: allele
+  properties:
+    interaction_description:
+      type: str
+      biolink: description
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Allele
+    object_category: biolink:Allele
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+allele to gene association:
+  is_a: annotation
+  inherit_properties: true
+  represented_as: edge
+  input_label: variant_of
+  biolink_predicate: biolink:variant_of
+  source: allele
+  target: gene
+  properties:
+    taxon_id:
+      type: str
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Allele
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+allele to phenotype_set:
+  represented_as: edge
+  input_label: involved_in
+  is_a: annotation
+  biolink_predicate: biolink:involved_in
+  source: allele
+  target: phenotype_set
+  properties:
+    miniref:
+      type: str
+      biolink: publication
+    fb_ref:
+      type: str
+      biolink: publication
+    pmid_ref:
+      type: str
+      biolink: publication
+    pmcid_ref:
+      type: str
+      biolink: publication
+    doi:
+      type: str
+      biolink: publication
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Allele
+    object_category: biolink:PhenotypicFeature
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+expression value:
+  is_a: expression
+  mixins:
+  - biolink:ExpressionQuantitativeTraitLocus
+  biolink_predicate: biolink:has_quantified_expression_level
+  represented_as: edge
+  inherit_properties: false
+  input_label: expression_value
+  source: biolink:GeneOrGeneProduct
+  target: rnaseq library
+  description: A set of values for numeric estimation of single gene/transcript expression
+    as measured by a given methodology (represented by a library).
+  properties:
+    value_and_description:
+      type: list[tuple]
+      biolink: has_quantitative_value
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+  kgx_properties:
+    subject_category: biolink:GeneOrGeneProduct
+    object_category: biolink:DataSet
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+FBbt subclass of:
+  is_a: subclass of
+  inherit_properties: true
+  represented_as: edge
+  input_label: FBbt_subclass_of
+  output_label: is_a
+  biolink_predicate: biolink:subclass_of
+  source: anatomy
+  target: anatomy
+  kgx_properties:
+    subject_category: biolink:AnatomicalEntity
+    object_category: biolink:AnatomicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+FBcv subclass of:
+  is_a: subclass of
+  inherit_properties: true
+  represented_as: edge
+  input_label: FBcv_subclass_of
+  output_label: is_a
+  biolink_predicate: biolink:subclass_of
+  source: phenotype
+  target: phenotype
+  kgx_properties:
+    subject_category: biolink:OntologyClass
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+FBdv subclass of:
+  is_a: subclass of
+  inherit_properties: true
+  represented_as: edge
+  input_label: FBdv_subclass_of
+  output_label: is_a
+  biolink_predicate: biolink:subclass_of
+  source: developmental stage
+  target: developmental stage
+  kgx_properties:
+    subject_category: biolink:LifeStage
+    object_category: biolink:LifeStage
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene genetic association:
+  description: An association between a gene and another gene, i.e., a gene-level
+    genetic interactions in FlyBase. This data is computed from the allele-level genetic
+    interaction data captured by FlyBase curators.
+  is_a: regulatory association
+  inherit_properties: true
+  represented_as: edge
+  input_label: gene_genetic_association
+  biolink_predicate: biolink:genetic_association
+  source: gene
+  target: gene
+  properties:
+    reference:
+      type: str
+      biolink: publication
+    type:
+      type: str
+      biolink: PairwiseGeneToGeneInteraction
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene to group association:
+  description: 'An association between a gene and a group of genes: genes are grouped
+    into gene groups based on shared characteristics, such as sequence, biological
+    function, or participation in a biological process'
+  is_a: related to at instance level
+  represented_as: edge
+  input_label: grouped_into
+  biolink_predicate: biolink:member_of
+  source: gene
+  target: gene group
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:GeneGroup
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene to metabolic pathway group association:
+  description: 'An association between a gene and a group of genes: genes are grouped
+    into gene groups based on shared characteristics, such as sequence, biological
+    function, or participation in a biological process'
+  is_a: related to at instance level
+  represented_as: edge
+  input_label: metabolic_pathway_grouped_into
+  biolink_predicate: biolink:member_of
+  source: gene
+  target: metabolic pathway gene group
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene to sequence type:
+  is_a: annotation
+  inherit_properties: true
+  represented_as: edge
+  input_label: sequence_classified_as
+  output_label: classified_as
+  biolink_predicate: biolink:classified_as
+  source: gene
+  target: sequence type
+  properties:
+    taxon_id:
+      type: str
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene to signaling pathway group association:
+  description: 'An association between a gene and a group of genes: genes are grouped
+    into gene groups based on shared characteristics, such as sequence, biological
+    function, or participation in a biological process'
+  is_a: related to at instance level
+  represented_as: edge
+  input_label: signaling_pathway_grouped_into
+  biolink_predicate: biolink:member_of
+  source: gene
+  target: signaling pathway gene group
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+modelled to do term:
+  represented_as: edge
+  input_label: modelled_to_do_term
+  is_a: annotation
+  biolink_predicate: biolink:has_phenotype
+  source: gene
+  target: disease
+  properties:
+    disease_model_id:
+      type: str
+      biolink: has_model
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Disease
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+modelled to human disease:
+  represented_as: edge
+  input_label: modelled_to_human_disease
+  is_a: annotation
+  biolink_predicate: biolink:models
+  source: gene
+  target: dmel disease model
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:DiseaseModel
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+phenotype_set to cellular component:
+  represented_as: edge
+  input_label: inheres_in
+  is_a: annotation
+  biolink_predicate: biolink:inheres_in
+  source: phenotype_set
+  target: cellular component
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:PhenotypicFeature
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+phenotype_set to genotype:
+  represented_as: edge
+  input_label: genetically_informed_by
+  is_a: annotation
+  biolink_predicate: biolink:genetically_inferred_from
+  source: phenotype_set
+  target: genotype
+  properties:
+    miniref:
+      type: str
+      biolink: publication
+    fb_ref:
+      type: str
+      biolink: publication
+    pmid_ref:
+      type: str
+      biolink: publication
+    pmcid_ref:
+      type: str
+      biolink: publication
+    doi:
+      type: str
+      biolink: publication
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:PhenotypicFeature
+    object_category: biolink:Genotype
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+phenotype_set to ontology:
+  represented_as: edge
+  input_label: characterized_by
+  is_a: annotation
+  biolink_predicate: biolink:characterized_by
+  source: phenotype_set
+  target: ontology term
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+  kgx_properties:
+    subject_category: biolink:PhenotypicFeature
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+ptp physical interaction type:
+  is_a: expression
+  represented_as: edge
+  input_label: ptp_physical_interaction_type
+  source: ptp physically interacts with
+  target: molecular_interaction
+
+ptp physically interacts with:
+  is_a: expression
+  inherit_properties: true
+  represented_as: edge
+  input_label: ptp_physically_interacts_with
+  biolink_predicate: biolink:physically_interacts_with
+  source: biolink:GeneOrGeneProduct
+  target: protein
+  properties:
+    source_gene:
+      type: str
+      biolink: has_gene_or_gene_product
+    target_gene:
+      type: str
+      biolink: has_gene_or_gene_product
+    detection_method:
+      type: str
+      biolink: has_metric
+    pubmed_ids:
+      type: str[]
+      biolink: publication
+    source_taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    target_taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    interaction_type:
+      type: molecular_interaction
+      biolink: has_attribute
+    interaction_comments:
+      type: str
+      biolink: comment
+    source_comments:
+      type: str
+      biolink: comment
+    target_comments:
+      type: str
+      biolink: comment
+  kgx_properties:
+    subject_category: biolink:GeneOrGeneProduct
+    object_category: biolink:Protein
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+ptt physically interacts with:
+  is_a: expression
+  inherit_properties: true
+  represented_as: edge
+  input_label: ptt_physically_interacts_with
+  biolink_predicate: biolink:physically_interacts_with
+  source: biolink:GeneOrGeneProduct
+  target: transcript
+  properties:
+    source_gene:
+      type: str
+      biolink: has_gene_or_gene_product
+    target_gene:
+      type: str
+      biolink: has_gene_or_gene_product
+    detection_method:
+      type: str
+      biolink: has_metric
+    pubmed_ids:
+      type: str[]
+      biolink: publication
+    source_taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    target_taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
+    interaction_type:
+      type: str
+      biolink: has_attribute
+    interaction_comments:
+      type: str
+      biolink: comment
+    source_comments:
+      type: str
+      biolink: comment
+    target_comments:
+      type: str
+      biolink: comment
+  kgx_properties:
+    subject_category: biolink:GeneOrGeneProduct
+    object_category: biolink:Transcript
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent

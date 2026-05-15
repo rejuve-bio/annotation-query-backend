@@ -177,3 +177,7 @@ CELL_STRUCTURE = {
 }
 
 ROLES = ['viewer', 'editor', 'owner']
+
+QUERY_MAX_NODES = 200_000   # hard cap on nodes returned per query
+BATCH_MAX_TYPE_SIZE = 500_000   # node types with more total nodes than this → per-node only
+BATCH_NODE_THRESHOLD = 50       # result sets with ≥ this many nodes use batch (if type is small)

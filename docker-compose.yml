@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   annotation_service:
     image: "${DOCKER_HUB_REPO}"
@@ -6,6 +8,9 @@ services:
       dockerfile: Dockerfile
     volumes:
       - .:/app
+      - /mnt/hdd_1:/mnt/hdd_1:rw
+      - /dev/shm:/dev/shm
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${APP_PORT}:${APP_PORT}"
     # Web server command
@@ -14,8 +19,6 @@ services:
     depends_on:
       - mongodb
       - redis
-    # We define the environment here and anchor it as &app_env
-    # so we can simply reuse it in the celery_worker below.
     environment: &app_env
       MONGO_URI: ${MONGO_URI}
       APP_PORT: ${APP_PORT}
@@ -25,7 +28,8 @@ services:
       REDIS_URL_BROKER: redis://redis:6379/1
       REDIS_EXPIRATION: 3600
       FASTAPI_APP: "true"
-
+      MORK_DATA_DIR: ${MORK_DATA_DIR:-/mnt/hdd_1/biocypher-kg/output/hsa/metta_out_v6}
+      FLY_MORK_DATA_DIR: ${FLY_MORK_DATA_DIR:-/mnt/hdd_1/biocypher-kg/output/dmel/metta}
 
   celery_worker:
     image: "${DOCKER_HUB_REPO}"
@@ -34,6 +38,9 @@ services:
       dockerfile: Dockerfile
     volumes:
       - .:/app
+      - /mnt/hdd_1:/mnt/hdd_1:rw
+      - /dev/shm:/dev/shm
+      - /var/run/docker.sock:/var/run/docker.sock
     # Worker command
     command: celery -A app.workers.celery_app worker --loglevel=info
     restart: always
@@ -41,7 +48,6 @@ services:
       - annotation_service
       - redis
       - mongodb
-    # Reuse the exact same environment variables as the main app
     environment:
       <<: *app_env
       C_FORCE_ROOT: "1"
@@ -57,7 +63,7 @@ services:
   redis:
     image: redis:latest
     ports:
-      - "6399:6379"
+      - "${REDIS_DOCKER_PORT:-6380}:6379"
     restart: always
     volumes:
       - redis_data:/data

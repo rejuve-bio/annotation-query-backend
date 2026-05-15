@@ -238,6 +238,7 @@ pathway:
   input_label: pathway
   properties:
     pathway_name: str
+    name: str
     evidence: str
     source: str
     source_url: str
