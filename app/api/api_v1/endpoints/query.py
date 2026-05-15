@@ -507,6 +507,12 @@ def cell_component(
 
     # get annotation id and get go term id
     annotation_id = id
+    
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", annotation_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid annotation ID format"
+        )
 
     # parse the location
     locations = locations.split(",")
@@ -515,17 +521,19 @@ def cell_component(
 
     try:
         # get the graph and filter out the protein
+        
         file_name = f"{annotation_id}.json"
         path = (
-            Path(__file__).parent
-            / ".."
-            / ".."
-            / ".."
-            / ".."
-            / "public"
-            / "graph"
-            / f"{file_name}"
-        )
+            Path(__file__).parent / ".." / ".." / ".." / ".." / "public" / "graph" / file_name
+        ).resolve()
+
+        # Ensure path stays within the expected directory
+        base_path = (Path(__file__).parent / ".." / ".." / ".." / ".." / "public" / "graph").resolve()
+        if not str(path).startswith(str(base_path)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid annotation ID"
+            )
 
         with open(path, "r") as f:
             graph = json.load(f)
