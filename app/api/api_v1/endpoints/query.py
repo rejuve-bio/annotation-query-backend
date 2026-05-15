@@ -38,6 +38,26 @@ import re
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+def _get_graph_for_annotation(existing_doc, redis_client):
+    """
+    Resolves graph data for an existing annotation from Redis or disk.
+    Returns a dict with 'nodes' and 'edges', or an empty graph on failure.
+    """
+    # 1. Try Redis first (fastest)
+    cache = redis_client.get(str(existing_doc.id))
+    if cache:
+        graph_data = json.loads(cache).get("graph", {})
+        if graph_data:
+            return graph_data
+ 
+    # 2. Fall back to disk
+    file_path = existing_doc.path_url
+    if file_path and os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            return json.load(f)
+ 
+    return {"nodes": [], "edges": []}
+
 
 @router.post("/query")
 def process_query(
@@ -137,31 +157,140 @@ def process_query(
         with redis_client.lock(lock_key, timeout=10, blocking_timeout=5):
             existing_doc = AnnotationStorageService.get_by_fingerprint(fingerprint)
             if existing_doc and not annotation_id:
-                if str(existing_doc.user_id) != str(current_user_id):
-                    AnnotationStorageService.add_participant(
-                        existing_doc.id, str(current_user_id)
-                    )
-
+                # HYPOTHESIS source — never has a question, safe to return
+                # graph nodes directly from cache.
+                if source == "hypothesis":
+                    graph_data = _get_graph_for_annotation(existing_doc, redis_client)
+                    return {"nodes": graph_data.get("nodes", [])}
+ 
+                # ASYNC path (source is None) — Celery pipeline
+                # If there is a question we must generate a fresh answer,
+                # so we cannot just hand back the existing annotation_id
+                # (that would let the client fetch the wrong answer later
+                # via GET /annotation/{id}).
                 if source is None:
-                    return {"annotation_id": str(existing_doc.id)}
-                else:
-                    if source == "hypothesis":
-                        cache = redis_client.get(str(existing_doc.id))
-                        if cache:
-                            graph_data = json.loads(cache).get("graph", {})
-                            return {"nodes": graph_data.get("nodes", [])}
-                        else:
-                            file_path = existing_doc.path_url
-                            if file_path and os.path.exists(file_path):
-                                with open(file_path, "r") as f:
-                                    graph = json.load(f)
-                                return {"nodes": graph.get("nodes", [])}
-                            return {"nodes": []}
+                    if question:
+                        # Graph already computed — generate answer only and
+                        # save a new per-user annotation so the user's
+                        # question/answer appears in their own history.
+                        graph_data = _get_graph_for_annotation(existing_doc, redis_client)
+ 
+                        # Build a minimal result_graph shape that llm expects
+                        result_graph_for_llm = {
+                            "nodes": graph_data.get("nodes", []),
+                            "edges": graph_data.get("edges", []),
+                            "node_count": existing_doc.node_count,
+                            "edge_count": existing_doc.edge_count,
+                            "node_count_by_label": existing_doc.node_count_by_label,
+                            "edge_count_by_label": existing_doc.edge_count_by_label,
+                        }
+ 
+                        summary = existing_doc.summary or "Graph too big, could not summarize"
+                        answer = llm.generate_summary(
+                            result_graph_for_llm, requests, question, False, summary
+                        )
 
+                        new_annotation = {
+                            "current_user_id": str(current_user_id),
+                            "request": requests,
+                            "query": existing_doc.query,
+                            "title": existing_doc.title,
+                            "summary": summary,
+                            "node_count": existing_doc.node_count,
+                            "edge_count": existing_doc.edge_count,
+                            "node_types": existing_doc.node_types,
+                            "node_count_by_label": existing_doc.node_count_by_label,
+                            "edge_count_by_label": existing_doc.edge_count_by_label,
+                            "answer": answer,
+                            "question": question,
+                            "status": TaskStatus.COMPLETE.value,
+                            "query_fingerprint": fingerprint,
+                            "path_url": existing_doc.path_url,
+                            "files": existing_doc.files,
+                            "species": species,
+                            "data_source": data_source,
+                        }
+                        new_annotation_id = AnnotationStorageService.save(new_annotation)
+ 
+                        # Reuse the existing Redis graph cache under the new annotation_id
+                        # so GET /annotation/{id} resolves the graph instantly.
+                        existing_cache = redis_client.get(str(existing_doc.id))
+                        if existing_cache:
+                            redis_client.setex(str(new_annotation_id), 3600, existing_cache)
+ 
+                        return {"annotation_id": str(new_annotation_id)}
+ 
+                    else:
+                        # No question — graph result is fully shareable.
+                        # Register this user as a participant for access tracking,
+                        # then return the existing annotation_id.
+                        if str(existing_doc.user_id) != str(current_user_id):
+                            AnnotationStorageService.add_participant(
+                                existing_doc.id, str(current_user_id)
+                            )
+                        return {"annotation_id": str(existing_doc.id)}
+ 
+                # SYNCHRONOUS source path (e.g. 'ai-assistant')
+                # Same logic: question requires a fresh answer.
+                if question:
+                    graph_data = _get_graph_for_annotation(existing_doc, redis_client)
+ 
+                    result_graph_for_llm = {
+                        "nodes": graph_data.get("nodes", []),
+                        "edges": graph_data.get("edges", []),
+                        "node_count": existing_doc.node_count,
+                        "edge_count": existing_doc.edge_count,
+                        "node_count_by_label": existing_doc.node_count_by_label,
+                        "edge_count_by_label": existing_doc.edge_count_by_label,
+                    }
+ 
+                    summary = existing_doc.summary or "Graph too big, could not summarize"
+                    answer = llm.generate_summary(
+                        result_graph_for_llm, requests, question, False, summary
+                    )
+ 
+                    new_annotation = {
+                        "current_user_id": str(current_user_id),
+                        "request": requests,
+                        "query": existing_doc.query,
+                        "title": existing_doc.title,
+                        "summary": summary,
+                        "node_count": existing_doc.node_count,
+                        "edge_count": existing_doc.edge_count,
+                        "node_types": existing_doc.node_types,
+                        "node_count_by_label": existing_doc.node_count_by_label,
+                        "edge_count_by_label": existing_doc.edge_count_by_label,
+                        "answer": answer,
+                        "question": question,
+                        "status": TaskStatus.COMPLETE.value,
+                        "query_fingerprint": fingerprint,
+                        "path_url": existing_doc.path_url,
+                        "files": existing_doc.files,
+                        "species": species,
+                        "data_source": data_source,
+                    }
+                    new_annotation_id = AnnotationStorageService.save(new_annotation)
+ 
+                    existing_cache = redis_client.get(str(existing_doc.id))
+                    if existing_cache:
+                        redis_client.setex(str(new_annotation_id), 3600, existing_cache)
+ 
+                    return {
+                        "annotation_id": str(new_annotation_id),
+                        "question": question,
+                        "answer": answer,
+                    }
+ 
+                else:
+                    # No question — safe to share the existing annotation.
+                    if str(existing_doc.user_id) != str(current_user_id):
+                        AnnotationStorageService.add_participant(
+                            existing_doc.id, str(current_user_id)
+                        )
                     return {
                         "annotation_id": str(existing_doc.id),
-                        "question": question,
-                        "answer": existing_doc.answer,
+                        "question": None,
+                        "answer": existing_doc.answer,  # None or a graph-level summary
                     }
 
             # Generate Query using canonical requests for stable caching
