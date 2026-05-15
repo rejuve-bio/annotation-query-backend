@@ -1,6 +1,7 @@
 # Stub heavy production deps before any app imports so this file can be run
-# without the full dependency stack.  Real packages (installed in Docker) take
-# precedence via sys.modules.setdefault — integration tests are unaffected.
+# without the full dependency stack.  Real packages (installed in Docker) are
+# imported via __import__ when available; only genuinely missing deps are added
+# to sys.modules as MagicMock stubs after ImportError.
 import sys
 from unittest.mock import MagicMock
 

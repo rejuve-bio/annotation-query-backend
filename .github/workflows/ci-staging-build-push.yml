@@ -176,7 +176,7 @@ jobs:
         PARENT_DIR: /tmp/test_data
         LLM_MODEL: gemini
       run: |
-        pytest tests/ --cov=. --cov-report=xml --cov-report=term-missing || echo "No tests found"
+        pytest tests/ --ignore=tests/unit/test_mork_session.py --cov=. --cov-report=xml --cov-report=term-missing || echo "No tests found"
 
     - name: Run MORK session unit tests
       run: |

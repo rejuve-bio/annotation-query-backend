@@ -71,7 +71,7 @@ jobs:
           PARENT_DIR: /tmp/test_data
         run: |
           mkdir -p /tmp/test_data
-          pytest
+          pytest --ignore=tests/unit/test_mork_session.py
 
       - name: Run MORK session unit tests
         run: |

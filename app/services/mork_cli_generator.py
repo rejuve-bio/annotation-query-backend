@@ -141,22 +141,28 @@ def _make_signal_handler(sig: int):
                 os.kill(os.getpid(), sig)
     return _handler
 
+_signals_registered = False
+
 def _register_cleanup_signals() -> None:
     """Register SIGTERM/SIGINT handlers that stop MORK containers on shutdown.
 
-    Must be called from the main thread.  Call this from a process-startup hook
-    (e.g. FastAPI lifespan, Celery worker_init signal) to guarantee registration
-    regardless of which thread first imports this module.
+    Idempotent — safe to call from both the module-level guard and from a
+    process-startup hook (e.g. FastAPI lifespan, Celery worker_init signal).
+    Must be called from the main thread.
 
     Note: the module-level call below only fires when the module is first imported
     from the main thread.  When first imported via the FastAPI sync-dependency
     threadpool path (app.api.deps._make_mork_cli_generator) the guard is skipped
     and the module is then cached — so handlers are never installed for that
-    worker process on that import path.  atexit(_cleanup_sessions) still runs on
-    normal (sys.exit) shutdown; the gap is non-graceful exits (os._exit).
+    worker process on that import path.  The lifespan call in app/main.py covers
+    this gap.  atexit(_cleanup_sessions) still runs on normal (sys.exit) shutdown.
     """
+    global _signals_registered
+    if _signals_registered:
+        return
     _signal.signal(_signal.SIGTERM, _make_signal_handler(_signal.SIGTERM))
     _signal.signal(_signal.SIGINT,  _make_signal_handler(_signal.SIGINT))
+    _signals_registered = True
 
 
 if threading.current_thread() is threading.main_thread():
