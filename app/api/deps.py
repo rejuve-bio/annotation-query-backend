@@ -14,6 +14,7 @@ from app.services.cypher_generator import CypherQueryGenerator
 from app.services.llm_handler import LLMHandler
 from app.services.metta_generator import MeTTa_Query_Generator
 from app.services.mork_generator import MorkQueryGenerator
+from app.lib.utils import merge_schemas
 from app.services.schema_data import SchemaManager
 
 logger = logging.getLogger(__name__)
@@ -68,11 +69,22 @@ def get_schema_manager() -> SchemaManager:
     """Returns a singleton SchemaManager instance."""
     global _schema_manager
     if _schema_manager is None:
+        merge_schemas(
+            primer_schema_path="./config/primer_schema_config.yaml",
+            species_schema_path="./config/human_schema/hsa_schema_config.yaml",
+            output_path="./config/human_schema/human_full_schema_config.yaml",
+        )
+        merge_schemas(
+            primer_schema_path="./config/primer_schema_config.yaml",
+            species_schema_path="./config/fly_base_schema/dmel_schema_config.yaml",
+            output_path="./config/fly_base_schema/dmel_full_schema_config.yaml",
+        )
         _schema_manager = SchemaManager(
-            schema_config_path="./config/human_schema/human_full_schema_config.yaml",
+            human_schema_config_path="./config/human_schema/human_full_schema_config.yaml",
             biocypher_config_path="./config/biocypher_config.yaml",
-            config_path="./config/schema",
+            human_datasources_config_path="./config/human_schema/data_source_schemas",
             fly_schema_config_path="./config/fly_base_schema/dmel_full_schema_config.yaml",
+            fly_datasources_config_path="./config/fly_base_schema/data_source_schemas",
         )
         logger.info("✅ [Deps] SchemaManager initialized")
     return _schema_manager
