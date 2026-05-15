@@ -1,18 +1,24 @@
 # MORK CLI Integration (Docker)
 
-This document covers how the backend runs the MORK CLI through Docker, how to build the MORK image, how to prepare ACT files, and how to query the API.
+This document covers how the backend runs the MORK CLI through Docker, how to build the
+MORK image, how to prepare ACT files, and how to query the API.
 
 ## Overview
 
-- The backend calls a local wrapper script.
-- The wrapper runs the MORK CLI inside a Docker container.
+- One long-running `mork:latest` container is kept alive per dataset path per worker
+  process. Queries are dispatched via `docker exec` (~100 ms) instead of spawning a new
+  container per query (~1–2 s). The session restarts automatically if the container
+  crashes and is cleaned up on process exit.
 - The dataset directory is mounted into the container at the same path.
-- Each query spawns a short-lived container.
+- For large chromosomal queries the backend caps results at `QUERY_MAX_NODES` (default
+  200 000) and enriches node properties with one batch query per property type rather
+  than one query per node.
 
 ## Prerequisites
 
-- Docker with WSL integration enabled (if on WSL)
-- Python venv already set up for the backend
+- Docker (with `docker-ce-cli` available inside Celery worker containers — provided by
+  the bundled `Dockerfile`)
+- The `mork:latest` image built locally (see step 1)
 
 ## 1) Build the MORK image (one-time)
 
@@ -23,85 +29,84 @@ docker build --network host -f app/services/mork/Dockerfile.mork -t mork:latest 
 ```
 
 Notes:
-- The first build is slow because it compiles PathMap and MORK.
-- Rebuild only if you need newer MORK/PathMap commits.
+- The first build is slow because it compiles PathMap and MORK from source.
+- Rebuild only if you need a newer MORK/PathMap version.
 
 ## 2) Set the data directory
 
-In `.env`:
+In `.env` (copy from `example.env`):
 
 ```plaintext
-MORK_DATA_DIR=/absolute/path/to/your/data
+MORK_DATA_DIR=/absolute/path/to/your/metta_out
+# For multi-species deployments you can also set:
+# HUMAN_MORK_DATA_DIR=...
+# FLY_MORK_DATA_DIR=...
 ```
 
-The directory must contain your `.metta` files and the generated `annotation.act`.
+## 3) Configure config.yaml
 
-## 3) Build the ACT file
+```yaml
+database:
+  type: mork_cli
+  human:
+    data_dir: /absolute/path/to/metta_out
+    act_file: human_v6.act          # filename of your ACT binary
+    graph_info_path: ./Data/graph_info/hsa_v6.json
+```
+
+## 4) Build the ACT file
 
 ```bash
 python scripts/build_act.py
 ```
 
-This generates:
+This generates `$MORK_DATA_DIR/<act_file>` from the `.metta` files in that directory.
 
-```
-$MORK_DATA_DIR/annotation.act
+## 5) Run the backend
+
+```bash
+docker compose up -d
 ```
 
-## 4) Run the backend
+Or for local dev:
 
 ```bash
 flask run --port 5000
 ```
 
-## 5) Query the API
+## 6) Query the API
 
-Example:
+Example — single gene lookup:
 
 ```bash
 curl -s -X POST "http://localhost:5000/query" \
   -H "Authorization: Bearer <TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{
-    "requests": {
-      "nodes": [
-        {"type": "transcript", "node_id": "t1", "id": "", "properties": {}},
-        {"type": "protein", "node_id": "p1", "id": "Q9NU02", "properties": {}}
-      ],
-      "predicates": [
-        {"type": "translates_to", "predicate_id": "p0", "source": "t1", "target": "p1"}
-      ]
-    }
+    "nodes": [{"type": "gene", "node_id": "n1", "id": "", "properties": {"gene_name": "IGF1"}}],
+    "predicates": [],
+    "source": ["all"],
+    "species": "human"
   }'
-```
-
-## How the wrapper works
-
-- Wrapper script: `scripts/mork_docker_wrapper.py`
-- It runs:
-
-```bash
-docker run --rm \
-  -u "<uid>:<gid>" \
-  -v "$MORK_DATA_DIR:$MORK_DATA_DIR:rw" \
-  -v /dev/shm:/dev/shm \
-  -w "$MORK_DATA_DIR" \
-  mork:latest \
-  /app/MORK/target/release/mork <args>
 ```
 
 ## Query Generator Selection
 
-Update `config/config.yaml` to choose the query generator:
+`config/config.yaml` `database.type`:
 
-- `cypher`
-- `metta`
-- `mork_cli` (Dockerized MORK CLI)
-
-Make sure this matches your data and `.env` settings.
+| Value | Backend |
+|-------|---------|
+| `cypher` | Neo4j |
+| `metta` | MeTTa files |
+| `mork_cli` | MORK binary via Docker (recommended) |
 
 ## Troubleshooting
 
-- **No such file or directory**: `annotation.act` is missing. Run `python scripts/build_act.py`.
-- **Permission denied**: ensure `MORK_DATA_DIR` is writable by your user.
-- **Docker not found (WSL)**: enable Docker Desktop WSL integration.
+- **`Missing ACT file`**: run `python scripts/build_act.py`.
+- **`Failed to start mork:latest container`**: the image hasn't been built yet. Run the
+  `docker build` command in step 1.
+- **Empty results / no error**: check that `mork:latest` exists (`docker images mork`).
+- **Permission denied on data dir**: ensure `MORK_DATA_DIR` is readable/writable by your
+  user (the container runs as `uid:gid` of the host process).
+- **Docker not found inside container**: the `Dockerfile` installs `docker-ce-cli` and
+  mounts `/var/run/docker.sock` — make sure those are present in `docker-compose.yml`.
