@@ -29,6 +29,8 @@ class Annotation(Schema):
     retrieval_duration = None
     processing_duration = None
     total_duration = None
+    query_fingerprint = None
+    participant_user_ids = None
     graph_error_message = None
     count_error_message = None
     label_count_error_message = None
@@ -78,6 +80,14 @@ class Annotation(Schema):
             "species": {"type": Types.String, "required": True, "default": "human"},
             "data_source": any,
             "files": any,
+            "query_fingerprint": {"type": Types.String, "index": True},
+            "participant_user_ids": [
+                {
+                    "type": Types.String,
+                    "index": True
+                }
+            ],
+
             "created_at": {
                 "type": Types.Date,
                 "required": True,

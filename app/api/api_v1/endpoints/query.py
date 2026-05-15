@@ -6,10 +6,20 @@ import datetime
 import logging
 from distutils.util import strtobool
 import os
-from app.api.deps import get_current_user, get_db_instance, get_llm_handler, get_redis_client, get_schema_manager
+from app.api.deps import (
+    get_current_user,
+    get_db_instance,
+    get_llm_handler,
+    get_redis_client,
+    get_schema_manager,
+)
 from app.api.deps import LLMHandler
 from app.services.schema_data import SchemaManager
-from app.persistence import AnnotationStorageService, UserStorageService, SharedAnnotationStorageService
+from app.persistence import (
+    AnnotationStorageService,
+    UserStorageService,
+    SharedAnnotationStorageService,
+)
 from app.constants import TaskStatus
 from app.lib import validate_request, heuristic_sort, Graph
 from app.annotation_controller import handle_client_request
@@ -18,53 +28,81 @@ from nanoid import generate
 from app.workers.celery_app import redis_state
 from app.annotation_controller import process_full_data
 from app.lib.email import send_email
+from app.lib.query_canonical import canonicalize_graph, query_fingerprint
 import threading
 from app.core.config import settings
 from app.api.deps import oauth2_scheme
 import jwt
+import re
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+def _get_graph_for_annotation(existing_doc, redis_client):
+    """
+    Resolves graph data for an existing annotation from Redis or disk.
+    Returns a dict with 'nodes' and 'edges', or an empty graph on failure.
+    """
+    # 1. Try Redis first (fastest)
+    cache = redis_client.get(str(existing_doc.id))
+    if cache:
+        graph_data = json.loads(cache).get("graph", {})
+        if graph_data:
+            return graph_data
+ 
+    # 2. Fall back to disk
+    file_path = existing_doc.path_url
+    if file_path and os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            return json.load(f)
+ 
+    return {"nodes": [], "edges": []}
+
 
 @router.post("/query")
 def process_query(
     data: Dict[str, Any] = Body(...),
     limit: Optional[int] = FQuery(None),
-    properties: Optional[str] = FQuery(None), # strtobool handling
+    properties: Optional[str] = FQuery(None),  # strtobool handling
     source: Optional[str] = FQuery(None),
     current_user_id: str = Depends(get_current_user),
-    db_instance = Depends(get_db_instance),
+    db_instance=Depends(get_db_instance),
     llm: LLMHandler = Depends(get_llm_handler),
-    redis_client = Depends(get_redis_client),
-    schema_manager: SchemaManager = Depends(get_schema_manager)
+    redis_client=Depends(get_redis_client),
+    schema_manager: SchemaManager = Depends(get_schema_manager),
 ):
-    if 'requests' not in data:
+    if "requests" not in data:
         raise HTTPException(status_code=400, detail="Missing requests data")
 
     # Handling boolean query param manually or via Pydantic if defined properly
     prop_bool = True
     if properties:
         try:
-             prop_bool = bool(strtobool(properties))
+            prop_bool = bool(strtobool(properties))
         except:
-             pass
+            pass
 
     try:
-        requests = data['requests']
-        question = requests.get('question', None)
+        requests = data["requests"]
+        question = requests.get("question", None)
         answer = None
-        
+
         # Access Check Logic
-        annotation_id = requests.get('annotation_id', None)
+        # Documenting chosen rule for shared docs edit/re-run:
+        # If a user provides an annotation_id, they are attempting to edit or re-run it.
+        # Rule: Only the original creator (owner) or users with an explicit 'editor' or 'owner' role
+        # via a SharedAnnotation record can modify this existing shared annotation.
+        # Other users (e.g. those who just joined via deduplication or viewers) will get a 401 Unauthorized.
+        # They should omit the annotation_id to branch off and create a new fingerprinted query.
+        annotation_id = requests.get("annotation_id", None)
         if annotation_id:
             existing_annotation = AnnotationStorageService.get_by_id(annotation_id)
             if existing_annotation:
                 owner_id = existing_annotation.user_id
-                shared_annotation = SharedAnnotationStorageService.get({
-                    'user_id': owner_id,
-                    'annotation_id': annotation_id
-                })
-    
+                shared_annotation = SharedAnnotationStorageService.get(
+                    {"user_id": owner_id, "annotation_id": annotation_id}
+                )
+
                 if shared_annotation is None:
                     if str(owner_id) != str(current_user_id):
                         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -72,14 +110,16 @@ def process_query(
                     role = shared_annotation.role
                     share_type = shared_annotation.share_type
                     recipient_user_id = shared_annotation.recipient_user_id
-    
+
                     if share_type == "public":
                         if role not in ["editor", "owner"]:
                             raise HTTPException(status_code=401, detail="Unauthorized")
                     elif share_type == "private":
-                         if role not in ["editor", "owner"] or str(recipient_user_id) != str(current_user_id):
+                        if role not in ["editor", "owner"] or str(
+                            recipient_user_id
+                        ) != str(current_user_id):
                             raise HTTPException(status_code=401, detail="Unauthorized")
-                    
+
                     # If shared and authorized, we might operate as owner
                     current_user_id = str(owner_id)
 
@@ -96,89 +136,268 @@ def process_query(
         except Exception as ve:
             raise HTTPException(status_code=400, detail=str(ve))
         if node_map is None:
-             raise HTTPException(status_code=400, detail="Invalid node_map returned by validate_request")
+            raise HTTPException(
+                status_code=400, detail="Invalid node_map returned by validate_request"
+            )
 
         # Parse ID
         requests = db_instance.parse_id(requests)
-        # Sort
-        requests = heuristic_sort(requests, node_map)
-        
-        node_only = True if source == 'hypothesis' else False
 
-        # Generate Query
-        query = db_instance.query_Generator(requests, node_map, limit, node_only)
-        result_query = query[0]
-        total_count_query = query[1]
-        count_by_label_query = query[2]
-        
-        # Node Types
-        nodes = requests.get('nodes', [])
-        node_types = list(set(node["type"] for node in nodes))
+        # Canonicalize and Fingerprint
+        canonical_req, old_to_new_node = canonicalize_graph(requests)
+        canonical_node_map = {n["node_id"]: n for n in canonical_req["nodes"]}
+        canonical_req = heuristic_sort(canonical_req, canonical_node_map)
 
-        if source is None:
+        node_only = True if source == "hypothesis" else False
+        fingerprint = query_fingerprint(
+            canonical_req, species, data_source, limit, node_only, prop_bool
+        )
 
-            response = handle_client_request(query, requests, current_user_id, node_types, species, data_source, node_map)
-            return response
+        # Dedup lookup
+        lock_key = f"dedup_lock:{fingerprint}"
+        with redis_client.lock(lock_key, timeout=10, blocking_timeout=5):
+            existing_doc = AnnotationStorageService.get_by_fingerprint(fingerprint)
+            if existing_doc and existing_doc.status == TaskStatus.COMPLETE.value and not annotation_id:
+                # HYPOTHESIS source — never has a question, safe to return
+                # graph nodes directly from cache.
+                if source == "hypothesis":
+                    graph_data = _get_graph_for_annotation(existing_doc, redis_client)
+                    return {"nodes": graph_data.get("nodes", [])}
+ 
+                # ASYNC path (source is None) — Celery pipeline
+                # If there is a question we must generate a fresh answer,
+                # so we cannot just hand back the existing annotation_id
+                # (that would let the client fetch the wrong answer later
+                # via GET /annotation/{id}).
+                if source is None:
+                    if question:
+                        # Graph already computed — generate answer only and
+                        # save a new per-user annotation so the user's
+                        # question/answer appears in their own history.
+                        graph_data = _get_graph_for_annotation(existing_doc, redis_client)
+ 
+                        # Build a minimal result_graph shape that llm expects
+                        result_graph_for_llm = {
+                            "nodes": graph_data.get("nodes", []),
+                            "edges": graph_data.get("edges", []),
+                            "node_count": existing_doc.node_count,
+                            "edge_count": existing_doc.edge_count,
+                            "node_count_by_label": existing_doc.node_count_by_label,
+                            "edge_count_by_label": existing_doc.edge_count_by_label,
+                        }
+ 
+                        summary = existing_doc.summary or "Graph too big, could not summarize"
+                        answer = llm.generate_summary(
+                            result_graph_for_llm, requests, question, False, summary
+                        )
+
+                        new_annotation = {
+                            "current_user_id": str(current_user_id),
+                            "request": requests,
+                            "query": existing_doc.query,
+                            "title": existing_doc.title,
+                            "summary": summary,
+                            "node_count": existing_doc.node_count,
+                            "edge_count": existing_doc.edge_count,
+                            "node_types": existing_doc.node_types,
+                            "node_count_by_label": existing_doc.node_count_by_label,
+                            "edge_count_by_label": existing_doc.edge_count_by_label,
+                            "answer": answer,
+                            "question": question,
+                            "status": TaskStatus.COMPLETE.value,
+                            "query_fingerprint": fingerprint,
+                            "path_url": existing_doc.path_url,
+                            "files": existing_doc.files,
+                            "species": species,
+                            "data_source": data_source,
+                        }
+                        new_annotation_id = AnnotationStorageService.save(new_annotation)
+ 
+                        # Reuse the existing Redis graph cache under the new annotation_id
+                        # so GET /annotation/{id} resolves the graph instantly.
+                        existing_cache = redis_client.get(str(existing_doc.id))
+                        if existing_cache:
+                            redis_client.setex(str(new_annotation_id), 3600, existing_cache)
+ 
+                        return {"annotation_id": str(new_annotation_id)}
+ 
+                    else:
+                        # No question — graph result is fully shareable.
+                        # Register this user as a participant for access tracking,
+                        # then return the existing annotation_id.
+                        if str(existing_doc.user_id) != str(current_user_id):
+                            AnnotationStorageService.add_participant(
+                                existing_doc.id, str(current_user_id)
+                            )
+                        return {"annotation_id": str(existing_doc.id)}
+ 
+                # SYNCHRONOUS source path (e.g. 'ai-assistant')
+                # Same logic: question requires a fresh answer.
+                if question:
+                    graph_data = _get_graph_for_annotation(existing_doc, redis_client)
+ 
+                    result_graph_for_llm = {
+                        "nodes": graph_data.get("nodes", []),
+                        "edges": graph_data.get("edges", []),
+                        "node_count": existing_doc.node_count,
+                        "edge_count": existing_doc.edge_count,
+                        "node_count_by_label": existing_doc.node_count_by_label,
+                        "edge_count_by_label": existing_doc.edge_count_by_label,
+                    }
+ 
+                    summary = existing_doc.summary or "Graph too big, could not summarize"
+                    answer = llm.generate_summary(
+                        result_graph_for_llm, requests, question, False, summary
+                    )
+ 
+                    new_annotation = {
+                        "current_user_id": str(current_user_id),
+                        "request": requests,
+                        "query": existing_doc.query,
+                        "title": existing_doc.title,
+                        "summary": summary,
+                        "node_count": existing_doc.node_count,
+                        "edge_count": existing_doc.edge_count,
+                        "node_types": existing_doc.node_types,
+                        "node_count_by_label": existing_doc.node_count_by_label,
+                        "edge_count_by_label": existing_doc.edge_count_by_label,
+                        "answer": answer,
+                        "question": question,
+                        "status": TaskStatus.COMPLETE.value,
+                        "query_fingerprint": fingerprint,
+                        "path_url": existing_doc.path_url,
+                        "files": existing_doc.files,
+                        "species": species,
+                        "data_source": data_source,
+                    }
+                    new_annotation_id = AnnotationStorageService.save(new_annotation)
+ 
+                    existing_cache = redis_client.get(str(existing_doc.id))
+                    if existing_cache:
+                        redis_client.setex(str(new_annotation_id), 3600, existing_cache)
+ 
+                    return {
+                        "annotation_id": str(new_annotation_id),
+                        "question": question,
+                        "answer": answer,
+                    }
+ 
+                else:
+                    # No question — safe to share the existing annotation.
+                    if str(existing_doc.user_id) != str(current_user_id):
+                        AnnotationStorageService.add_participant(
+                            existing_doc.id, str(current_user_id)
+                        )
+                    return {
+                        "annotation_id": str(existing_doc.id),
+                        "question": None,
+                        "answer": existing_doc.answer,  # None or a graph-level summary
+                    }
+
+            # Generate Query using canonical requests for stable caching
+            query = db_instance.query_Generator(
+                canonical_req, canonical_node_map, limit, node_only
+            )
+            result_query = query[0]
+            total_count_query = query[1]
+            count_by_label_query = query[2]
+
+            # Node Types (keep original nodes for response/storage tracking)
+            nodes = requests.get("nodes", [])
+            node_types = list(set(node["type"] for node in nodes))
+
+            if source is None:
+                response = handle_client_request(
+                    query,
+                    requests,
+                    current_user_id,
+                    node_types,
+                    species,
+                    data_source,
+                    node_map,
+                    fingerprint=fingerprint,
+                )
+                return response
 
         result = db_instance.run_query(result_query)
         graph_components = {
-            "nodes": requests.get('nodes', []), 
-            "predicates": requests.get('predicates', []),
-            'properties': prop_bool}
+            "nodes": requests.get("nodes", []),
+            "predicates": requests.get("predicates", []),
+            "properties": prop_bool,
+        }
 
         result_graph = db_instance.parse_and_serialize(
-            result, schema_manager.full_schema_representation,
-            graph_components, result_type='graph')
+            result,
+            schema_manager.full_schema_representation,
+            graph_components,
+            result_type="graph",
+        )
 
-        if source == 'hypothesis':
-            return {"nodes": result_graph.get('nodes', [])}
+        if source == "hypothesis":
+            return {"nodes": result_graph.get("nodes", [])}
 
         total_count = db_instance.run_query(total_count_query)
         count_by_label = db_instance.run_query(count_by_label_query)
         count_result = [total_count[0], count_by_label[0]]
-        
+
         meta_data = db_instance.parse_and_serialize(
-            count_result, schema_manager.full_schema_representation,
-            graph_components, result_type='count')
+            count_result,
+            schema_manager.full_schema_representation,
+            graph_components,
+            result_type="count",
+        )
 
         title = llm.generate_title(result_query, requests, node_map)
-        summary = llm.generate_summary(result_graph, requests) or 'Graph too big, could not summarize'
+        summary = (
+            llm.generate_summary(result_graph, requests)
+            or "Graph too big, could not summarize"
+        )
         answer = llm.generate_summary(result_graph, requests, question, False, summary)
-        
+
         graph = Graph()
-        if len(result_graph['edges']) == 0:
+        if len(result_graph["edges"]) == 0:
             response_grouped = graph.group_node_only(result_graph, requests)
         else:
             response_grouped = graph.group_graph(result_graph)
-        
+
         annotation = {
             "current_user_id": str(current_user_id),
             "request": requests,
             "query": result_query,
             "title": title,
             "summary": summary,
-            "node_count": meta_data['node_count'],
-            "edge_count": meta_data['edge_count'],
+            "node_count": meta_data["node_count"],
+            "edge_count": meta_data["edge_count"],
             "node_types": node_types,
-            "node_count_by_label": meta_data['node_count_by_label'],
-            "edge_count_by_label": meta_data['edge_count_by_label'],
-            "answer": answer, 
+            "node_count_by_label": meta_data["node_count_by_label"],
+            "edge_count_by_label": meta_data["edge_count_by_label"],
+            "answer": answer,
             "question": question,
-            "status": TaskStatus.COMPLETE.value
+            "status": TaskStatus.COMPLETE.value,
+            "query_fingerprint": fingerprint,
         }
-        
+
         annotation_id = AnnotationStorageService.save(annotation)
-        
+
         EXP = 3600
-        redis_client.setex(str(annotation_id), EXP, json.dumps({
-            'task': 4,
-            'graph': {'nodes': response_grouped['nodes'], 'edges': response_grouped['edges']}
-        }))
-        
+        redis_client.setex(
+            str(annotation_id),
+            EXP,
+            json.dumps(
+                {
+                    "task": 4,
+                    "graph": {
+                        "nodes": response_grouped["nodes"],
+                        "edges": response_grouped["edges"],
+                    },
+                }
+            ),
+        )
+
         response = {
-            "annotation_id": str(annotation_id), 
-            "question": question, 
-            "answer": answer
+            "annotation_id": str(annotation_id),
+            "question": question,
+            "answer": answer,
         }
         return response
 
@@ -188,68 +407,75 @@ def process_query(
         logger.error(f"Error processing query: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Query processing failed. Check server logs for details.")
 
+
 @router.post("/email-query/{id}")
 def process_email_query(
     id: str,
     data: Dict[str, Any] = Body(...),
-    current_user_id: str = Depends(get_current_user)
+    current_user_id: str = Depends(get_current_user),
 ):
-    if 'email' not in data:
-         raise HTTPException(status_code=400, detail="Email missing")
+    if "email" not in data:
+        raise HTTPException(status_code=400, detail="Email missing")
 
-    email = data['email']
-    
+    email = data["email"]
+
     def send_full_data_task():
         try:
             link = process_full_data(current_user_id=current_user_id, annotation_id=id)
 
             if link:
-                subject = 'Full Data'
-                body = f'Hello {email}. click this link {link} to download the full data you requested.'
+                subject = "Full Data"
+                body = f"Hello {email}. click this link {link} to download the full data you requested."
                 send_email(subject, [email], body)
         except Exception as e:
             logger.error(f"Error processing email query: {e}", exc_info=True)
 
-    sender = threading.Thread(name='main_sender', target=send_full_data_task)
+    sender = threading.Thread(name="main_sender", target=send_full_data_task)
     sender.start()
-    return {'message': 'Email sent successfully'}
+    return {"message": "Email sent successfully"}
+
 
 @router.get("/history")
 def process_user_history(
-    page_number: int = 1,
-    current_user_id: str = Depends(get_current_user)
+    page_number: int = 1, current_user_id: str = Depends(get_current_user)
 ):
     try:
         cursor = AnnotationStorageService.get_all(current_user_id, page_number)
-        
+
         if cursor is None:
-             return [] # JSON response
+            return []  # JSON response
 
         return_value = []
         for document in cursor:
-            source = document.get('data_source', 'all')
-            if document.get('species', 'human') == 'fly':
-                source = ['flyall']
-            if document.get('species', 'human') == 'human' and document.get('data_source', 'all') == 'all':
-                source = ['all']
-            
-            return_value.append({
-                'annotation_id': str(document['_id']),
-                "request": document['request'],
-                'title': document['title'],
-                'node_count': document['node_count'],
-                'edge_count': document['edge_count'],
-                'node_types': document['node_types'],
-                'status': document['status'],
-                'species': document.get('species', 'human'),
-                'source': source, 
-                "created_at": document['created_at'].isoformat(),
-                "updated_at": document["updated_at"].isoformat()
-            })
+            source = document.get("data_source", "all")
+            if document.get("species", "human") == "fly":
+                source = ["flyall"]
+            if (
+                document.get("species", "human") == "human"
+                and document.get("data_source", "all") == "all"
+            ):
+                source = ["all"]
+
+            return_value.append(
+                {
+                    "annotation_id": str(document["_id"]),
+                    "request": document["request"],
+                    "title": document["title"],
+                    "node_count": document["node_count"],
+                    "edge_count": document["edge_count"],
+                    "node_types": document["node_types"],
+                    "status": document["status"],
+                    "species": document.get("species", "human"),
+                    "source": source,
+                    "created_at": document["created_at"].isoformat(),
+                    "updated_at": document["updated_at"].isoformat(),
+                }
+            )
         return return_value
     except Exception as e:
         logger.error(f"Error calling /history: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal Server Error")
+
 
 @router.get("/annotation/{id}")
 def get_annotation_by_id(
@@ -259,25 +485,24 @@ def get_annotation_by_id(
     properties: Optional[str] = FQuery(None),
     source: Optional[str] = FQuery(None),
     auth_header: Optional[str] = Depends(oauth2_scheme),
-    redis_client = Depends(get_redis_client),
+    redis_client=Depends(get_redis_client),
 ):
     current_user_id = None
-    
+
     # 1. Check shared token in query param
     if token:
         try:
-            shared_secret = os.getenv('SHARED_TOKEN_SECRET')
+            shared_secret = os.getenv("SHARED_TOKEN_SECRET")
             if not shared_secret:
-                 shared_secret = settings.JWT_SECRET
-            
-            data = jwt.decode(token, shared_secret, algorithms=['HS256'])
-            current_user_id = data['user_id']
-            
+                shared_secret = settings.JWT_SECRET
+
+            data = jwt.decode(token, shared_secret, algorithms=["HS256"])
+            current_user_id = data["user_id"]
+
             # Verify shared resource existence
-            shared_resource = SharedAnnotationStorageService.get({
-                'user_id': current_user_id,
-                'annotation_id': id
-            })
+            shared_resource = SharedAnnotationStorageService.get(
+                {"user_id": current_user_id, "annotation_id": id}
+            )
             if shared_resource is None:
                 raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -288,40 +513,49 @@ def get_annotation_by_id(
     elif auth_header:
         try:
             data = jwt.decode(auth_header, settings.JWT_SECRET, algorithms=["HS256"])
-            current_user_id = data.get('user_id')
+            current_user_id = data.get("user_id")
         except Exception:
             raise HTTPException(status_code=403, detail="Token is invalid!")
-    
+
     if not current_user_id:
-         raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     # Access Logic
     existing_annotation = AnnotationStorageService.get_by_id(id)
     if not existing_annotation:
-         raise HTTPException(status_code=404, detail="Annotation not found")
+        raise HTTPException(status_code=404, detail="Annotation not found")
 
     owner_id = existing_annotation.user_id
-    
-    shared_annotation = SharedAnnotationStorageService.get({
-        'user_id': owner_id,
-        'annotation_id': id
-    })
-    
+    participants = existing_annotation.participant_user_ids or []
+
+    shared_annotation = SharedAnnotationStorageService.get(
+        {"user_id": owner_id, "annotation_id": id}
+    )
+
     if shared_annotation is None:
-        if str(owner_id) != str(current_user_id):
-             raise HTTPException(status_code=401, detail="Unauthorized")
+        if (
+            str(owner_id) != str(current_user_id)
+            and str(current_user_id) not in participants
+        ):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        if str(current_user_id) in participants:
+            current_user_id = owner_id
     else:
         share_type = shared_annotation.share_type
         recipient_user_id = shared_annotation.recipient_user_id
-        
-        if share_type != 'public':
-            if str(recipient_user_id) != str(current_user_id):
+
+        if share_type != "public":
+            if (
+                str(recipient_user_id) != str(current_user_id)
+                and str(owner_id) != str(current_user_id)
+                and str(current_user_id) not in participants
+            ):
                 raise HTTPException(status_code=401, detail="Unauthorized")
-        
+
         current_user_id = owner_id
 
     cursor = AnnotationStorageService.get_user_annotation(id, str(current_user_id))
-
 
     if cursor is None:
         raise HTTPException(status_code=404, detail="No value Found")
@@ -358,7 +592,7 @@ def get_annotation_by_id(
         "files": files,
         "source": source,
         "species": species,
-        "status": status
+        "status": status,
     }
     
     if summary: response_data["summary"] = summary
@@ -380,20 +614,20 @@ def get_annotation_by_id(
     if redis_client:
         cache = redis_client.get(str(annotation_id))
         if cache:
-             cache_data = json.loads(cache)
-             graph = cache_data.get('graph')
-             if graph:
-                 response_data['nodes'] = graph.get('nodes')
-                 response_data['edges'] = graph.get('edges')
-             return response_data
+            cache_data = json.loads(cache)
+            graph = cache_data.get("graph")
+            if graph:
+                response_data["nodes"] = graph.get("nodes")
+                response_data["edges"] = graph.get("edges")
+            return response_data
 
     if status in [TaskStatus.PENDING.value, TaskStatus.COMPLETE.value]:
         if status == TaskStatus.COMPLETE.value:
             if file_path and os.path.exists(file_path):
-                 with open(file_path, 'r') as f:
-                     graph = json.load(f)
-                 response_data['nodes'] = graph.get('nodes')
-                 response_data['edges'] = graph.get('edges')
+                with open(file_path, "r") as f:
+                    graph = json.load(f)
+                response_data["nodes"] = graph.get("nodes")
+                response_data["edges"] = graph.get("edges")
             else:
                  response_data['status'] = TaskStatus.PENDING.value
                  from app.annotation_controller import requery
@@ -431,160 +665,195 @@ def cell_component(
     id: str = FQuery(..., description="The annotation ID"),
     locations: str = FQuery(..., description="Comma-separated GO term IDs"),
     current_user_id: str = Depends(get_current_user),
-    db_instance = Depends(get_db_instance)):
-    
+    db_instance=Depends(get_db_instance),
+):
+
     # get annotation id and get go term id
     annotation_id = id
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", annotation_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid annotation id",
+        )
+
+    # sanitize again as a filename component before path construction
+    safe_annotation_id = Path(annotation_id).name
+    if safe_annotation_id != annotation_id or not re.fullmatch(r"[A-Za-z0-9_-]+", safe_annotation_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid annotation id",
+        )
 
     # parse the location
-    locations = locations.split(',')
+    locations = locations.split(",")
 
     proteins = []
+    
+    
+    # get the graph and filter out the protein
+        
+    file_name = f"{safe_annotation_id}.json"
+    base_dir = (
+        Path(__file__).parent
+        / ".."
+        / ".."
+        / ".."
+        / ".."
+        / "public"
+        / "graph"
+    ).resolve()
+    path = (base_dir / file_name).resolve()
 
     try:
-        # get the graph and filter out the protein
-        file_name = f'{annotation_id}.json'
-        path = Path(__file__).parent /".."/".."/".."/".."/"public" / "graph" / f"{file_name}"
+        path.relative_to(base_dir)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid annotation id",
+        )
 
-        with open(path, 'r') as f:
+    try:
+        with open(path, "r") as f:
             graph = json.load(f)
 
-        nodes = graph['nodes']
-        edges = graph['edges']
-
+        nodes = graph["nodes"]
+        edges = graph["edges"]
 
         # filter out the parents
         parent_edges = {}
 
         for node in nodes:
-            if node['data']['type'] == 'parent':
-                parent_edges[node['data']['id']] = []
+            if node["data"]["type"] == "parent":
+                parent_edges[node["data"]["id"]] = []
 
         for node in nodes:
-            if 'parent' in node['data'] and node['data']['type'] == 'protein':
-                parent_edges[node['data']['parent']].append(node['data']['id'])
+            if "parent" in node["data"] and node["data"]["type"] == "protein":
+                parent_edges[node["data"]["parent"]].append(node["data"]["id"])
 
         new_edge = []
 
         for i, edge in enumerate(edges):
-            if edge['data']['source'] in parent_edges:
-                for child in parent_edges[edge['data']['source']]:
-                    new_edge.append({
-                        "data": {
-                            "source": child,
-                            "target": edge['data']['target'],
-                            "label": edge['data']['label'],
-                            "edge_id": edge['data']['edge_id'],
-                            "id": generate()
+            if edge["data"]["source"] in parent_edges:
+                for child in parent_edges[edge["data"]["source"]]:
+                    new_edge.append(
+                        {
+                            "data": {
+                                "source": child,
+                                "target": edge["data"]["target"],
+                                "label": edge["data"]["label"],
+                                "edge_id": edge["data"]["edge_id"],
+                                "id": generate(),
+                            }
                         }
-                    })
-            elif edge['data']['target'] in parent_edges:
-                for child in parent_edges[edge['data']['target']]:
-                    new_edge.append({
-                        "data": {
-                            "source": edge['data']['source'],
-                            "target": child,
-                            "label": edge['data']['label'],
-                            "edge_id": edge['data']['edge_id'],
-                            "id": generate()
+                    )
+            elif edge["data"]["target"] in parent_edges:
+                for child in parent_edges[edge["data"]["target"]]:
+                    new_edge.append(
+                        {
+                            "data": {
+                                "source": edge["data"]["source"],
+                                "target": child,
+                                "label": edge["data"]["label"],
+                                "edge_id": edge["data"]["edge_id"],
+                                "id": generate(),
+                            }
                         }
-                    })
+                    )
             else:
-               new_edge.append({
-                   "data": {
-                       "source": edge['data']['source'],
-                       "target": edge['data']['target'],
-                       "label": edge['data']['label'],
-                       "edge_id": edge['data']['edge_id'],
-                       "id": generate()
-                   }
-               })
+                new_edge.append(
+                    {
+                        "data": {
+                            "source": edge["data"]["source"],
+                            "target": edge["data"]["target"],
+                            "label": edge["data"]["label"],
+                            "edge_id": edge["data"]["edge_id"],
+                            "id": generate(),
+                        }
+                    }
+                )
 
         node_to_edge_relationship = {}
 
         inital_node_map = {}
 
         for node in nodes:
-            if node['data']['type'] == 'protein':
-                if node['data']['id'] not in inital_node_map:
-                    inital_node_map[node['data']['id']] = node
+            if node["data"]["type"] == "protein":
+                if node["data"]["id"] not in inital_node_map:
+                    inital_node_map[node["data"]["id"]] = node
 
         for edge in new_edge:
-            source = edge['data']['source']
-            target = edge['data']['target']
-            label = edge['data']['label']
+            source = edge["data"]["source"]
+            target = edge["data"]["target"]
+            label = edge["data"]["label"]
 
             if source in inital_node_map and target in inital_node_map:
                 source_nodes = []
                 target_nodes = []
 
-                if inital_node_map[source]['data']['type'] != 'parent':
-                    for single_node in inital_node_map[source]['data']['nodes']:
-                        source_nodes.append(single_node['id'])
+                if inital_node_map[source]["data"]["type"] != "parent":
+                    for single_node in inital_node_map[source]["data"]["nodes"]:
+                        source_nodes.append(single_node["id"])
 
-                if inital_node_map[target]['data']['type'] != 'parent':
-                    for single_node in inital_node_map[target]['data']['nodes']:
-                        target_nodes.append(single_node['id'])
+                if inital_node_map[target]["data"]["type"] != "parent":
+                    for single_node in inital_node_map[target]["data"]["nodes"]:
+                        target_nodes.append(single_node["id"])
 
                 for source_node in source_nodes:
                     for target_node in target_nodes:
                         key = f"{source_node}_{label}_{target_node}"
                         node_to_edge_relationship[key] = {
-                            'source': source_node,
-                            'label': label,
-                            'target': target_node
+                            "source": source_node,
+                            "label": label,
+                            "target": target_node,
                         }
 
         response = {"nodes": [], "edges": []}
 
         for key, value in node_to_edge_relationship.items():
-            edge_id_arr = key.split(' ')
-            middle_arr = edge_id_arr[1].split('_')
-            middle = '_'.join(middle_arr[1:len(middle_arr)])
-            edge_id = f'{edge_id_arr[0]}_{middle}'
-            response['edges'].append({
-                'data': {
-                    'id': generate(),
-                    'source': value['source'],
-                    'target': value['target'],
-                    'label': value['label'],
-                    'edge_id': edge_id
+            edge_id_arr = key.split(" ")
+            middle_arr = edge_id_arr[1].split("_")
+            middle = "_".join(middle_arr[1 : len(middle_arr)])
+            edge_id = f"{edge_id_arr[0]}_{middle}"
+            response["edges"].append(
+                {
+                    "data": {
+                        "id": generate(),
+                        "source": value["source"],
+                        "target": value["target"],
+                        "label": value["label"],
+                        "edge_id": edge_id,
+                    }
                 }
-            })
-
+            )
 
         go_ids = []
         protein_node_map = {}
 
         for node in nodes:
-            if node['data']['type'] == 'protein':
-                for single_node in node['data']['nodes']:
-                    id = single_node['id'].split(' ')[1]
+            if node["data"]["type"] == "protein":
+                for single_node in node["data"]["nodes"]:
+                    id = single_node["id"].split(" ")[1]
                     proteins.append(id)
                     if id not in protein_node_map:
                         protein_node_map[id] = {}
-                    protein_node_map[id]["data"] = { **single_node, "location": "" }
+                    protein_node_map[id]["data"] = {**single_node, "location": ""}
 
         go_subcomponents = {
             "type": "go",
             "id": "",
-            "properties": {
-                "subontology": "cellular_component"
-            }
+            "properties": {"subontology": "cellular_component"},
         }
 
-        go_parent = {
-            "type": "go",
-            "id": "",
-            "properties": {}
-        }
+        go_parent = {"type": "go", "id": "", "properties": {}}
 
         for location in locations:
             go_id = location.lower()
-            go_id = go_id.replace(':', '_')
+            go_id = go_id.replace(":", "_")
             go_ids.append(go_id)
 
-        query = db_instance.list_query_generator_source_target(go_subcomponents, go_parent, go_ids, "subclass_of")
+        query = db_instance.list_query_generator_source_target(
+            go_subcomponents, go_parent, go_ids, "subclass_of"
+        )
 
         result = db_instance.run_query(query)
         parsed_result_go = db_instance.parse_list_query(result)
@@ -593,52 +862,63 @@ def cell_component(
 
         for key in parsed_result_go.keys():
             go_ids.append(key)
-            go_ids.extend(parsed_result_go[key]['node_ids'])
+            go_ids.extend(parsed_result_go[key]["node_ids"])
 
-        source = {
-            "type": "go",
-            "id": "",
-            "properties": {}
-        }
+        source = {"type": "go", "id": "", "properties": {}}
 
-        target = {
-            "type": "protein",
-            "id": "",
-            "properties": {}
-        }
+        target = {"type": "protein", "id": "", "properties": {}}
 
-        query = db_instance.list_query_generator_both(source, target, go_ids, proteins, "go_gene_product")
+        query = db_instance.list_query_generator_both(
+            source, target, go_ids, proteins, "go_gene_product"
+        )
 
         result = db_instance.run_query(query)
         parsed_result = db_instance.parse_list_query(result)
 
         for key in parsed_result.keys():
             normalized_id = []
-            location = parsed_result[key]['node_ids']
+            location = parsed_result[key]["node_ids"]
             for i, _ in enumerate(location):
                 for parent_id in parsed_result_go.keys():
-                    if location[i] == parent_id or location[i] in parsed_result_go[parent_id]['node_ids']:
-                        normalized_id.append(parent_id.replace('_', ':').upper())
-            protein_node_map[key]['data']['location'] =  ','.join(normalized_id)
+                    if (
+                        location[i] == parent_id
+                        or location[i] in parsed_result_go[parent_id]["node_ids"]
+                    ):
+                        normalized_id.append(parent_id.replace("_", ":").upper())
+            protein_node_map[key]["data"]["location"] = ",".join(normalized_id)
 
         for values in protein_node_map.values():
             response["nodes"].append(values)
 
+        logger.info(
+            json.dumps(
+                {
+                    "status": "success",
+                    "method": "GET",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "endpoint": "/localized-graph",
+                }
+            )
+        )
 
-        logger.info(json.dumps({"status": "success", "method": "GET",
-                                  "timestamp":  datetime.datetime.now().isoformat(),
-                                  "endpoint": "/localized-graph"}))
- 
         return response
     except Exception as e:
-        logger.error(json.dumps({"status": "error", "method": "GET",
-                                  "timestamp":  datetime.datetime.now().isoformat(),
-                                  "endpoint": "/localized-graph",
-                                  "exception": str(e)}), exc_info=True)
+        logger.error(
+            json.dumps(
+                {
+                    "status": "error",
+                    "method": "GET",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "endpoint": "/localized-graph",
+                    "exception": str(e),
+                }
+            ),
+            exc_info=True,
+        )
         error_response = {
-        "status": "error",
-        "message": "An internal server error occurred. Please try again later.",
-        "timestamp": datetime.datetime.now().isoformat()
+            "status": "error",
+            "message": "An internal server error occurred. Please try again later.",
+            "timestamp": datetime.datetime.now().isoformat(),
         }
 
         return JSONResponse(
@@ -646,11 +926,12 @@ def cell_component(
             content={
                 "status": "error",
                 "message": "An internal server error occurred. Please try again later.",
-                "timestamp": datetime.datetime.now().isoformat()
-            }
+                "timestamp": datetime.datetime.now().isoformat(),
+            },
         )
 
-@router.delete('/annotation/{id}')
+
+@router.delete("/annotation/{id}")
 def delete_by_id(id: str, current_user_id: str = Depends(get_current_user)):
     try:
         # check if the user have access to delete the resource
@@ -667,9 +948,7 @@ def delete_by_id(id: str, current_user_id: str = Depends(get_current_user)):
         if status is not None:
             stop_event.set_event()
 
-            response_data = {
-                'message': f'Annotation {id} has been cancelled.'
-            }
+            response_data = {"message": f"Annotation {id} has been cancelled."}
 
         # else delete the annotation from the db
         existing_record = AnnotationStorageService.get_by_id(id)
@@ -682,26 +961,37 @@ def delete_by_id(id: str, current_user_id: str = Depends(get_current_user)):
         if deleted_record is None:
             raise HTTPException(status_code=404, detail="Annotation not found")
 
+        response_data = {"message": "Annotation deleted successfully"}
 
-        response_data = {
-            'message': 'Annotation deleted successfully'
-        }
-        
-        logger.info(json.dumps({"status": "success", "method": "DELETE",
-                                  "timestamp":  datetime.datetime.now().isoformat(),
-                                  "endpoint": "/annotation/<id>",
-                                 }))
+        logger.info(
+            json.dumps(
+                {
+                    "status": "success",
+                    "method": "DELETE",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "endpoint": "/annotation/<id>",
+                }
+            )
+        )
 
         return response_data
     except Exception as e:
-        logger.error(json.dumps({"status": "error", "method": "DELETE",
-                                  "timestamp":  datetime.datetime.now().isoformat(),
-                                  "endpoint": "/annotation/<id>",
-                                  "exception": str(e)}), exc_info=True)
+        logger.error(
+            json.dumps(
+                {
+                    "status": "error",
+                    "method": "DELETE",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "endpoint": "/annotation/<id>",
+                    "exception": str(e),
+                }
+            ),
+            exc_info=True,
+        )
         error_response = {
-        "status": "error",
-        "message": "An internal server error occurred. Please try again later.",
-        "timestamp": datetime.datetime.now().isoformat()
+            "status": "error",
+            "message": "An internal server error occurred. Please try again later.",
+            "timestamp": datetime.datetime.now().isoformat(),
         }
 
         return JSONResponse(
@@ -709,17 +999,18 @@ def delete_by_id(id: str, current_user_id: str = Depends(get_current_user)):
             content={
                 "status": "error",
                 "message": "An internal server error occurred. Please try again later.",
-                "timestamp": datetime.datetime.now().isoformat()
-            }
+                "timestamp": datetime.datetime.now().isoformat(),
+            },
         )
 
-@router.post('/annotation/delete')
+
+@router.post("/annotation/delete")
 async def delete_many(
     # Use Body(...) to grab the raw payload as a dict
-    data: dict = Body(...), 
-    current_user_id: str = Depends(get_current_user)
+    data: dict = Body(...),
+    current_user_id: str = Depends(get_current_user),
 ):
-    annotation_ids = data['annotation_ids']
+    annotation_ids = data["annotation_ids"]
 
     # Check if the list is empty
     if len(annotation_ids) == 0:
@@ -727,47 +1018,70 @@ async def delete_many(
 
     # Check if user has access to delete the resource
     for annotation_id in annotation_ids:
-        annotation = AnnotationStorageService.get_user_annotation(annotation_id, current_user_id)
+        annotation = AnnotationStorageService.get_user_annotation(
+            annotation_id, current_user_id
+        )
         if annotation is None:
             # Returning 404 if user doesn't own the annotation or it doesn't exist
-            raise HTTPException(status_code=404, detail=f"Annotation {annotation_id} not found or access denied")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Annotation {annotation_id} not found or access denied",
+            )
 
     try:
         # Perform the deletion
         delete_count = AnnotationStorageService.delete_many_by_id(annotation_ids)
 
         response_data = {
-            'message': f'Out of {len(annotation_ids)}, {delete_count} were successfully deleted.'
+            "message": f"Out of {len(annotation_ids)}, {delete_count} were successfully deleted."
         }
-        
-        logger.info(json.dumps({"status": "success", "method": "POST",
-                                  "timestamp":  datetime.datetime.now().isoformat(),
-                                  "endpoint": "/annotation/delete"}))
+
+        logger.info(
+            json.dumps(
+                {
+                    "status": "success",
+                    "method": "POST",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "endpoint": "/annotation/delete",
+                }
+            )
+        )
 
         return response_data
-        
+
     except Exception as e:
-        logger.error(json.dumps({"status": "error", "method": "POST",
-                                  "timestamp":  datetime.datetime.now().isoformat(),
-                                  "endpoint": "/annotation/delete",
-                                  "exception": str(e)}), exc_info=True)
-        
+        logger.error(
+            json.dumps(
+                {
+                    "status": "error",
+                    "method": "POST",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "endpoint": "/annotation/delete",
+                    "exception": str(e),
+                }
+            ),
+            exc_info=True,
+        )
+
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": "error",
                 "message": "An internal server error occurred. Please try again later.",
-                "timestamp": datetime.datetime.now().isoformat()
-            }
+                "timestamp": datetime.datetime.now().isoformat(),
+            },
         )
 
-@router.post('/annotation/{id}/title')
-def update_title(id:str, data: dict = Body(...),current_user_id: str = Depends(get_current_user)):
 
-    if 'title' not in data:
+@router.post("/annotation/{id}/title")
+def update_title(
+    id: str, data: dict = Body(...), current_user_id: str = Depends(get_current_user)
+):
+
+    if "title" not in data:
         raise HTTPException(status_code=400, detail="Title is required")
 
-    title = data['title']
+    title = data["title"]
 
     try:
         existing_record = AnnotationStorageService.get_by_id(id)
@@ -775,28 +1089,43 @@ def update_title(id:str, data: dict = Body(...),current_user_id: str = Depends(g
         if existing_record is None:
             raise HTTPException(status_code=404, detail="Annotation not found")
 
-        AnnotationStorageService.update(id, {'title': title})
+        AnnotationStorageService.update(id, {"title": title})
 
         response_data = {
-            'message': 'title updated successfully',
-            'title': title,
+            "message": "title updated successfully",
+            "title": title,
         }
 
-        logger.info(json.dumps({"status": "success", "method": "PUT",
-                                  "timestamp":  datetime.datetime.now().isoformat(),
-                                  "endpoint": "/annotation/<id>/title"}))
+        logger.info(
+            json.dumps(
+                {
+                    "status": "success",
+                    "method": "PUT",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "endpoint": "/annotation/<id>/title",
+                }
+            )
+        )
         return response_data
     except Exception as e:
-        logger.error(json.dumps({"status": "error", "method": "PUT",
-                                  "timestamp":  datetime.datetime.now().isoformat(),
-                                  "endpoint": "/annotation/<id>/title",
-                                  "exception": str(e)}), exc_info=True)
+        logger.error(
+            json.dumps(
+                {
+                    "status": "error",
+                    "method": "PUT",
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "endpoint": "/annotation/<id>/title",
+                    "exception": str(e),
+                }
+            ),
+            exc_info=True,
+        )
 
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": "error",
                 "message": "An internal server error occurred. Please try again later.",
-                "timestamp": datetime.datetime.now().isoformat()
-            }
+                "timestamp": datetime.datetime.now().isoformat(),
+            },
         )
