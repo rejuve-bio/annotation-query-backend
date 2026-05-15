@@ -90,7 +90,10 @@ def process_query(
         
         # schema for validation
         schema_for_species = schema_manager.schema.get(species, {})
-        node_map = validate_request(requests, schema_for_species, source)
+        try:
+            node_map = validate_request(requests, schema_for_species, source)
+        except Exception as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
         if node_map is None:
              raise HTTPException(status_code=400, detail="Invalid node_map returned by validate_request")
 
@@ -178,9 +181,11 @@ def process_query(
         }
         return response
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing query: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        raise HTTPException(status_code=500, detail="Query processing failed. Check server logs for details.")
 
 @router.post("/email-query/{id}")
 def process_email_query(
@@ -337,6 +342,12 @@ def get_annotation_by_id(
     species = cursor.species
     source = cursor.data_source
     files = cursor.files
+    retrieval_duration = cursor.retrieval_duration
+    processing_duration = cursor.processing_duration
+    total_duration = cursor.total_duration
+    graph_error_message = cursor.graph_error_message
+    count_error_message = cursor.count_error_message
+    label_count_error_message = cursor.label_count_error_message
 
     response_data = {
         "annotation_id": str(annotation_id),
@@ -351,9 +362,15 @@ def get_annotation_by_id(
     
     if summary: response_data["summary"] = summary
     if node_count: response_data["node_count"] = node_count; response_data["edge_count"] = edge_count
-    if node_count_by_label: 
+    if node_count_by_label:
         response_data["node_count_by_label"] = node_count_by_label
         response_data["edge_count_by_label"] = edge_count_by_label
+    if retrieval_duration: response_data["retrieval_duration"] = retrieval_duration
+    if processing_duration: response_data["processing_duration"] = processing_duration
+    if total_duration: response_data["total_duration"] = total_duration
+    if graph_error_message: response_data["graph_error_message"] = graph_error_message
+    if count_error_message: response_data["count_error_message"] = count_error_message
+    if label_count_error_message: response_data["label_count_error_message"] = label_count_error_message
         
     if cursor.data_source == 'ai-assistant':
          return {"annotation_id": str(annotation_id), "question": question, "answer": answer}
@@ -380,6 +397,29 @@ def get_annotation_by_id(
                  response_data['status'] = TaskStatus.PENDING.value
                  from app.annotation_controller import requery
                  requery(annotation_id, query, json_request, species)
+        elif status == TaskStatus.PENDING.value:
+            # Recovery: graph was computed (e.g. before a worker restart) but
+            # summary_task never ran to flip the status to COMPLETE.
+            # Guards:
+            #   1. node_count must be set — total_count_task populates this,
+            #      confirming the chord header tasks (not just graph_task) finished.
+            #   2. Graph file must exist on disk.
+            # The DB update uses complete_if_pending (conditional $set) so
+            # concurrent GET requests don't race to overwrite each other.
+            default_path = f"/app/public/graph/{id}.json"
+            resolved_path = file_path if (file_path and os.path.exists(file_path)) else (
+                default_path if os.path.exists(default_path) else None
+            )
+            if resolved_path and node_count is not None:
+                AnnotationStorageService.complete_if_pending(
+                    annotation_id,
+                    {"status": TaskStatus.COMPLETE.value, "path_url": resolved_path},
+                )
+                response_data['status'] = TaskStatus.COMPLETE.value
+                with open(resolved_path, 'r') as f:
+                    graph = json.load(f)
+                response_data['nodes'] = graph.get('nodes')
+                response_data['edges'] = graph.get('edges')
         return response_data
 
     return response_data
