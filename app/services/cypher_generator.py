@@ -107,8 +107,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
-        if self.is_gene_list_request(requests):
-            return self.gene_list_query_generator(requests, limit)
+        if self.is_ist_request(requests):
+            return self.list_query_generator(requests, limit)
         
         nodes = requests['nodes']
         predicate_map = {}
@@ -347,7 +347,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         return [total_count, label_count_query]
     
-    def is_gene_list_request(self, requests):
+    def is_list_request(self, requests):
         """
         Returns True if any node in the request has a 'ids' list property,
         indicating this is a gene list vs gene list query.
@@ -357,7 +357,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 return True
         return False
 
-    def gene_list_query_generator(self, requests, limit=None):
+    def list_query_generator(self, requests, limit=None):
         nodes = requests['nodes']
         predicates = requests.get('predicates', [])
 
