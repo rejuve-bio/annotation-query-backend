@@ -320,10 +320,6 @@ class ResilientDriver:
         except Exception as exc:
             exc_holder.append(exc)
 
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
-
     def session(self, **kwargs):
         """Return a Neo4j session from the current driver."""
         with self._lock:
