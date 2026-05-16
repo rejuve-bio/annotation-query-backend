@@ -3,7 +3,7 @@ import json
 import os
 import datetime
 from app.api.deps import get_db_instance, get_schema_manager
-from app.workers.task_handler import graph_task, start_thread, reset_task, reset_status
+from app.workers.task_handler import graph_task, start_thread, reset_task, reset_status, _is_slow_query
 from app.lib import convert_to_csv, generate_file_path, \
     adjust_file_path
 import time
@@ -184,13 +184,11 @@ def requery(annotation_id, query, request, species='human'):
     # graph_task signature: (query_code, annotation_id, requests, result_status, species, status=None)
     # result_status argument is legacy (was event), passing 0 or None
     try:
-        graph_task.delay(
-            query, 
-            annotation_id, 
-            request, 
-            0, # dummy for 'result_status'
-            species, 
-            status=TaskStatus.COMPLETE.value
+        queue = 'slow' if _is_slow_query(request) else 'fast'
+        graph_task.apply_async(
+            args=[query, annotation_id, request, 0, species],
+            kwargs={'status': TaskStatus.COMPLETE.value},
+            queue=queue,
         )
     except Exception as e:
         logger.error("Error triggering graph_task celery job %s", e)
