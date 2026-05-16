@@ -1,5 +1,5 @@
 {
-  "node_coun/": 60574473,
+  "node_count": 60574473,
   "edge_count": 638002294,
   "dataset_count": 36,
   "last_updated_at": "2026-05-08",
@@ -601,13 +601,7 @@
       ],
       "count": 285709
     },
-    {
-      "entities": [
-        "gene",
-        "developmental_stage"
-      ],
-      "count": 7211590
-    },
+
     {
       "entities": [
         "gene",
@@ -1410,15 +1404,7 @@
           ]
         }
       },
-      {
-        "data": {
-          "source": "gene",
-          "target": "developmental_stage",
-          "possible_connections": [
-            "expressed_in"
-          ]
-        }
-      },
+
       {
         "data": {
           "source": "gene",
