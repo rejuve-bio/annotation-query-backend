@@ -1,6 +1,4 @@
 """
-db_resilience.py
-
 Intelligent failure detection and classification system for Neo4j connections.
 Provides:
   - FailureClassifier  – classifies exceptions as transient or permanent
@@ -33,12 +31,13 @@ from neo4j.exceptions import (
     DatabaseError,
 )
 
+from app.error import TaskCancelledException
+
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
+
 # 1. Failure classification
-# ---------------------------------------------------------------------------
 
 class FailureKind(Enum):
     TRANSIENT = auto()   # Worth retrying (network blip, overload, lock timeout)
@@ -86,7 +85,7 @@ class FailureClassifier:
 
     @staticmethod
     def classify(exc: Exception) -> FailureKind:
-        # --- check status code on Neo4j errors first (most precise) ---
+        # check status code on Neo4j errors first
         status_code: Optional[str] = getattr(exc, "code", None)
         if status_code:
             for prefix in _TRANSIENT_STATUS_PREFIXES:
@@ -96,13 +95,13 @@ class FailureClassifier:
                 if status_code.startswith(prefix):
                     return FailureKind.PERMANENT
 
-        # --- fall back to Python type hierarchy ---
+        # fall back to Python type hierarchy 
         if isinstance(exc, _TRANSIENT_EXCEPTION_TYPES):
             return FailureKind.TRANSIENT
         if isinstance(exc, _PERMANENT_EXCEPTION_TYPES):
             return FailureKind.PERMANENT
 
-        # --- heuristic: look for network-related message keywords ---
+        #  heuristic: look for network-related message keywords 
         msg = str(exc).lower()
         transient_keywords = ("connection refused", "timed out", "broken pipe",
                               "reset by peer", "unreachable", "unavailable",
@@ -117,9 +116,7 @@ class FailureClassifier:
         return FailureKind.UNKNOWN
 
 
-# ---------------------------------------------------------------------------
 # 2. Retry policy
-# ---------------------------------------------------------------------------
 
 @dataclass
 class RetryPolicy:
@@ -170,9 +167,8 @@ class RetryPolicy:
         return delay
 
 
-# ---------------------------------------------------------------------------
+
 # 3. Query types and timeout configuration
-# ---------------------------------------------------------------------------
 
 class QueryType(str, Enum):
     """
@@ -185,7 +181,7 @@ class QueryType(str, Enum):
     DEFAULT = "default"      # No timeout – preserves original behaviour
     GRAPH = "graph"        # Full node+edge graph fetch
     COUNT = "count"        # Aggregation / count queries
-    GENE_LIST = "gene_list"    # Gene-list vs gene-list queries
+    LIST = "list"    # Gene-list vs gene-list queries
     LOAD = "load"         # Dataset loading (cypher file ingestion)
     SCHEMA = "schema"       # Schema / metadata introspection queries
 
@@ -248,9 +244,7 @@ class QueryTimeoutConfig:
 DEFAULT_TIMEOUT_CONFIG = QueryTimeoutConfig()
 
 
-# ---------------------------------------------------------------------------
 # 4. Resilient driver
-# ---------------------------------------------------------------------------
 
 class ResilientDriver:
     """
@@ -282,10 +276,6 @@ class ResilientDriver:
         self._closed = False
 
         self._connect()   # eager initial connection
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     def _connect(self) -> None:
         """(Re-)create the underlying Neo4j driver."""
@@ -324,7 +314,6 @@ class ResilientDriver:
                 result = session.run(query_code)
                 for record in result:
                     if stop_event is not None and stop_event.is_set():
-                        from app.error import TaskCancelledException
                         raise TaskCancelledException()
                     results.append(record)
             result_holder.append(results)
@@ -399,7 +388,6 @@ class ResilientDriver:
             The last exception raised after all retry attempts are exhausted,
             or any PERMANENT failure on the first occurrence.
         """
-        from app.error import TaskCancelledException
 
         timeout_s = self._timeout_config.timeout_for(query_type)
         last_exc: Optional[Exception] = None
@@ -413,7 +401,7 @@ class ResilientDriver:
 
             try:
                 if timeout_s is None:
-                    # ── No timeout: original blocking path ──────────────
+                    # No timeout: use lazy loading
                     results = []
                     with self.session() as session:
                         result = session.run(query_code)
@@ -422,7 +410,7 @@ class ResilientDriver:
                                 raise TaskCancelledException()
                             results.append(record)
                 else:
-                    # ── Timeout path: run query in a daemon thread ───────
+                    # Timeout path: run query in a daemon thread 
                     result_holder: list = []
                     exc_holder: list = []
 
@@ -461,7 +449,7 @@ class ResilientDriver:
 
                     results = result_holder[0] if result_holder else []
 
-                # ── Slow-query warning (fires regardless of timeout setting) ──
+                # Slow-query warning (fires regardless of timeout setting) ──
                 elapsed = time.monotonic() - start_time
                 warn_threshold = self._timeout_config.warn_threshold_s
                 if warn_threshold is not None and elapsed >= warn_threshold:
@@ -525,89 +513,3 @@ class ResilientDriver:
                 time.sleep(delay)
 
         raise last_exc   # type: ignore[misc]
-
-
-# ---------------------------------------------------------------------------
-# 5. Decorator for existing methods
-# ---------------------------------------------------------------------------
-
-def resilient_query(
-    policy: Optional[RetryPolicy] = None,
-    driver_attr: str = "driver",
-) -> Callable:
-    """
-    Method decorator that wraps any function whose first argument is *self*
-    with retry-on-transient-failure logic.
-
-    Usage
-    -----
-    class MyClass:
-        @resilient_query(policy=RetryPolicy(max_attempts=4))
-        def run_query(self, query_code, stop_event=None, species="human"):
-            ...
-
-    The decorator injects ``attempt`` and ``last_exc`` context into the
-    re-raised exception's ``__context__`` chain for easier debugging.
-    """
-    _policy = policy or RetryPolicy()
-
-    def decorator(fn: Callable) -> Callable:
-        @functools.wraps(fn)
-        def wrapper(self, *args, **kwargs):
-            last_exc: Optional[Exception] = None
-            stop_event = kwargs.get("stop_event") or (
-                args[1] if len(args) > 1 else None
-            )
-
-            for attempt in range(_policy.max_attempts):
-                try:
-                    return fn(self, *args, **kwargs)
-                except Exception as exc:
-                    # Re-raise cancellations immediately
-                    try:
-                        from app.error import TaskCancelledException
-                        if isinstance(exc, TaskCancelledException):
-                            raise
-                    except ImportError:
-                        pass
-
-                    last_exc = exc
-                    kind     = FailureClassifier.classify(exc)
-
-                    logger.warning(
-                        "[resilient_query] %s attempt %d/%d failed [%s]: %s",
-                        fn.__qualname__,
-                        attempt + 1,
-                        _policy.max_attempts,
-                        kind.name,
-                        exc,
-                    )
-
-                    if not _policy.should_retry(kind, attempt + 1):
-                        raise
-
-                    # Attempt reconnection if the object exposes a
-                    # ``_reconnect`` or ``reconnect`` method
-                    if isinstance(exc, (ServiceUnavailable, SessionExpired,
-                                         ConnectionError, OSError)):
-                        reconnect = (getattr(self, "_reconnect", None) or
-                                     getattr(self, "reconnect", None))
-                        if callable(reconnect):
-                            try:
-                                reconnect()
-                            except Exception as r_exc:
-                                logger.warning(
-                                    "Reconnect in decorator failed: %s", r_exc
-                                )
-
-                    delay = _policy.delay_for(attempt)
-                    logger.info(
-                        "[resilient_query] Retrying %s in %.2f s …",
-                        fn.__qualname__,
-                        delay,
-                    )
-                    time.sleep(delay)
-
-            raise last_exc  # type: ignore[misc]
-        return wrapper
-    return decorator

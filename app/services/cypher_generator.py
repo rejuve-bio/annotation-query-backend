@@ -9,8 +9,7 @@ import os
 from neo4j.graph import Node, Relationship
 from app.error import TaskCancelledException
 
-# Import the resilience layer
-from app.services.db_resilience import ResilientDriver, RetryPolicy, QueryType, QueryTimeoutConfig
+from app.lib.db_resilience import ResilientDriver, RetryPolicy, QueryType, QueryTimeoutConfig
 
 load_dotenv()
 
@@ -18,7 +17,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Shared retry policy (tune here once, used everywhere)
+# Shared retry policy
 _DEFAULT_POLICY = RetryPolicy(
     max_attempts=5,
     base_delay_s=0.5,
@@ -39,7 +38,7 @@ _TIMEOUT_CONFIG = QueryTimeoutConfig(
         QueryType.DEFAULT:   None,   # indefinite
         QueryType.GRAPH:     None,   # indefinite
         QueryType.COUNT:     None,   # indefinite
-        QueryType.GENE_LIST: None,   # indefinite
+        QueryType.LIST: None,   # indefinite
         QueryType.LOAD:      None,   # indefinite
         QueryType.SCHEMA:    None,   # indefinite
     },
