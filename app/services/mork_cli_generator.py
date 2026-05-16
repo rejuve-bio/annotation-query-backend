@@ -9,6 +9,7 @@ import hashlib
 import uuid
 from pathlib import Path
 from app.services.mork_generator import MorkQueryGenerator
+from app.constants import QUERY_MAX_NODES
 from hyperon import MeTTa
 import logging
 
@@ -573,7 +574,7 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                     all_atoms.extend(atoms)
 
                     # B5: early exit if atom count hits the hard cap
-                    if len(all_atoms) >= 200_000:
+                    if len(all_atoms) >= QUERY_MAX_NODES:
                         logger.warning(f"[MORK] Early atom exit: {len(all_atoms)} atoms reached cap")
                         _atom_cap = True
                         break
@@ -599,7 +600,7 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 break
 
         duration = (time.time() - start_time) * 1000
-        logger.info("Query executed", extra={"query": str(query_obj), "duration_ms": duration, "status": "success"})
+        logger.info("Query executed", extra={"query": str(query_obj), "duration_ms": duration, "status": "capped" if _atom_cap else "success"})
         return [all_atoms]
 
     def run_query(self, query, stop_event=None, species='human'):
