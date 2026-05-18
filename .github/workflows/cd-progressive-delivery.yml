@@ -1,0 +1,326 @@
+name: CD - Progressive Delivery
+
+on:
+  workflow_run:
+    workflows: ["CD - Deploy to Kubernetes (annotation-staging)"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options: [promote, rollback]
+      image_tag:
+        description: 'Image tag to promote (promote only)'
+        required: false
+        default: 'abdum1964/annotation:staging'
+      reason:
+        description: 'Reason for manual rollback (rollback only)'
+        required: false
+        default: 'manual-trigger'
+
+env:
+  NAMESPACE: annotation-staging
+  DEPLOYMENT_NAME: annotation-service-staging
+  CELERY_DEPLOYMENT: celery-worker-staging
+
+jobs:
+  # JOB 1: Blue-green validation + promotion
+  # Runs after successful deployment or manual promote
+  blue-green-validate:
+    runs-on: self-hosted
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'promote')
+    outputs:
+      image-tag: ${{ steps.set-image-tag.outputs.image-tag }}
+
+    steps:
+    - name: Set image tag
+      id: set-image-tag
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+        else
+          IMAGE_TAG="abdum1964/annotation:staging"
+        fi
+        echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+        echo "Green image: $IMAGE_TAG"
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+
+    - name: Setup kubectl
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config 2>/dev/null || \
+          echo "${{ secrets.KUBECONFIG_STAGING }}" > ~/.kube/config
+        chmod 600 ~/.kube/config
+
+    # Record green revision — for logging only, never triggers rollback
+    - name: Record green revision
+      id: green-revision
+      continue-on-error: true
+      run: |
+        GREEN_REVISION=$(kubectl get deployment ${{ env.DEPLOYMENT_NAME }} \
+          -n ${{ env.NAMESPACE }} \
+          -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}')
+
+        echo "green-revision=$GREEN_REVISION" >> $GITHUB_OUTPUT
+        echo "Green revision : $GREEN_REVISION"
+        echo "Blue revision  : $((GREEN_REVISION - 1)) (Kubernetes will revert here if green fails)"
+
+    # Verify green image is actually running in the cluster
+    - name: Verify green image is live
+      id: verify-green
+      run: |
+        EXPECTED_IMAGE="${{ steps.set-image-tag.outputs.image-tag }}"
+
+        RUNNING_IMAGE=$(kubectl get deployment ${{ env.DEPLOYMENT_NAME }} \
+          -n ${{ env.NAMESPACE }} \
+          -o jsonpath='{.spec.template.spec.containers[0].image}')
+
+        echo "Green revision           : ${{ steps.green-revision.outputs.green-revision }}"
+        echo "Expected green image     : $EXPECTED_IMAGE"
+        echo "Currently running image  : $RUNNING_IMAGE"
+
+        if [[ "$RUNNING_IMAGE" == "$EXPECTED_IMAGE" ]]; then
+          echo "[SUCCESS] Green is live — new image confirmed in cluster"
+        else
+          echo "[ERROR] Green image not confirmed — cluster may not have updated"
+          exit 1
+        fi
+
+    # Real smoke tests — two live API calls to validate core functionality
+    - name: Smoke test green deployment
+      id: smoke-tests
+      run: |
+        BASE_URL="http://${{ secrets.STAGING_SERVER_IP }}:30501"
+        TOKEN="${{ secrets.AUTH_TOKEN }}"
+
+        echo "=== Smoke Test 1: Query gene by name (IGF1) ==="
+        RESPONSE=$(curl -s -w "\n%{http_code}" \
+          --max-time 15 \
+          -X POST "${BASE_URL}/query" \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -d '{
+            "requests": {
+              "nodes": [
+                {
+                  "node_id": "n1",
+                  "id": "",
+                  "type": "gene",
+                  "properties": {
+                    "gene_name": "IGF1"
+                  }
+                }
+              ],
+              "predicates": []
+            }
+          }')
+
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+
+        if [[ "$HTTP_CODE" != "200" ]]; then
+          echo "[FAIL] POST /query — HTTP $HTTP_CODE"
+          exit 1
+        fi
+        echo "[PASS] POST /query — HTTP $HTTP_CODE"
+
+        # Extract ID from first response
+        GENE_ID=$(echo "$BODY" | jq -r '.annotation_id // (.. | .id? // empty)' | head -n1)
+
+        if [[ -z "$GENE_ID" ]]; then
+          echo "[FAIL] Could not extract gene ID from query response"
+          echo "Response: $BODY"
+          exit 1
+        fi
+        echo "Extracted gene ID: $GENE_ID"
+
+        echo "=== Smoke Test 2: Fetch annotation by ID ==="
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          --max-time 15 \
+          -X GET "${BASE_URL}/annotation/${GENE_ID}" \
+          -H "Authorization: Bearer ${TOKEN}")
+
+        if [[ "$HTTP_CODE" != "200" ]]; then
+          echo "[FAIL] GET /annotation/${GENE_ID} — HTTP $HTTP_CODE"
+          exit 1
+        fi
+        echo "[PASS] GET /annotation/${GENE_ID} — HTTP $HTTP_CODE"
+
+        echo "[SUCCESS] All smoke tests passed — green deployment is healthy"
+
+    # Promote to staging-stable after both checks pass
+    - name: Login to Docker Hub
+      if: steps.smoke-tests.outcome == 'success'
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+    - name: Promote green to staging-stable
+      if: steps.smoke-tests.outcome == 'success'
+      run: |
+        IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
+        STABLE_TAG="abdum1964/annotation:staging-stable"
+
+        docker pull $IMAGE_TAG
+        docker tag $IMAGE_TAG $STABLE_TAG
+        docker push $STABLE_TAG
+
+        echo "[SUCCESS] Green promoted to staging-stable"
+        echo "  Green  : $IMAGE_TAG"
+        echo "  Stable : $STABLE_TAG"
+
+    # Green failed — notify operator to manually trigger rollback
+    - name: Notify manual rollback required
+      if: failure()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: "ACTION REQUIRED — Green deployment failed, manual rollback needed"
+        to: ${{ secrets.RECIEVER_EMAIL }}
+        from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+        body: |
+          Green deployment validation failed — manual rollback required!
+
+          Smoke tests or image verification did not pass.
+          Kubernetes has NOT been rolled back automatically.
+
+          Green revision : ${{ steps.green-revision.outputs.green-revision }}
+          Expected image : ${{ steps.set-image-tag.outputs.image-tag }}
+
+          To roll back, go to:
+          ${{ github.server_url }}/${{ github.repository }}/actions/workflows/cd-progressive-delivery.yml
+
+          Click "Run workflow" and select:
+            action  = rollback
+            reason  = smoke-test-failure (or describe what failed)
+
+          View failure logs:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # JOB 2: Manual rollback only — operator-triggered from GitHub UI
+  rollback:
+    runs-on: self-hosted
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'rollback'
+
+    steps:
+    - name: Log rollback trigger
+      run: |
+        echo "Manual rollback triggered by: ${{ github.actor }}"
+        echo "Reason: ${{ github.event.inputs.reason }}"
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+
+    - name: Setup kubectl
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > ~/.kube/config 2>/dev/null || \
+          echo "${{ secrets.KUBECONFIG_STAGING }}" > ~/.kube/config
+        chmod 600 ~/.kube/config
+
+    - name: Record current image before rollback
+      run: |
+        CURRENT_IMAGE=$(kubectl get deployment ${{ env.DEPLOYMENT_NAME }} \
+          -n ${{ env.NAMESPACE }} \
+          -o jsonpath='{.spec.template.spec.containers[0].image}')
+        echo "Rolling back from: $CURRENT_IMAGE"
+
+    - name: Rollback annotation service
+      run: |
+        kubectl rollout undo deployment/${{ env.DEPLOYMENT_NAME }} \
+          -n ${{ env.NAMESPACE }}
+
+        kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} \
+          -n ${{ env.NAMESPACE }} --timeout=120s
+
+        RESTORED_IMAGE=$(kubectl get deployment ${{ env.DEPLOYMENT_NAME }} \
+          -n ${{ env.NAMESPACE }} \
+          -o jsonpath='{.spec.template.spec.containers[0].image}')
+
+        echo "[SUCCESS] annotation-service-staging rolled back"
+        echo "Restored image: $RESTORED_IMAGE"
+
+    - name: Rollback celery worker
+      run: |
+        kubectl rollout undo deployment/${{ env.CELERY_DEPLOYMENT }} \
+          -n ${{ env.NAMESPACE }}
+
+        kubectl rollout status deployment/${{ env.CELERY_DEPLOYMENT }} \
+          -n ${{ env.NAMESPACE }} --timeout=120s
+
+        echo "[SUCCESS] celery-worker-staging rolled back"
+
+    - name: Verify rollback health
+      run: |
+        sleep 15
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          --max-time 10 \
+          "http://${{ secrets.STAGING_SERVER_IP }}:30501/health" 2>/dev/null || echo "000")
+
+        if [[ "$HTTP_CODE" == "200" ]]; then
+          echo "[SUCCESS] Rollback verified — app is healthy (HTTP $HTTP_CODE)"
+        else
+          echo "[WARNING] App returned HTTP $HTTP_CODE after rollback — check manually"
+        fi
+
+  # Notifications
+  notify-success:
+    runs-on: ubuntu-latest
+    needs: [blue-green-validate]
+    if: needs.blue-green-validate.result == 'success'
+
+    steps:
+    - name: Send success notification
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: "CD Blue-Green SUCCESS - Annotation Backend Promoted"
+        to: ${{ secrets.RECIEVER_EMAIL }}
+        from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+        body: |
+          Blue-Green Deployment Validated Successfully!
+
+          Green passed image verification and smoke tests.
+
+          Repository: ${{ github.repository }}
+          Promoted: abdum1964/annotation:staging → abdum1964/annotation:staging-stable
+
+          Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  notify-failure:
+    runs-on: ubuntu-latest
+    needs: [blue-green-validate]
+    if: failure()
+
+    steps:
+    - name: Send failure notification
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: "CD Blue-Green FAILED - Manual Rollback Required"
+        to: ${{ secrets.RECIEVER_EMAIL }}
+        from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+        body: |
+          Blue-Green Deployment Validation Failed!
+
+          Green failed validation. No automatic rollback has occurred.
+          Review the logs and trigger a manual rollback if required.
+
+          Repository: ${{ github.repository }}
+          View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
