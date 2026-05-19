@@ -9,7 +9,7 @@ import hashlib
 import uuid
 from pathlib import Path
 from app.services.mork_generator import MorkQueryGenerator
-from app.constants import QUERY_MAX_NODES
+from app.constants import QUERY_MAX_NODES, MAX_BINDING_VALS, MAX_COMBOS
 from hyperon import MeTTa
 import logging
 
@@ -508,10 +508,6 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 var_pred_count[v] = var_pred_count.get(v, 0) + 1
         chained_vars = {v for v, c in var_pred_count.items() if c > 1}
 
-        # B4 constants: cap binding lists and Cartesian product size
-        _MAX_BINDING_VALS = int(os.environ.get("MAX_BINDING_VALS", "1000"))
-        _MAX_COMBOS       = int(os.environ.get("MAX_COMBOS", "50000"))
-
         # Phase 2: topological worklist
         resolved_vars = set(bindings.keys())
         remaining     = list(predicate_pats)
@@ -548,17 +544,17 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
 
                 # B4: cap each binding list before building the Cartesian product
                 for v in input_var_list:
-                    if len(bindings[v]) > _MAX_BINDING_VALS:
-                        logger.warning(f"[MORK] Capping binding ${v}: {len(bindings[v])} → {_MAX_BINDING_VALS}")
-                        bindings[v] = bindings[v][:_MAX_BINDING_VALS]
+                    if len(bindings[v]) > MAX_BINDING_VALS:
+                        logger.warning(f"[MORK] Capping binding ${v}: {len(bindings[v])} → {MAX_BINDING_VALS}")
+                        bindings[v] = bindings[v][:MAX_BINDING_VALS]
 
                 combos = (
                     list(itertools.product(*[bindings[v] for v in input_var_list]))
                     if input_var_list else [()]
                 )
-                if len(combos) > _MAX_COMBOS:
-                    logger.warning(f"[MORK] Combo cap: {len(combos)} → {_MAX_COMBOS}")
-                    combos = combos[:_MAX_COMBOS]
+                if len(combos) > MAX_COMBOS:
+                    logger.warning(f"[MORK] Combo cap: {len(combos)} → {MAX_COMBOS}")
+                    combos = combos[:MAX_COMBOS]
 
                 new_vals = {v: [] for v in output_vars}
 

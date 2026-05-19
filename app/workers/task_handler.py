@@ -44,14 +44,15 @@ EXP = os.getenv("REDIS_EXPIRATION", 3600)
 llm = get_llm_handler()
 db_type = settings.DATABASE_TYPE.get("type")
 
-# Broker Redis (DB 1) — used only for queue depth checks, not for task data.
-_broker_url = os.getenv("REDIS_URL_BROKER", "redis://localhost:6379/1")
+# Broker Redis — used only for queue depth checks, not for task data.
+# Reads the same URL Celery uses so llen() always targets the right DB.
+_broker_url = celery_app.conf.broker_url or "redis://localhost:6379/0"
 _bp = urlparse(_broker_url)
 _redis_broker = _redis.Redis(
     host=_bp.hostname or "localhost",
     port=_bp.port or 6379,
     password=_bp.password,
-    db=int(_bp.path.lstrip("/") or 1),
+    db=int(_bp.path.lstrip("/") or 0),
 )
 
 # Maximum number of tasks allowed in the slow queue before new slow queries are
@@ -95,7 +96,8 @@ def _drop_stale(annotation_id: str, task_name: str) -> bool:
         }
         redis_client.publish("socket_event", json.dumps(socket_event))
     except Exception:
-        pass
+        logger.exception("[%s] Failed to mark stale annotation %s as FAILED",
+                         task_name, annotation_id)
     return True
 
 
@@ -838,7 +840,7 @@ _SLOW_PREDICATE_TYPES = frozenset({
 # traversal targets produces binding sets too large for the fast queue.
 _SLOW_NODE_TYPES = frozenset({'snp', 'enhancer', 'tfbs', 'promoter'})
 
-def _is_slow_query(request: dict) -> bool:
+def is_slow_query(request: dict) -> bool:
     """
     Route to the slow queue when any factor suggests large intermediate binding sets:
     - query uses a known high-cardinality predicate type, OR
@@ -867,7 +869,7 @@ def start_thread(annotation_id, args):
     meta_data = args["meta_data"]
     species = args["species"]
 
-    queue = 'slow' if _is_slow_query(request) else 'fast'
+    queue = 'slow' if is_slow_query(request) else 'fast'
 
     # Admission control: reject slow queries when the slow queue is already saturated.
     # This prevents unbounded backlog growth and gives the user an immediate, honest

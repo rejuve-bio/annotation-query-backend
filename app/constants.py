@@ -182,3 +182,5 @@ QUERY_MAX_NODES = 200_000   # hard cap on nodes returned per query
 BATCH_MAX_TYPE_SIZE = 500_000   # node types with more total nodes than this → per-node only
 BATCH_NODE_THRESHOLD = 50       # result sets with ≥ this many nodes use batch (if type is small)
 TASK_STALE_SECS = int(os.environ.get("TASK_STALE_SECS", "2400"))  # tasks older than this are dropped
+MAX_BINDING_VALS = int(os.environ.get("MAX_BINDING_VALS", "1000"))  # B4: cap per-variable binding list size
+MAX_COMBOS = int(os.environ.get("MAX_COMBOS", "50000"))             # B4: cap Cartesian product size

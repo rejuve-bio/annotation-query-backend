@@ -272,13 +272,6 @@ Graph collapse_node_nx(const Graph& graph) {
         original_to_group[n.id] = n.id;
     }
 
-    int dbg = 0;
-    for (const auto& e : graph.edges) {
-        if (dbg++ >= 3) break;
-        bool src_found = original_to_group.count(e.source) > 0;
-        bool tgt_found = original_to_group.count(e.target) > 0;
-    }
-
     for (const auto& e : graph.edges) {
         string src = original_to_group.count(e.source) ? original_to_group[e.source] : e.source;
         string tgt = original_to_group.count(e.target) ? original_to_group[e.target] : e.target;
