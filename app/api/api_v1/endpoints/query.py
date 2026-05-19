@@ -20,7 +20,7 @@ from app.persistence import (
     UserStorageService,
     SharedAnnotationStorageService,
 )
-from app.constants import TaskStatus
+from app.constants import TaskStatus, TASK_STALE_SECS
 from app.lib import validate_request, heuristic_sort, Graph
 from app.annotation_controller import handle_client_request
 from pathlib import Path
@@ -573,6 +573,15 @@ def get_annotation_by_id(
     node_count_by_label = cursor.node_count_by_label
     edge_count_by_label = cursor.edge_count_by_label
     status = cursor.status
+    if status == TaskStatus.PENDING.value:
+        try:
+            from bson import ObjectId
+            created_at = ObjectId(id).generation_time.replace(tzinfo=None)
+            age_seconds = (datetime.datetime.utcnow() - created_at).total_seconds()
+            if age_seconds > TASK_STALE_SECS:
+                status = TaskStatus.FAILED.value
+        except Exception:
+            pass
     file_path = cursor.path_url
     species = cursor.species
     source = cursor.data_source
