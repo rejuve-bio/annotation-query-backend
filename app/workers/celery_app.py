@@ -20,7 +20,6 @@ celery_app.conf.update(
     result_serializer='pickle',
     accept_content=['pickle', 'json'],
     result_expires=3600,
-    task_expires=2400,   # discard tasks queued > 40 min; client has already timed out
 )
 
 REDIS_URL = settings.REDIS_URL

@@ -3,7 +3,7 @@ import json
 import os
 import datetime
 from app.api.deps import get_db_instance, get_schema_manager
-from app.workers.task_handler import graph_task, start_thread, reset_task, reset_status, _is_slow_query
+from app.workers.task_handler import graph_task, start_thread, reset_task, reset_status, is_slow_query
 from app.lib import convert_to_csv, generate_file_path, \
     adjust_file_path
 import time
@@ -13,8 +13,6 @@ from .workers.celery_app import init_request_state
 from app.api.deps import get_llm_handler
 
 logger = logging.getLogger(__name__)
-# Initialize locally for module-level usage if required but preferably lazy load
-db_instance = get_db_instance()
 schema_manager = get_schema_manager()
 
 llm = get_llm_handler()
@@ -152,6 +150,7 @@ def process_full_data(current_user_id, annotation_id):
             link = f'{request.host_url}{file_path}'
             return link
 
+        db_instance = get_db_instance()
         result = db_instance.run_query(query)
         parsed_result = db_instance.convert_to_dict(
             result, schema_manager.schema, graph_components)
@@ -184,7 +183,7 @@ def requery(annotation_id, query, request, species='human'):
     # graph_task signature: (query_code, annotation_id, requests, result_status, species, status=None)
     # result_status argument is legacy (was event), passing 0 or None
     try:
-        queue = 'slow' if _is_slow_query(request) else 'fast'
+        queue = 'slow' if is_slow_query(request) else 'fast'
         graph_task.apply_async(
             args=[query, annotation_id, request, 0, species],
             kwargs={'status': TaskStatus.COMPLETE.value},
