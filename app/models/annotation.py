@@ -31,6 +31,9 @@ class Annotation(Schema):
     total_duration = None
     query_fingerprint = None
     participant_user_ids = None
+    graph_error_message = None
+    count_error_message = None
+    label_count_error_message = None
 
     def __init__(self, **kwargs):
         self.schema = {
@@ -71,6 +74,9 @@ class Annotation(Schema):
             "retrieval_duration": Types.String,
             "processing_duration": Types.String,
             "total_duration": Types.String,
+            "graph_error_message": {"type": Types.String},
+            "count_error_message": {"type": Types.String},
+            "label_count_error_message": {"type": Types.String},
             "species": {"type": Types.String, "required": True, "default": "human"},
             "data_source": any,
             "files": any,

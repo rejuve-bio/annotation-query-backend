@@ -31,3 +31,4 @@ uvicorn
 pydantic-settings
 python-multipart
 python-socketio
+pybind11>=2.10.0
