@@ -6,23 +6,23 @@ def clean_string(s):
 
 def validate_request(request, schema, source):
     if 'nodes' not in request:
-        raise Exception("node is missing")
+        raise Exception("'nodes' key is missing from the request")
 
     nodes = request['nodes']
 
     # validate nodes
     if not isinstance(nodes, list):
-        raise Exception("nodes should be a list")
+        raise Exception("'nodes' must be a list")
 
     for node in nodes:
         if not isinstance(node, dict):
-            raise Exception("Each node must be a dictionary")
+            raise Exception("each item in 'nodes' must be a dictionary")
         if 'id' not in node:
-            raise Exception("id is required!")
+            raise Exception("'id' is required for each node")
         if 'type' not in node or node['type'] == "":
-            raise Exception("type is required")
+            raise Exception("'type' is required for each node")
         if 'node_id' not in node or node['node_id'] == "":
-            raise Exception("node_id is required")
+            raise Exception("'node_id' is required for each node")
         
         # format the node id into approperiate format
         node_id = node['node_id']
@@ -51,58 +51,45 @@ def validate_request(request, schema, source):
         if node['node_id'] not in node_map:
             node_map[node['node_id']] = node
         else:
-            raise Exception('Repeated Node_id')
+            raise Exception(f"duplicate node_id '{node['node_id']}': node IDs must be unique within the request")
 
-    # validate predicates
-    if 'predicates' in request:
-        predicates = request['predicates']
+    if 'predicates' not in request:
+        raise Exception("'predicates' key is missing from the request")
 
-        if not isinstance(predicates, list):
-            raise Exception("Predicate should be a list")
-        for i, predicate in enumerate(predicates):
-            if 'type' not in predicate or predicate['type'] == "":
-                raise Exception("predicate type is required")
-            if 'source' not in predicate or predicate['source'] == "":
-                raise Exception("source is required")
-            if 'target' not in predicate or predicate['target'] == "":
-                raise Exception("target is required")
-            
-            #to allow properties edges
-            # if 'properties' in predicate and not isinstance(predicate['properties'], dict):
-            #     raise Exception("predicate properties should be a dictionary")
-            # predicate.setdefault('properties', {})
-            
-            predicate['source'] = clean_string(predicate['source'])
-            predicate['target'] = clean_string(predicate['target'])
-            
-            # Handle cases validation for the ai-assistant
-            if 'predicate_id' not in predicate:
-                predicate['predicate_id'] = f'p{i}'
+    predicates = request['predicates']
 
-            if predicate['source'] not in node_map:
-                raise Exception(
-                    f"Source node {predicate['source']}\
-                    does not exist in the nodes object")
-            if predicate['target'] not in node_map:
-                raise Exception(
-                    f"Target node {predicate['target']}\
-                    does not exist in the nodes object")
+    if not isinstance(predicates, list):
+        raise Exception("'predicates' must be a list")
 
-            # format the predicate type using _
-            predicate_type = predicate['type'].split(' ')
-            predicate_type = '_'.join(predicate_type)
+    for i, predicate in enumerate(predicates):
+        if 'type' not in predicate or predicate['type'] == "":
+            raise Exception("'type' is required for each predicate")
+        if 'source' not in predicate or predicate['source'] == "":
+            raise Exception("'source' is required for each predicate")
+        if 'target' not in predicate or predicate['target'] == "":
+            raise Exception("'target' is required for each predicate")
 
-            source_type = node_map[predicate['source']]['type']
-            target_type = node_map[predicate['target']]['type']
+        predicate['source'] = clean_string(predicate['source'])
+        predicate['target'] = clean_string(predicate['target'])
 
-            predicate_type = f'{source_type}_{predicate_type}_{target_type}'
-            if predicate_type not in schema:
-                raise Exception(
-                    f"Invalid source and target for\
-                    the predicate {predicate['type']}")
+        if 'predicate_id' not in predicate:
+            predicate['predicate_id'] = f'p{i}'
+
+        if predicate['source'] not in node_map:
+            raise Exception(f"source node '{predicate['source']}' does not exist in the nodes list")
+        if predicate['target'] not in node_map:
+            raise Exception(f"target node '{predicate['target']}' does not exist in the nodes list")
+
+        predicate_type = '_'.join(predicate['type'].split(' '))
+        source_type = node_map[predicate['source']]['type']
+        target_type = node_map[predicate['target']]['type']
+        predicate_type = f'{source_type}_{predicate_type}_{target_type}'
+        if predicate_type not in schema:
+            raise Exception(f"invalid predicate '{predicate['type']}': no such relationship between '{source_type}' and '{target_type}'")
+
     if source != 'hypothesis':
         if check_disconnected_graph(request):
-            raise Exception("Disconnected subgraph found")
+            raise Exception("disconnected subgraph: all nodes must be connected through predicates")
 
     return node_map
 

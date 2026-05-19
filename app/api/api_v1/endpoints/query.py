@@ -33,9 +33,30 @@ import threading
 from app.core.config import settings
 from app.api.deps import oauth2_scheme
 import jwt
+import re
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+def _get_graph_for_annotation(existing_doc, redis_client):
+    """
+    Resolves graph data for an existing annotation from Redis or disk.
+    Returns a dict with 'nodes' and 'edges', or an empty graph on failure.
+    """
+    # 1. Try Redis first (fastest)
+    cache = redis_client.get(str(existing_doc.id))
+    if cache:
+        graph_data = json.loads(cache).get("graph", {})
+        if graph_data:
+            return graph_data
+ 
+    # 2. Fall back to disk
+    file_path = existing_doc.path_url
+    if file_path and os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            return json.load(f)
+ 
+    return {"nodes": [], "edges": []}
 
 
 @router.post("/query")
@@ -104,12 +125,16 @@ def process_query(
 
         # Validate request
         user = UserStorageService.get(current_user_id)
-        data_source = user.data_source if user else "all"
-        species = user.species if user else "human"
-
+        data_source = user.data_source if user else 'all'
+        species = requests.get('species') or (user.species if user else 'human')
+        db_instance = get_db_instance(species)
+        
         # schema for validation
         schema_for_species = schema_manager.schema.get(species, {})
-        node_map = validate_request(requests, schema_for_species, source)
+        try:
+            node_map = validate_request(requests, schema_for_species, source)
+        except Exception as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
         if node_map is None:
             raise HTTPException(
                 status_code=400, detail="Invalid node_map returned by validate_request"
@@ -132,32 +157,141 @@ def process_query(
         lock_key = f"dedup_lock:{fingerprint}"
         with redis_client.lock(lock_key, timeout=10, blocking_timeout=5):
             existing_doc = AnnotationStorageService.get_by_fingerprint(fingerprint)
-            if existing_doc and not annotation_id:
-                if str(existing_doc.user_id) != str(current_user_id):
-                    AnnotationStorageService.add_participant(
-                        existing_doc.id, str(current_user_id)
-                    )
-
+            if existing_doc and existing_doc.status == TaskStatus.COMPLETE.value and not annotation_id:
+                # HYPOTHESIS source — never has a question, safe to return
+                # graph nodes directly from cache.
+                if source == "hypothesis":
+                    graph_data = _get_graph_for_annotation(existing_doc, redis_client)
+                    return {"nodes": graph_data.get("nodes", [])}
+ 
+                # ASYNC path (source is None) — Celery pipeline
+                # If there is a question we must generate a fresh answer,
+                # so we cannot just hand back the existing annotation_id
+                # (that would let the client fetch the wrong answer later
+                # via GET /annotation/{id}).
                 if source is None:
-                    return {"annotation_id": str(existing_doc.id)}
-                else:
-                    if source == "hypothesis":
-                        cache = redis_client.get(str(existing_doc.id))
-                        if cache:
-                            graph_data = json.loads(cache).get("graph", {})
-                            return {"nodes": graph_data.get("nodes", [])}
-                        else:
-                            file_path = existing_doc.path_url
-                            if file_path and os.path.exists(file_path):
-                                with open(file_path, "r") as f:
-                                    graph = json.load(f)
-                                return {"nodes": graph.get("nodes", [])}
-                            return {"nodes": []}
+                    if question:
+                        # Graph already computed — generate answer only and
+                        # save a new per-user annotation so the user's
+                        # question/answer appears in their own history.
+                        graph_data = _get_graph_for_annotation(existing_doc, redis_client)
+ 
+                        # Build a minimal result_graph shape that llm expects
+                        result_graph_for_llm = {
+                            "nodes": graph_data.get("nodes", []),
+                            "edges": graph_data.get("edges", []),
+                            "node_count": existing_doc.node_count,
+                            "edge_count": existing_doc.edge_count,
+                            "node_count_by_label": existing_doc.node_count_by_label,
+                            "edge_count_by_label": existing_doc.edge_count_by_label,
+                        }
+ 
+                        summary = existing_doc.summary or "Graph too big, could not summarize"
+                        answer = llm.generate_summary(
+                            result_graph_for_llm, requests, question, False, summary
+                        )
 
+                        new_annotation = {
+                            "current_user_id": str(current_user_id),
+                            "request": requests,
+                            "query": existing_doc.query,
+                            "title": existing_doc.title,
+                            "summary": summary,
+                            "node_count": existing_doc.node_count,
+                            "edge_count": existing_doc.edge_count,
+                            "node_types": existing_doc.node_types,
+                            "node_count_by_label": existing_doc.node_count_by_label,
+                            "edge_count_by_label": existing_doc.edge_count_by_label,
+                            "answer": answer,
+                            "question": question,
+                            "status": TaskStatus.COMPLETE.value,
+                            "query_fingerprint": fingerprint,
+                            "path_url": existing_doc.path_url,
+                            "files": existing_doc.files,
+                            "species": species,
+                            "data_source": data_source,
+                        }
+                        new_annotation_id = AnnotationStorageService.save(new_annotation)
+ 
+                        # Reuse the existing Redis graph cache under the new annotation_id
+                        # so GET /annotation/{id} resolves the graph instantly.
+                        existing_cache = redis_client.get(str(existing_doc.id))
+                        if existing_cache:
+                            redis_client.setex(str(new_annotation_id), 3600, existing_cache)
+ 
+                        return {"annotation_id": str(new_annotation_id)}
+ 
+                    else:
+                        # No question — graph result is fully shareable.
+                        # Register this user as a participant for access tracking,
+                        # then return the existing annotation_id.
+                        if str(existing_doc.user_id) != str(current_user_id):
+                            AnnotationStorageService.add_participant(
+                                existing_doc.id, str(current_user_id)
+                            )
+                        return {"annotation_id": str(existing_doc.id)}
+ 
+                # SYNCHRONOUS source path (e.g. 'ai-assistant')
+                # Same logic: question requires a fresh answer.
+                if question:
+                    graph_data = _get_graph_for_annotation(existing_doc, redis_client)
+ 
+                    result_graph_for_llm = {
+                        "nodes": graph_data.get("nodes", []),
+                        "edges": graph_data.get("edges", []),
+                        "node_count": existing_doc.node_count,
+                        "edge_count": existing_doc.edge_count,
+                        "node_count_by_label": existing_doc.node_count_by_label,
+                        "edge_count_by_label": existing_doc.edge_count_by_label,
+                    }
+ 
+                    summary = existing_doc.summary or "Graph too big, could not summarize"
+                    answer = llm.generate_summary(
+                        result_graph_for_llm, requests, question, False, summary
+                    )
+ 
+                    new_annotation = {
+                        "current_user_id": str(current_user_id),
+                        "request": requests,
+                        "query": existing_doc.query,
+                        "title": existing_doc.title,
+                        "summary": summary,
+                        "node_count": existing_doc.node_count,
+                        "edge_count": existing_doc.edge_count,
+                        "node_types": existing_doc.node_types,
+                        "node_count_by_label": existing_doc.node_count_by_label,
+                        "edge_count_by_label": existing_doc.edge_count_by_label,
+                        "answer": answer,
+                        "question": question,
+                        "status": TaskStatus.COMPLETE.value,
+                        "query_fingerprint": fingerprint,
+                        "path_url": existing_doc.path_url,
+                        "files": existing_doc.files,
+                        "species": species,
+                        "data_source": data_source,
+                    }
+                    new_annotation_id = AnnotationStorageService.save(new_annotation)
+ 
+                    existing_cache = redis_client.get(str(existing_doc.id))
+                    if existing_cache:
+                        redis_client.setex(str(new_annotation_id), 3600, existing_cache)
+ 
+                    return {
+                        "annotation_id": str(new_annotation_id),
+                        "question": question,
+                        "answer": answer,
+                    }
+ 
+                else:
+                    # No question — safe to share the existing annotation.
+                    if str(existing_doc.user_id) != str(current_user_id):
+                        AnnotationStorageService.add_participant(
+                            existing_doc.id, str(current_user_id)
+                        )
                     return {
                         "annotation_id": str(existing_doc.id),
-                        "question": question,
-                        "answer": existing_doc.answer,
+                        "question": None,
+                        "answer": existing_doc.answer,  # None or a graph-level summary
                     }
 
             # Generate Query using canonical requests for stable caching
@@ -267,9 +401,11 @@ def process_query(
         }
         return response
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing query: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        raise HTTPException(status_code=500, detail="Query processing failed. Check server logs for details.")
 
 
 @router.post("/email-query/{id}")
@@ -441,6 +577,12 @@ def get_annotation_by_id(
     species = cursor.species
     source = cursor.data_source
     files = cursor.files
+    retrieval_duration = cursor.retrieval_duration
+    processing_duration = cursor.processing_duration
+    total_duration = cursor.total_duration
+    graph_error_message = cursor.graph_error_message
+    count_error_message = cursor.count_error_message
+    label_count_error_message = cursor.label_count_error_message
 
     response_data = {
         "annotation_id": str(annotation_id),
@@ -452,22 +594,21 @@ def get_annotation_by_id(
         "species": species,
         "status": status,
     }
-
-    if summary:
-        response_data["summary"] = summary
-    if node_count:
-        response_data["node_count"] = node_count
-        response_data["edge_count"] = edge_count
+    
+    if summary: response_data["summary"] = summary
+    if node_count: response_data["node_count"] = node_count; response_data["edge_count"] = edge_count
     if node_count_by_label:
         response_data["node_count_by_label"] = node_count_by_label
         response_data["edge_count_by_label"] = edge_count_by_label
-
-    if cursor.data_source == "ai-assistant":
-        return {
-            "annotation_id": str(annotation_id),
-            "question": question,
-            "answer": answer,
-        }
+    if retrieval_duration: response_data["retrieval_duration"] = retrieval_duration
+    if processing_duration: response_data["processing_duration"] = processing_duration
+    if total_duration: response_data["total_duration"] = total_duration
+    if graph_error_message: response_data["graph_error_message"] = graph_error_message
+    if count_error_message: response_data["count_error_message"] = count_error_message
+    if label_count_error_message: response_data["label_count_error_message"] = label_count_error_message
+        
+    if cursor.data_source == 'ai-assistant':
+         return {"annotation_id": str(annotation_id), "question": question, "answer": answer}
 
     # Redis Cache Check
     if redis_client:
@@ -488,10 +629,32 @@ def get_annotation_by_id(
                 response_data["nodes"] = graph.get("nodes")
                 response_data["edges"] = graph.get("edges")
             else:
-                response_data["status"] = TaskStatus.PENDING.value
-                from app.annotation_controller import requery
-
-                requery(annotation_id, query, json_request, species)
+                 response_data['status'] = TaskStatus.PENDING.value
+                 from app.annotation_controller import requery
+                 requery(annotation_id, query, json_request, species)
+        elif status == TaskStatus.PENDING.value:
+            # Recovery: graph was computed (e.g. before a worker restart) but
+            # summary_task never ran to flip the status to COMPLETE.
+            # Guards:
+            #   1. node_count must be set — total_count_task populates this,
+            #      confirming the chord header tasks (not just graph_task) finished.
+            #   2. Graph file must exist on disk.
+            # The DB update uses complete_if_pending (conditional $set) so
+            # concurrent GET requests don't race to overwrite each other.
+            default_path = f"/app/public/graph/{id}.json"
+            resolved_path = file_path if (file_path and os.path.exists(file_path)) else (
+                default_path if os.path.exists(default_path) else None
+            )
+            if resolved_path and node_count is not None:
+                AnnotationStorageService.complete_if_pending(
+                    annotation_id,
+                    {"status": TaskStatus.COMPLETE.value, "path_url": resolved_path},
+                )
+                response_data['status'] = TaskStatus.COMPLETE.value
+                with open(resolved_path, 'r') as f:
+                    graph = json.load(f)
+                response_data['nodes'] = graph.get('nodes')
+                response_data['edges'] = graph.get('edges')
         return response_data
 
     return response_data
@@ -507,26 +670,49 @@ def cell_component(
 
     # get annotation id and get go term id
     annotation_id = id
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", annotation_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid annotation id",
+        )
+
+    # sanitize again as a filename component before path construction
+    safe_annotation_id = Path(annotation_id).name
+    if safe_annotation_id != annotation_id or not re.fullmatch(r"[A-Za-z0-9_-]+", safe_annotation_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid annotation id",
+        )
 
     # parse the location
     locations = locations.split(",")
 
     proteins = []
+    
+    
+    # get the graph and filter out the protein
+        
+    file_name = f"{safe_annotation_id}.json"
+    base_dir = (
+        Path(__file__).parent
+        / ".."
+        / ".."
+        / ".."
+        / ".."
+        / "public"
+        / "graph"
+    ).resolve()
+    path = (base_dir / file_name).resolve()
 
     try:
-        # get the graph and filter out the protein
-        file_name = f"{annotation_id}.json"
-        path = (
-            Path(__file__).parent
-            / ".."
-            / ".."
-            / ".."
-            / ".."
-            / "public"
-            / "graph"
-            / f"{file_name}"
+        path.relative_to(base_dir)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid annotation id",
         )
 
+    try:
         with open(path, "r") as f:
             graph = json.load(f)
 
