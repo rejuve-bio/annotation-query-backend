@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Body, status, Query as FQuery
 from fastapi.responses import JSONResponse
+from fastapi import status as http_status
 from typing import Dict, Any, Optional, List
 import json
 import datetime
@@ -32,6 +33,8 @@ from app.lib.query_canonical import canonicalize_graph, query_fingerprint
 import threading
 from app.core.config import settings
 from app.api.deps import oauth2_scheme
+from app.events.redis_event import RedisStopEvent
+from app.core.config import settings
 import jwt
 import re
 
@@ -58,6 +61,41 @@ def _get_graph_for_annotation(existing_doc, redis_client):
  
     return {"nodes": [], "edges": []}
 
+def _create_annotation_from_existing(existing_doc, current_user_id, data_source, species, requests, fingerprint, redis_client):
+    """
+    Creates a new annotation for the current user reusing the existing doc's
+    graph data (path_url, files, counts, summary, title, query).
+    Copies the Redis cache under the new annotation_id.
+    """
+    new_annotation = {
+        "current_user_id": str(current_user_id),
+        "request": requests,
+        "query": existing_doc.query,
+        "title": existing_doc.title,
+        "summary": existing_doc.summary,
+        "node_count": existing_doc.node_count,
+        "edge_count": existing_doc.edge_count,
+        "node_types": existing_doc.node_types,
+        "node_count_by_label": existing_doc.node_count_by_label,
+        "edge_count_by_label": existing_doc.edge_count_by_label,
+        "answer": existing_doc.answer,
+        "question": existing_doc.question,
+        "status": TaskStatus.COMPLETE.value,
+        "query_fingerprint": fingerprint,
+        "path_url": existing_doc.path_url,
+        "files": existing_doc.files,
+        "species": species,
+        "data_source": data_source,
+    }
+    new_annotation_id = AnnotationStorageService.save(new_annotation)
+ 
+    # Copy Redis cache so GET /annotation/{id} resolves instantly
+    existing_cache = redis_client.get(str(existing_doc.id))
+    if existing_cache:
+        redis_client.setex(str(new_annotation_id), 3600, existing_cache)
+ 
+    return new_annotation_id
+ 
 
 @router.post("/query")
 def process_query(
@@ -128,7 +166,7 @@ def process_query(
         data_source = user.data_source if user else 'all'
         species = requests.get('species') or (user.species if user else 'human')
         db_instance = get_db_instance(species)
-        
+
         # schema for validation
         schema_for_species = schema_manager.schema.get(species, {})
         try:
@@ -150,7 +188,7 @@ def process_query(
 
         node_only = True if source == "hypothesis" else False
         fingerprint = query_fingerprint(
-            canonical_req, species, data_source, limit, node_only, prop_bool
+            canonical_req, species, data_source, limit, node_only, prop_bool, settings.DATABASE_TYPE
         )
 
         # Dedup lookup
@@ -163,7 +201,7 @@ def process_query(
                 if source == "hypothesis":
                     graph_data = _get_graph_for_annotation(existing_doc, redis_client)
                     return {"nodes": graph_data.get("nodes", [])}
- 
+
                 # ASYNC path (source is None) — Celery pipeline
                 # If there is a question we must generate a fresh answer,
                 # so we cannot just hand back the existing annotation_id
@@ -175,7 +213,7 @@ def process_query(
                         # save a new per-user annotation so the user's
                         # question/answer appears in their own history.
                         graph_data = _get_graph_for_annotation(existing_doc, redis_client)
- 
+
                         # Build a minimal result_graph shape that llm expects
                         result_graph_for_llm = {
                             "nodes": graph_data.get("nodes", []),
@@ -185,7 +223,7 @@ def process_query(
                             "node_count_by_label": existing_doc.node_count_by_label,
                             "edge_count_by_label": existing_doc.edge_count_by_label,
                         }
- 
+
                         summary = existing_doc.summary or "Graph too big, could not summarize"
                         answer = llm.generate_summary(
                             result_graph_for_llm, requests, question, False, summary
@@ -212,30 +250,33 @@ def process_query(
                             "data_source": data_source,
                         }
                         new_annotation_id = AnnotationStorageService.save(new_annotation)
- 
+
                         # Reuse the existing Redis graph cache under the new annotation_id
                         # so GET /annotation/{id} resolves the graph instantly.
                         existing_cache = redis_client.get(str(existing_doc.id))
                         if existing_cache:
                             redis_client.setex(str(new_annotation_id), 3600, existing_cache)
- 
+
                         return {"annotation_id": str(new_annotation_id)}
- 
+
                     else:
-                        # No question — graph result is fully shareable.
-                        # Register this user as a participant for access tracking,
-                        # then return the existing annotation_id.
-                        if str(existing_doc.user_id) != str(current_user_id):
-                            AnnotationStorageService.add_participant(
-                                existing_doc.id, str(current_user_id)
-                            )
-                        return {"annotation_id": str(existing_doc.id)}
- 
+                        # No question — each user gets their own annotation so their
+                        # data_source preference is preserved. Same user re-querying
+                        # gets their existing annotation back unchanged.
+                        if str(existing_doc.user_id) == str(current_user_id):
+                            return {"annotation_id": str(existing_doc.id)}
+
+                        new_annotation_id = _create_annotation_from_existing(
+                            existing_doc, current_user_id, data_source,
+                            species, requests, fingerprint, redis_client
+                        )
+                        return {"annotation_id": str(new_annotation_id)}
+
                 # SYNCHRONOUS source path (e.g. 'ai-assistant')
                 # Same logic: question requires a fresh answer.
                 if question:
                     graph_data = _get_graph_for_annotation(existing_doc, redis_client)
- 
+
                     result_graph_for_llm = {
                         "nodes": graph_data.get("nodes", []),
                         "edges": graph_data.get("edges", []),
@@ -244,12 +285,12 @@ def process_query(
                         "node_count_by_label": existing_doc.node_count_by_label,
                         "edge_count_by_label": existing_doc.edge_count_by_label,
                     }
- 
+
                     summary = existing_doc.summary or "Graph too big, could not summarize"
                     answer = llm.generate_summary(
                         result_graph_for_llm, requests, question, False, summary
                     )
- 
+
                     new_annotation = {
                         "current_user_id": str(current_user_id),
                         "request": requests,
@@ -271,25 +312,34 @@ def process_query(
                         "data_source": data_source,
                     }
                     new_annotation_id = AnnotationStorageService.save(new_annotation)
- 
+
                     existing_cache = redis_client.get(str(existing_doc.id))
                     if existing_cache:
                         redis_client.setex(str(new_annotation_id), 3600, existing_cache)
- 
+
                     return {
                         "annotation_id": str(new_annotation_id),
                         "question": question,
                         "answer": answer,
                     }
- 
+
                 else:
-                    # No question — safe to share the existing annotation.
-                    if str(existing_doc.user_id) != str(current_user_id):
-                        AnnotationStorageService.add_participant(
-                            existing_doc.id, str(current_user_id)
-                        )
+                    # No question — each user gets their own annotation so their
+                    # data_source preference is preserved. Same user re-querying
+                    # gets their existing annotation back unchanged.
+                    if str(existing_doc.user_id) == str(current_user_id):
+                        return {
+                            "annotation_id": str(existing_doc.id),
+                            "question": None,
+                            "answer": existing_doc.answer,  # None or a graph-level summary
+                        }
+
+                    new_annotation_id = _create_annotation_from_existing(
+                        existing_doc, current_user_id, data_source,
+                        species, requests, fingerprint, redis_client
+                    )
                     return {
-                        "annotation_id": str(existing_doc.id),
+                        "annotation_id": str(new_annotation_id),
                         "question": None,
                         "answer": existing_doc.answer,  # None or a graph-level summary
                     }
@@ -576,6 +626,8 @@ def get_annotation_by_id(
     file_path = cursor.path_url
     species = cursor.species
     source = cursor.data_source
+    if not isinstance(source, list):
+        source = [source] if source else ['all']
     files = cursor.files
     retrieval_duration = cursor.retrieval_duration
     processing_duration = cursor.processing_duration
@@ -930,34 +982,34 @@ def cell_component(
             },
         )
 
-
 @router.delete("/annotation/{id}")
 def delete_by_id(id: str, current_user_id: str = Depends(get_current_user)):
     try:
-        # check if the user have access to delete the resource
-        annotation = AnnotationStorageService.get_user_annotation(id, current_user_id)
-
-        if annotation is None:
-            raise HTTPException(status_code=404, detail="Annotation not found")
-
-        # first check if there is any running running annoation
-        stop_event = RedisStopEvent(id, redis_state)
-        status = stop_event.get_status()
-
-        # if there is stop the running annoation
-        if status is not None:
-            stop_event.set_event()
-
-            response_data = {"message": f"Annotation {id} has been cancelled."}
-
-        # else delete the annotation from the db
+        # Resolve annotation and check access (handles participants from dedup)
         existing_record = AnnotationStorageService.get_by_id(id)
-
         if existing_record is None:
             raise HTTPException(status_code=404, detail="Annotation not found")
 
-        deleted_record = AnnotationStorageService.delete(id)
+        owner_id = existing_record.user_id
+        participants = existing_record.participant_user_ids or []
 
+        if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
+            raise HTTPException(status_code=404, detail="Annotation not found")
+
+        # Resolve to owner so get_user_annotation finds the record
+        resolved_user_id = str(owner_id)
+        annotation = AnnotationStorageService.get_user_annotation(id, resolved_user_id)
+        if annotation is None:
+            raise HTTPException(status_code=404, detail="Annotation not found")
+
+        # Stop any running task for this annotation
+        stop_event = RedisStopEvent(id, redis_state)
+        task_status = stop_event.get_status()
+        if task_status is not None:
+            stop_event.set_event()
+
+        # Delete the annotation
+        deleted_record = AnnotationStorageService.delete(id)
         if deleted_record is None:
             raise HTTPException(status_code=404, detail="Annotation not found")
 
@@ -973,8 +1025,10 @@ def delete_by_id(id: str, current_user_id: str = Depends(get_current_user)):
                 }
             )
         )
-
         return response_data
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             json.dumps(
@@ -988,21 +1042,14 @@ def delete_by_id(id: str, current_user_id: str = Depends(get_current_user)):
             ),
             exc_info=True,
         )
-        error_response = {
-            "status": "error",
-            "message": "An internal server error occurred. Please try again later.",
-            "timestamp": datetime.datetime.now().isoformat(),
-        }
-
         return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": "error",
                 "message": "An internal server error occurred. Please try again later.",
                 "timestamp": datetime.datetime.now().isoformat(),
             },
         )
-
 
 @router.post("/annotation/delete")
 async def delete_many(

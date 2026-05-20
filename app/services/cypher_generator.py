@@ -9,26 +9,62 @@ import os
 from neo4j.graph import Node, Relationship
 from app.error import TaskCancelledException
 
+from app.lib.db_resilience import ResilientDriver, RetryPolicy, QueryType, QueryTimeoutConfig
+
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Shared retry policy
+_DEFAULT_POLICY = RetryPolicy(
+    max_attempts=5,
+    base_delay_s=0.5,
+    max_delay_s=30.0,
+    backoff_factor=2.0,
+    jitter=True,
+    retry_on_unknown=True,
+)
+
+# Per-query-type timeout configuration.
+# All timeouts default to None (indefinite) — original behaviour is preserved.
+# Set values here (or at app startup) to enable timeouts, e.g.:
+#   _TIMEOUT_CONFIG.timeouts[QueryType.COUNT] = 30.0
+#   _TIMEOUT_CONFIG.timeouts[QueryType.GRAPH] = 120.0
+#   _TIMEOUT_CONFIG.fallback_results[QueryType.COUNT] = []
+_TIMEOUT_CONFIG = QueryTimeoutConfig(
+    timeouts={
+        QueryType.DEFAULT:   None,   # indefinite
+        QueryType.GRAPH:     None,   # indefinite
+        QueryType.COUNT:     None,   # indefinite
+        QueryType.LIST: None,   # indefinite
+        QueryType.LOAD:      None,   # indefinite
+        QueryType.SCHEMA:    None,   # indefinite
+    },
+    fallback_results={},
+    warn_threshold_s=None,           # set e.g. to 10.0 to log slow queries
+)
+
 
 class CypherQueryGenerator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
-        self.human_driver = GraphDatabase.driver(
-            os.getenv('HUMAN_NEO4J_URI'),
-            auth=(os.getenv('HUMAN_NEO4J_USERNAME'), os.getenv('HUMAN_NEO4J_PASSWORD'))
+        self.human_driver = ResilientDriver(
+            uri=os.getenv('HUMAN_NEO4J_URI'),
+            auth=(os.getenv('HUMAN_NEO4J_USERNAME'), os.getenv('HUMAN_NEO4J_PASSWORD')),
+            retry_policy=_DEFAULT_POLICY,
+            timeout_config=_TIMEOUT_CONFIG,
         )
-        self.fly_driver = GraphDatabase.driver(
-            os.getenv('FLY_NEO4J_URI'),
-            auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD'))
+        self.fly_driver = ResilientDriver(
+            uri=os.getenv('FLY_NEO4J_URI'),
+            auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD')),
+            retry_policy=_DEFAULT_POLICY,
+            timeout_config=_TIMEOUT_CONFIG,
         )
 
     def close(self):
-        self.driver.close()
+        self.human_driver.close()
+        self.fly_driver.close()
 
     def load_dataset(self, path: str) -> None:
         if not os.path.exists(path):
@@ -52,7 +88,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     with open(file_path, 'r') as file:
                         data = file.read()
                         for line in data.splitlines():
-                            self.run_query(line)
+                            self.run_query(line, query_type=QueryType.LOAD)
                 except Exception as e:
                     logger.error(
                         f"Error loading {file_type} dataset from '{file_path}': {e}")
@@ -64,19 +100,16 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         logger.info(
             f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code, stop_event=None,  species="human"):
-        results = []
+    def run_query(self, query_code, stop_event=None, species="human", query_type: QueryType = QueryType.DEFAULT):
         driver = self.human_driver if species == "human" else self.fly_driver
         # use lazy loading for improved performance
-        with driver.session() as session:
-            result = session.run(query_code)
-            for record in result:
-                if stop_event is not None and stop_event.is_set():
-                    raise TaskCancelledException()
-                results.append(record)
-        return results
+        return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type)
+    
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
+        if self.is_in_list_request(requests):
+            return self.in_list_query_generator(requests, limit)
+
         nodes = requests['nodes']
         predicate_map = {}
 
@@ -209,7 +242,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             list_of_node_ids.sort()
             full_return_preds = return_preds + list_of_node_ids
 
-
             cypher_query = ' '.join(clause_list)
             cypher_queries.append(cypher_query)
             query_clauses = {
@@ -224,7 +256,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             count = self.construct_count_clause(
                 query_clauses, node_map, predicate_map)
             cypher_queries.extend(count)
-            
             
         return cypher_queries
 
@@ -313,6 +344,215 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         '''
 
         return [total_count, label_count_query]
+    
+    def is_in_list_request(self, requests):
+        """
+        Returns True if any node in the request has a 'ids' list property,
+        indicating this is a mixed or pure list query.
+        """
+        for node in requests['nodes']:
+            if isinstance(node.get('ids'), list) and len(node['ids']) > 0:
+                return True
+            id_val = node.get('id', '')
+            if isinstance(id_val, str) and ',' in id_val:
+                return True
+            for val in node.get('properties', {}).values():
+                if isinstance(val, str) and ',' in val:
+                    return True
+        return False
+
+    def in_list_query_generator(self, requests, limit=None):
+        nodes = requests['nodes']
+        predicates = requests.get('predicates', [])
+
+        if not predicates:
+            raise ValueError("in_list_query_generator requires at least 1 predicate.")
+
+        # Assign predicate_ids if missing
+        for idx, pred in enumerate(predicates):
+            if 'predicate_id' not in pred:
+                pred['predicate_id'] = f'p{idx}'
+
+        node_map = {n['node_id']: n for n in nodes}
+
+        # Build list variables for WITH clause — only for list nodes
+        list_vars = {}
+        list_counter = 0
+        for node in nodes:
+            var_name = node['node_id']
+            if isinstance(node.get('ids'), list) and len(node['ids']) > 0:
+                list_var = f"list{chr(65 + list_counter)}"  # listA, listB, listC ...
+                list_vars[var_name] = (node['ids'], list_var)
+                list_counter += 1
+            elif node.get('id', '') and ',' in node.get('id', ''):
+                id_list = [i.strip().upper() for i in node['id'].split(',')]
+                list_var = f"list{chr(65 + list_counter)}"
+                list_vars[var_name] = (id_list, list_var)
+                list_counter += 1
+            else:
+                props = node.get('properties', {})
+                for prop_key, prop_val in props.items():
+                    if prop_val and isinstance(prop_val, str) and ',' in prop_val:
+                        id_list = [i.strip() for i in prop_val.split(',')]
+                        list_var = f"list{chr(65 + list_counter)}"
+                        list_vars[var_name] = (id_list, list_var)
+                        list_counter += 1
+                        break
+
+        # WITH clause — only list variables
+        with_parts = [f"{id_list} AS {list_var}" for (id_list, list_var) in list_vars.values()]
+        with_clause = f"WITH {', '.join(with_parts)}" if with_parts else ""
+
+        def get_node_filter(node, var_name):
+            """
+            Returns WHERE conditions for a node:
+            - list node: var.id IN listX
+            - single id node: already in MATCH clause, no extra WHERE needed
+            - property node: var.prop =~ value
+            """
+            reserved = {'start', 'end', 'interval_type', 'upstream_distance', 'downstream_distance'}
+            conditions = []
+
+            if var_name in list_vars:
+                _, list_var = list_vars[var_name]
+                # determine which property to filter on
+                raw_id = node.get('id', '')
+                if raw_id and ',' in raw_id:
+                    conditions.append(f"{var_name}.id IN {list_var}")
+                elif isinstance(node.get('ids'), list):
+                    conditions.append(f"{var_name}.id IN {list_var}")
+                else:
+                    props = node.get('properties', {})
+                    for prop_key, prop_val in props.items():
+                        if prop_val and isinstance(prop_val, str) and ',' in prop_val:
+                            conditions.append(f"{var_name}.{prop_key} IN {list_var}")
+                            break
+
+            # Additional property filters (non-list, non-reserved)
+            props = node.get('properties', {})
+            for key, value in props.items():
+                if key in reserved:
+                    continue
+                if not value:
+                    continue
+                if isinstance(value, str) and ',' in value:
+                    continue
+                conditions.append(f"{var_name}.{key} =~ '(?i){value}'")
+
+            return conditions
+
+        def get_match_node(node, var_name):
+            """
+            Returns MATCH node pattern.
+            - single id: (var:Type {id: 'value'})
+            - list or property node: (var:Type)
+            """
+            raw_id = node.get('id', '')
+            # single non-comma id
+            if raw_id and ',' not in raw_id:
+                return f"({var_name}:{node['type']} {{id: '{raw_id}'}})"
+            return f"({var_name}:{node['type']})"
+
+        clause_list = []
+        all_node_vars = set()
+        all_pred_vars = []
+        all_where_conditions = []
+
+        for i, predicate in enumerate(predicates):
+            predicate_id = predicate['predicate_id']
+            predicate_type = predicate['type'].replace(" ", "_").lower()
+
+            source_node = node_map[predicate['source']]
+            target_node = node_map[predicate['target']]
+            source_var = source_node['node_id']
+            target_var = target_node['node_id']
+
+            source_match = get_match_node(source_node, source_var)
+            target_match = get_match_node(target_node, target_var)
+
+            match_pattern = (
+                f"MATCH {source_match}"
+                f"-[{predicate_id}:{predicate_type}]->"
+                f"{target_match}"
+            )
+
+            # Collect WHERE conditions for new nodes only
+            tmp_conditions = []
+            if source_var not in all_node_vars:
+                tmp_conditions.extend(get_node_filter(source_node, source_var))
+                all_where_conditions.extend(get_node_filter(source_node, source_var))
+            if target_var not in all_node_vars:
+                tmp_conditions.extend(get_node_filter(target_node, target_var))
+                all_where_conditions.extend(get_node_filter(target_node, target_var))
+
+            all_node_vars.add(source_var)
+            all_node_vars.add(target_var)
+            all_pred_vars.append(predicate_id)
+
+            where_clause = f"WHERE {' AND '.join(tmp_conditions)}" if tmp_conditions else ""
+
+            if i < len(predicates) - 1:
+                # Carry forward list vars + all seen node vars + pred vars so far
+                carry = list(list_vars.values())
+                carry_parts = [lv for (_, lv) in carry]
+                with_parts_chain = carry_parts + all_pred_vars + sorted(all_node_vars)
+                with_chain = f"WITH {', '.join(with_parts_chain)}"
+                clause_list.append(f"{match_pattern} {where_clause} {with_chain}")
+            else:
+                # Final predicate — RETURN everything
+                return_vars = all_pred_vars + sorted(all_node_vars)
+                return_clause = f"RETURN {', '.join(return_vars)}"
+                clause_list.append(f"{match_pattern} {where_clause} {return_clause}")
+
+        query = f"{with_clause} {' '.join(clause_list)}"
+        if limit:
+            query += f" LIMIT {limit}"
+
+        # Total count query
+        sorted_nodes = sorted(all_node_vars)
+        node_counts = " + ".join([f"COUNT(DISTINCT {v})" for v in sorted_nodes])
+        edge_counts = " + ".join([f"COUNT(DISTINCT {v})" for v in all_pred_vars])
+
+        # Rebuild match chain without WITH carry for count queries
+        count_match_parts = []
+        count_where_parts = list(all_where_conditions)
+        for predicate in predicates:
+            predicate_id = predicate['predicate_id']
+            predicate_type = predicate['type'].replace(" ", "_").lower()
+            source_node = node_map[predicate['source']]
+            target_node = node_map[predicate['target']]
+            source_var = source_node['node_id']
+            target_var = target_node['node_id']
+            source_match = get_match_node(source_node, source_var)
+            target_match = get_match_node(target_node, target_var)
+            count_match_parts.append(
+                f"{source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
+            )
+
+        count_match_clause = f"MATCH {', '.join(count_match_parts)}"
+        count_where_clause = f"WHERE {' AND '.join(count_where_parts)}" if count_where_parts else ""
+
+        total_count_query = (
+            f"{with_clause} {count_match_clause} {count_where_clause} "
+            f"RETURN {node_counts} AS total_nodes, {edge_counts} AS total_edges"
+        )
+
+        # Count by label query
+        label_parts = []
+        for v in sorted_nodes:
+            node_type = node_map[v]['type']
+            label_parts.append(f"COUNT(DISTINCT {v}) AS {v}_{node_type}")
+        for pred in predicates:
+            pred_id = pred['predicate_id']
+            pred_type = pred['type'].replace(' ', '_')
+            label_parts.append(f"COUNT(DISTINCT {pred_id}) AS {pred_id}_{pred_type}")
+
+        label_count_query = (
+            f"{with_clause} {count_match_clause} {count_where_clause} "
+            f"RETURN {', '.join(label_parts)}"
+        )
+
+        return [query, total_count_query, label_count_query]
 
     def limit_query(self, limit):
         '''
@@ -584,11 +824,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     def parse_id(self, request):
         nodes = request["nodes"]
         named_types = {"gene": "gene_name", "transcript": "transcript_name"}
-        prefixes = ["ensg", "enst"]
+        prefixes = ["ENSG", "ENST"]
 
         for node in nodes:
             is_named_type = node['type'] in named_types
-            id = node["id"].lower()
+            id = node["id"].upper()
             is_name_as_id = all(not id.startswith(prefix)
                                 for prefix in prefixes)
             no_id = node["id"] != ''
@@ -596,7 +836,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 node_type = named_types[node['type']]
                 node['properties'][node_type] = node["id"]
                 node['id'] = ''
-            node["id"] = node["id"].lower()
+            node["id"] = node["id"].upper()
         return request
 
     def list_query_generator_source_target(self, source, target, target_ids, relationship):

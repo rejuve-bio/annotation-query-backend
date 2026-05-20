@@ -92,7 +92,7 @@ def canonicalize_graph(request):
 
     return req_copy, old_to_new_node
 
-def query_fingerprint(canonical_request, species, data_source, limit, node_only, properties):
+def query_fingerprint(canonical_request, species, data_source, limit, node_only, properties, db_type=None):
     """
     Computes a stable SHA-256 hash of the normalized request components.
     """
@@ -104,7 +104,8 @@ def query_fingerprint(canonical_request, species, data_source, limit, node_only,
         "data_source": data_source,
         "limit": limit,
         "node_only": node_only,
-        "properties": properties
+        "properties": properties,
+        "db_type": db_type,
     }
     
     # Strip annotation_id and question if they somehow made it in
