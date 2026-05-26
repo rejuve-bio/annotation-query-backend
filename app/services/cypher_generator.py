@@ -369,7 +369,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             anchor_var = self._find_anchor_node(predicates)
 
             if anchor_var is not None:
-                # ── CALL subquery path ────────────────────────────────────────
                 cypher_query, aliases, outer_nodes = self._build_call_subquery(
                     predicates, node_map, predicate_map, anchor_var, limit, node_only,
                     inner_limit=None
@@ -433,7 +432,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 cypher_queries.extend(count)
 
             else:
-                # ── Fallback: original multi-MATCH WITH chain ─────────────────
+                # Fallback: original multi-MATCH WITH chain 
                 for i, predicate in enumerate(predicates):
                     predicate_id = predicate['predicate_id']
                     predicate_type = predicate['type'].replace(" ", "_").lower()
