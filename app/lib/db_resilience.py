@@ -303,6 +303,7 @@ class ResilientDriver:
         stop_event,
         result_holder: list,
         exc_holder: list,
+        cancel_event=None
     ) -> None:
         """
         Worker target: runs the query and stores results or exception in the
@@ -314,6 +315,8 @@ class ResilientDriver:
                 result = session.run(query_code)
                 for record in result:
                     if stop_event is not None and stop_event.is_set():
+                        raise TaskCancelledException()
+                    if cancel_event is not None and cancel_event.is_set():
                         raise TaskCancelledException()
                     results.append(record)
             result_holder.append(results)
@@ -410,9 +413,11 @@ class ResilientDriver:
                     result_holder: list = []
                     exc_holder: list = []
 
+                    cancel_event = threading.Event()
+    
                     worker = threading.Thread(
                         target=self._run_query_in_thread,
-                        args=(query_code, stop_event, result_holder, exc_holder),
+                        args=(query_code, stop_event, result_holder, exc_holder, cancel_event),
                         daemon=True,
                     )
                     worker.start()
