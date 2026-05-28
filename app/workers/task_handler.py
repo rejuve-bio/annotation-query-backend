@@ -121,6 +121,7 @@ def generate_empty_label_count(requests):
 @celery_app.task
 def summary_task(chord_results, annotation_id, request, all_status, summary=None):
     try:
+        annotation_id = str(annotation_id)
         if get_status(annotation_id) == TaskStatus.FAILED.value:
             summary = "Failed to generate summary"
             update_task(annotation_id, "summary", 1)
@@ -248,6 +249,7 @@ def graph_task(
     query_code, annotation_id, requests, result_status, species, status=None
 ):
     try:
+        annotation_id = str(annotation_id)
         db_instance = get_db_for_species(species)
         check_for_cancellation(annotation_id)
 
@@ -287,7 +289,7 @@ def graph_task(
             "graph",
         )
         processing_ms = round((time.time() - t1) * 1000)
-        
+
         if db_type == "mork_cli":
             response['truncated'] = truncated
             if truncated:
@@ -456,6 +458,7 @@ def graph_task(
 def total_count_task(
     count_query, annotation_id, requests, total_count_status, species, meta_data=None
 ):
+    annotation_id = str(annotation_id)
     db_instance = get_db_for_species(species)
     if get_status(annotation_id) == TaskStatus.FAILED.value:
         socket_event = {
@@ -611,6 +614,7 @@ def label_count_task(
     species="human",
     meta_data=None,
 ):
+    annotation_id = str(annotation_id)
     db_instance = get_db_for_species(species)
     if get_status(annotation_id) == TaskStatus.FAILED.value:
         update = generate_empty_label_count(requests)

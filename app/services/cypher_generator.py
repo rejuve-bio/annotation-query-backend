@@ -8,6 +8,9 @@ import glob
 import os
 from neo4j.graph import Node, Relationship
 from app.error import TaskCancelledException
+from collections import Counter
+
+from app.lib.db_resilience import ResilientDriver, RetryPolicy, QueryType, QueryTimeoutConfig
 
 load_dotenv()
 
@@ -15,20 +18,54 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Shared retry policy
+_DEFAULT_POLICY = RetryPolicy(
+    max_attempts=5,
+    base_delay_s=0.5,
+    max_delay_s=30.0,
+    backoff_factor=2.0,
+    jitter=True,
+    retry_on_unknown=True,
+)
+
+# Per-query-type timeout configuration.
+# All timeouts default to None (indefinite) — original behaviour is preserved.
+# Set values here (or at app startup) to enable timeouts, e.g.:
+#   _TIMEOUT_CONFIG.timeouts[QueryType.COUNT] = 30.0
+#   _TIMEOUT_CONFIG.timeouts[QueryType.GRAPH] = 120.0
+#   _TIMEOUT_CONFIG.fallback_results[QueryType.COUNT] = []
+_TIMEOUT_CONFIG = QueryTimeoutConfig(
+    timeouts={
+        QueryType.DEFAULT:   None,   # indefinite
+        QueryType.GRAPH:     None,   # indefinite
+        QueryType.COUNT:     None,   # indefinite
+        QueryType.LIST: None,   # indefinite
+        QueryType.LOAD:      None,   # indefinite
+        QueryType.SCHEMA:    None,   # indefinite
+    },
+    fallback_results={},
+    warn_threshold_s=None,           # set e.g. to 10.0 to log slow queries
+)
+
 
 class CypherQueryGenerator(QueryGeneratorInterface):
     def __init__(self, dataset_path: str):
-        self.human_driver = GraphDatabase.driver(
-            os.getenv('HUMAN_NEO4J_URI'),
-            auth=(os.getenv('HUMAN_NEO4J_USERNAME'), os.getenv('HUMAN_NEO4J_PASSWORD'))
+        self.human_driver = ResilientDriver(
+            uri=os.getenv('HUMAN_NEO4J_URI'),
+            auth=(os.getenv('HUMAN_NEO4J_USERNAME'), os.getenv('HUMAN_NEO4J_PASSWORD')),
+            retry_policy=_DEFAULT_POLICY,
+            timeout_config=_TIMEOUT_CONFIG,
         )
-        self.fly_driver = GraphDatabase.driver(
-            os.getenv('FLY_NEO4J_URI'),
-            auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD'))
+        self.fly_driver = ResilientDriver(
+            uri=os.getenv('FLY_NEO4J_URI'),
+            auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD')),
+            retry_policy=_DEFAULT_POLICY,
+            timeout_config=_TIMEOUT_CONFIG,
         )
 
     def close(self):
-        self.driver.close()
+        self.human_driver.close()
+        self.fly_driver.close()
 
     def load_dataset(self, path: str) -> None:
         if not os.path.exists(path):
@@ -52,7 +89,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     with open(file_path, 'r') as file:
                         data = file.read()
                         for line in data.splitlines():
-                            self.run_query(line)
+                            self.run_query(line, query_type=QueryType.LOAD)
                 except Exception as e:
                     logger.error(
                         f"Error loading {file_type} dataset from '{file_path}': {e}")
@@ -64,19 +101,209 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         logger.info(
             f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code, stop_event=None,  species="human"):
-        results = []
+    def run_query(self, query_code, stop_event=None, species="human", query_type: QueryType = QueryType.DEFAULT):
         driver = self.human_driver if species == "human" else self.fly_driver
         # use lazy loading for improved performance
-        with driver.session() as session:
-            result = session.run(query_code)
-            for record in result:
-                if stop_event is not None and stop_event.is_set():
-                    raise TaskCancelledException()
-                results.append(record)
-        return results
+        return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type)
+
+    def _find_anchor_node(self, predicates):
+        """
+        Find a node_id that appears in the majority of predicates (as source or
+        target).  This node is matched outside the CALL subquery and scopes the
+        inner aggregations, which keeps memory flat regardless of result size.
+
+        Returns the best anchor node_id, or None if no suitable anchor exists
+        (e.g. fewer than 2 predicates, or a fully disconnected graph pattern).
+        When None is returned the caller falls back to the original multi-MATCH
+        WITH chain.
+        """
+        if not predicates or len(predicates) < 2:
+            return None
+
+        per_pred = Counter()
+        for pred in predicates:
+            for nid in {pred['source'], pred['target']}:
+                per_pred[nid] += 1
+
+        n = len(predicates)
+
+        # node present in every predicate
+        full_anchors = [nid for nid, cnt in per_pred.items() if cnt == n]
+        if full_anchors:
+            return full_anchors[0]
+
+        # node present in all-but-one predicate (handles star+tail patterns)
+        best_nid, best_cnt = per_pred.most_common(1)[0]
+        if best_cnt >= max(2, n - 1):
+            return best_nid
+
+        return None
+
+    def _build_call_subquery(self, predicates, node_map, predicate_map,
+                             anchor_var, limit=None, node_only=False, inner_limit=None):
+        """
+        Build a CALL-subquery-scoped Cypher query:
+
+          MATCH (anchor_var:Type) WHERE <anchor conditions>
+          CALL (anchor_var) {
+            MATCH <pred0 pattern> WHERE <pred0 conditions>
+            WITH collect({<non-anchor node>: <var>, <pred_id>: <var>}) AS p0
+            MATCH <pred1 pattern> WHERE <pred1 conditions>
+            WITH p0, collect({...}) AS p1
+            ...
+            RETURN p0, p1, ...
+          }
+          RETURN anchor_var, p0, p1, ...
+          [LIMIT n]
+
+        Each predicate alias (p0, p1 …) is a list of maps so the result is a
+        single row per anchor node instead of a Cartesian product of rows.
+
+        When a non-anchor node was already collected in a previous predicate
+        (e.g. n5 collected in p1 then reused in p4), the method UNWINDs the
+        prior collect to bring that node back into scope rather than doing a
+        free MATCH against all nodes of that type in the database.
+
+        Returns:
+            cypher_str   – the full query string
+            aliases      – list of collect-alias names  (e.g. ['p0','p1',...])
+            outer_nodes  – [anchor_var]
+        """
+        anchor_node = node_map[anchor_var]
+        anchor_match = self.match_node(anchor_node, anchor_var)
+        anchor_where = self.where_construct(anchor_node, anchor_var)
+
+        outer_match = f"MATCH {anchor_match}"
+        outer_where = f"WHERE {' AND '.join(anchor_where)}" if anchor_where else ""
+
+        inner_lines = []
+        aliases = []        # collect alias per predicate (same as predicate_id)
+        carried = []        # aliases already collected and carried forward
+
+        # Track which non-anchor node vars have been collected and in which alias
+        # key: node_var, value: (alias, key_in_map) e.g. ('p1', 'n5')
+        collected_nodes = {}
+
+        for i, predicate in enumerate(predicates):
+            pred_id   = predicate['predicate_id']
+            pred_type = predicate['type'].replace(' ', '_').lower()
+            source_var = predicate['source']
+            target_var = predicate['target']
+            source_node = node_map[source_var]
+            target_node = node_map[target_var]
+
+            is_virtual = (pred_type == 'overlaps_with')
+
+            # Determine which end(s) of this predicate need to be unwound
+            # because they were already collected in a previous step
+            unwind_lines = []
+            needs_unwind_source = (
+                source_var != anchor_var and
+                source_var in collected_nodes
+            )
+            needs_unwind_target = (
+                target_var != anchor_var and
+                target_var in collected_nodes
+            )
+
+            if needs_unwind_source:
+                prev_alias, prev_key = collected_nodes[source_var]
+                unwind_lines.append(f"  UNWIND [x IN {prev_alias} | x.{prev_key}] AS {source_var}")
+            if needs_unwind_target:
+                prev_alias, prev_key = collected_nodes[target_var]
+                unwind_lines.append(f"  UNWIND [x IN {prev_alias} | x.{prev_key}] AS {target_var}")
+
+            # Build MATCH pattern — skip re-declaring the anchor node
+            # and skip re-declaring nodes that were just unwound (they are already in scope)
+            source_match_str = self.match_node(source_node, source_var)
+            target_match_str = self.match_node(target_node, target_var)
+
+            if source_var == anchor_var:
+                match_pattern = f"MATCH ({anchor_var})-[{pred_id}:{pred_type}]->{target_match_str}"
+            elif target_var == anchor_var:
+                match_pattern = f"MATCH {source_match_str}-[{pred_id}:{pred_type}]->({anchor_var})"
+            elif needs_unwind_source and not needs_unwind_target:
+                # source already in scope via UNWIND — only declare target
+                match_pattern = f"MATCH ({source_var})-[{pred_id}:{pred_type}]->{target_match_str}"
+            elif needs_unwind_target and not needs_unwind_source:
+                # target already in scope via UNWIND — only declare source
+                match_pattern = f"MATCH {source_match_str}-[{pred_id}:{pred_type}]->({target_var})"
+            elif needs_unwind_source and needs_unwind_target:
+                # both already in scope
+                match_pattern = f"MATCH ({source_var})-[{pred_id}:{pred_type}]->({target_var})"
+            else:
+                match_pattern = f"MATCH {source_match_str}-[{pred_id}:{pred_type}]->{target_match_str}"
+
+            # WHERE conditions — only for non-anchor, non-unwound nodes
+            where_parts = []
+            overlap_parts = self.construct_overlap_clause(source_var, target_var, pred_type)
+            if overlap_parts:
+                where_parts.extend(overlap_parts)
+            for var in [source_var, target_var]:
+                if var != anchor_var and var not in collected_nodes:
+                    where_parts.extend(self.where_construct(node_map[var], var))
+            where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+
+            # Virtual relationship creation (overlaps_with)
+            virtual_creation = ""
+            if is_virtual:
+                virtual_creation = (
+                    f"WITH *, apoc.create.vRelationship({source_var}, '{pred_type}', "
+                    f"{{source:'virtual'}}, {target_var}) AS {pred_id}"
+                )
+
+            # collect() map — include non-anchor node(s) and the relationship
+            map_entries = {}
+            for var in [source_var, target_var]:
+                if var != anchor_var:
+                    map_entries[var] = var
+            map_entries[pred_id] = pred_id
+            collect_map = '{' + ', '.join(f"{k}: {v}" for k, v in map_entries.items()) + '}'
+            if inner_limit:
+                collect_expr = f"[x IN collect({collect_map}) | x][0..{inner_limit}] AS {pred_id}"
+            else:
+                collect_expr = f"collect({collect_map}) AS {pred_id}"
+
+            aliases.append(pred_id)
+
+            # Register newly seen non-anchor nodes as collected under this alias
+            for var in [source_var, target_var]:
+                if var != anchor_var and var not in collected_nodes:
+                    collected_nodes[var] = (pred_id, var)
+
+            # Emit UNWIND lines first (bring previously collected nodes back into scope)
+            for ul in unwind_lines:
+                inner_lines.append(ul)
+
+            inner_lines.append(f"  {match_pattern}")
+            if where_clause:
+                inner_lines.append(f"  {where_clause}")
+            if virtual_creation:
+                inner_lines.append(f"  {virtual_creation}")
+
+            # WITH inside CALL — carry prior aliases then add new collect
+            carry_str = ', '.join(carried) + (', ' if carried else '') + collect_expr
+            inner_lines.append(f"  WITH {carry_str}")
+
+            carried.append(pred_id)
+
+        # Final RETURN inside CALL
+        inner_lines.append(f"  RETURN {', '.join(aliases)}")
+
+        call_block = "CALL ({}) {{\n{}\n}}".format(anchor_var, '\n'.join(inner_lines))
+
+        outer_return = f"RETURN {anchor_var}, {', '.join(aliases)}"
+        limit_clause = f"LIMIT {limit}" if limit else ""
+
+        parts = [p for p in [outer_match, outer_where, call_block, outer_return, limit_clause] if p.strip()]
+        cypher_str = '\n'.join(parts)
+
+        return cypher_str, aliases, [anchor_var]
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
+        if self.is_in_list_request(requests):
+            return self.in_list_query_generator(requests, limit)
+
         nodes = requests['nodes']
         predicate_map = {}
 
@@ -136,95 +363,162 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             count = self.construct_count_clause(
                 query_clauses, node_map, predicate_map)
             cypher_queries.extend(count)
+
         else:
-            for i, predicate in enumerate(predicates):
-                predicate_id = predicate['predicate_id']
-                predicate_type = predicate['type'].replace(" ", "_").lower()
-                source_node = node_map[predicate['source']]
-                target_node = node_map[predicate['target']]
-                source_var = source_node['node_id']
-                target_var = target_node['node_id']
+            # Try CALL subquery pattern first — avoids Cartesian product row explosion
+            anchor_var = self._find_anchor_node(predicates)
 
-                source_match = self.match_node(source_node, source_var)
-                target_match = self.match_node(target_node, target_var)
-                
-                is_virtual = (predicate_type == 'overlaps_with')
+            if anchor_var is not None:
+                cypher_query, aliases, outer_nodes = self._build_call_subquery(
+                    predicates, node_map, predicate_map, anchor_var, limit, node_only,
+                    inner_limit=None
+                )
+                cypher_queries.append(cypher_query)
 
-                tmp_where_preds = []
-                overlap_constraints = self.construct_overlap_clause(source_var, target_var, predicate_type)
-                if overlap_constraints:
-                    tmp_where_preds.extend(overlap_constraints)
-                    where_preds.extend(overlap_constraints)
-                if source_var not in node_ids:
-                    tmp_where_preds.extend(self.where_construct(source_node, source_var))
-                    where_preds.extend(
-                        self.where_construct(source_node, source_var))
-                if target_var not in node_ids:
-                    tmp_where_preds.extend(self.where_construct(target_node, target_var))
-                    where_preds.extend(
-                        self.where_construct(target_node, target_var))
+                # Collect all node_ids touched by predicates for count clause
+                all_node_ids = set()
+                all_node_ids.add(anchor_var)
+                for pred in predicates:
+                    all_node_ids.add(pred['source'])
+                    all_node_ids.add(pred['target'])
+                list_of_node_ids = sorted(all_node_ids)
 
-                node_ids.add(source_var)
-                node_ids.add(target_var)
+                # Build flattened match/where for count queries (old-style, no CALL)
+                for pred in predicates:
+                    pred_id   = pred['predicate_id']
+                    pred_type = pred['type'].replace(' ', '_').lower()
+                    source_var = pred['source']
+                    target_var = pred['target']
+                    source_node = node_map[source_var]
+                    target_node = node_map[target_var]
+                    source_match_str = self.match_node(source_node, source_var)
+                    target_match_str = self.match_node(target_node, target_var)
 
-                # Initialize variable for virtual relationship creation
-                virtual_creation = ""
+                    is_virtual = (pred_type == 'overlaps_with')
 
-                if is_virtual:
-                    # Virtual: Match nodes implicitly
-                    match_clause = f"MATCH {source_match}, {target_match}"
-                    match_preds.append(f"{source_match}, {target_match}")
-                    
-                    return_preds.append(predicate_id)
+                    overlap_constraints = self.construct_overlap_clause(source_var, target_var, pred_type)
+                    if overlap_constraints:
+                        where_preds.extend(overlap_constraints)
+                    if source_var not in node_ids:
+                        where_preds.extend(self.where_construct(source_node, source_var))
+                    if target_var not in node_ids:
+                        where_preds.extend(self.where_construct(target_node, target_var))
+                    node_ids.add(source_var)
+                    node_ids.add(target_var)
 
-                    # 1. Create string for Main Query
-                    virtual_creation = f"WITH *, apoc.create.vRelationship({source_var}, '{predicate_type}', {{source:'virtual'}}, {target_var}) AS {predicate_id}"
-                    
-                    # 2. Store definition for Count Query (without WITH *)
-                    virtual_defs.append(f"apoc.create.vRelationship({source_var}, '{predicate_type}', {{source:'virtual'}}, {target_var}) AS {predicate_id}")
-
-                else:
-                    # Physical: Match with explicit relationship
-                    return_preds.append(predicate_id) 
-                    match_pattern = f"{source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
-                    match_clause = f"MATCH {match_pattern}"
-                    match_preds.append(match_pattern)
-
-                # Construct the WHERE clause if there are conditions
-                where_clause = f"WHERE {' AND '.join(tmp_where_preds)}" if len(tmp_where_preds) >= 1 else ''
-
-                if i == len(predicates) - 1:
-                    if return_preds:
-                        return_clause = f"RETURN {', '.join(return_preds)}, {', '.join(node_ids)}"
+                    if is_virtual:
+                        match_preds.append(f"{source_match_str}, {target_match_str}")
+                        virtual_defs.append(
+                            f"apoc.create.vRelationship({source_var}, '{pred_type}', "
+                            f"{{source:'virtual'}}, {target_var}) AS {pred_id}"
+                        )
                     else:
-                        return_clause = f"RETURN {', '.join(node_ids)}"
+                        match_preds.append(
+                            f"{source_match_str}-[{pred_id}:{pred_type}]->{target_match_str}"
+                        )
+                    return_preds.append(pred_id)
 
-                    # Combine all clauses
-                    clause_list.append(f"{match_clause} {where_clause} {virtual_creation} {return_clause}")
-                else:
-                    with_clause = f"WITH {', '.join(return_preds)}, {', '.join(node_ids)}"
-                    clause_list.append(f"{match_clause} {where_clause} {virtual_creation} {with_clause}")
+                full_return_preds = return_preds + list_of_node_ids
+                query_clauses = {
+                    "match_preds": match_preds,
+                    "full_return_preds": full_return_preds,
+                    "where_preds": where_preds,
+                    "list_of_node_ids": list_of_node_ids,
+                    "return_preds": return_preds,
+                    "predicates": predicates,
+                    "virtual_defs": virtual_defs,
+                }
+                count = self.construct_count_clause(query_clauses, node_map, predicate_map)
+                cypher_queries.extend(count)
 
-            list_of_node_ids = list(node_ids)
-            list_of_node_ids.sort()
-            full_return_preds = return_preds + list_of_node_ids
+            else:
+                # Fallback: original multi-MATCH WITH chain 
+                for i, predicate in enumerate(predicates):
+                    predicate_id = predicate['predicate_id']
+                    predicate_type = predicate['type'].replace(" ", "_").lower()
+                    source_node = node_map[predicate['source']]
+                    target_node = node_map[predicate['target']]
+                    source_var = source_node['node_id']
+                    target_var = target_node['node_id']
 
+                    source_match = self.match_node(source_node, source_var)
+                    target_match = self.match_node(target_node, target_var)
+                    
+                    is_virtual = (predicate_type == 'overlaps_with')
 
-            cypher_query = ' '.join(clause_list)
-            cypher_queries.append(cypher_query)
-            query_clauses = {
-                "match_preds": match_preds,
-                "full_return_preds": full_return_preds,
-                "where_preds": where_preds,
-                "list_of_node_ids": list_of_node_ids,
-                "return_preds": return_preds,
-                "predicates": predicates,
-                "virtual_defs": virtual_defs
-            }
-            count = self.construct_count_clause(
-                query_clauses, node_map, predicate_map)
-            cypher_queries.extend(count)
-            
+                    tmp_where_preds = []
+                    overlap_constraints = self.construct_overlap_clause(source_var, target_var, predicate_type)
+                    if overlap_constraints:
+                        tmp_where_preds.extend(overlap_constraints)
+                        where_preds.extend(overlap_constraints)
+                    if source_var not in node_ids:
+                        tmp_where_preds.extend(self.where_construct(source_node, source_var))
+                        where_preds.extend(
+                            self.where_construct(source_node, source_var))
+                    if target_var not in node_ids:
+                        tmp_where_preds.extend(self.where_construct(target_node, target_var))
+                        where_preds.extend(
+                            self.where_construct(target_node, target_var))
+
+                    node_ids.add(source_var)
+                    node_ids.add(target_var)
+
+                    # Initialize variable for virtual relationship creation
+                    virtual_creation = ""
+
+                    if is_virtual:
+                        # Virtual: Match nodes implicitly
+                        match_clause = f"MATCH {source_match}, {target_match}"
+                        match_preds.append(f"{source_match}, {target_match}")
+                        
+                        return_preds.append(predicate_id)
+
+                        # 1. Create string for Main Query
+                        virtual_creation = f"WITH *, apoc.create.vRelationship({source_var}, '{predicate_type}', {{source:'virtual'}}, {target_var}) AS {predicate_id}"
+                        
+                        # 2. Store definition for Count Query (without WITH *)
+                        virtual_defs.append(f"apoc.create.vRelationship({source_var}, '{predicate_type}', {{source:'virtual'}}, {target_var}) AS {predicate_id}")
+
+                    else:
+                        # Physical: Match with explicit relationship
+                        return_preds.append(predicate_id) 
+                        match_pattern = f"{source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
+                        match_clause = f"MATCH {match_pattern}"
+                        match_preds.append(match_pattern)
+
+                    # Construct the WHERE clause if there are conditions
+                    where_clause = f"WHERE {' AND '.join(tmp_where_preds)}" if len(tmp_where_preds) >= 1 else ''
+
+                    if i == len(predicates) - 1:
+                        if return_preds:
+                            return_clause = f"RETURN {', '.join(return_preds)}, {', '.join(node_ids)}"
+                        else:
+                            return_clause = f"RETURN {', '.join(node_ids)}"
+
+                        # Combine all clauses
+                        clause_list.append(f"{match_clause} {where_clause} {virtual_creation} {return_clause}")
+                    else:
+                        with_clause = f"WITH {', '.join(return_preds)}, {', '.join(node_ids)}"
+                        clause_list.append(f"{match_clause} {where_clause} {virtual_creation} {with_clause}")
+
+                list_of_node_ids = list(node_ids)
+                list_of_node_ids.sort()
+                full_return_preds = return_preds + list_of_node_ids
+
+                cypher_query = ' '.join(clause_list)
+                cypher_queries.append(cypher_query)
+                query_clauses = {
+                    "match_preds": match_preds,
+                    "full_return_preds": full_return_preds,
+                    "where_preds": where_preds,
+                    "list_of_node_ids": list_of_node_ids,
+                    "return_preds": return_preds,
+                    "predicates": predicates,
+                    "virtual_defs": virtual_defs
+                }
+                count = self.construct_count_clause(
+                    query_clauses, node_map, predicate_map)
+                cypher_queries.extend(count)
             
         return cypher_queries
 
@@ -313,6 +607,215 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         '''
 
         return [total_count, label_count_query]
+    
+    def is_in_list_request(self, requests):
+        """
+        Returns True if any node in the request has a 'ids' list property,
+        indicating this is a mixed or pure list query.
+        """
+        for node in requests['nodes']:
+            if isinstance(node.get('ids'), list) and len(node['ids']) > 0:
+                return True
+            id_val = node.get('id', '')
+            if isinstance(id_val, str) and ',' in id_val:
+                return True
+            for val in node.get('properties', {}).values():
+                if isinstance(val, str) and ',' in val:
+                    return True
+        return False
+
+    def in_list_query_generator(self, requests, limit=None):
+        nodes = requests['nodes']
+        predicates = requests.get('predicates', [])
+
+        if not predicates:
+            raise ValueError("in_list_query_generator requires at least 1 predicate.")
+
+        # Assign predicate_ids if missing
+        for idx, pred in enumerate(predicates):
+            if 'predicate_id' not in pred:
+                pred['predicate_id'] = f'p{idx}'
+
+        node_map = {n['node_id']: n for n in nodes}
+
+        # Build list variables for WITH clause — only for list nodes
+        list_vars = {}
+        list_counter = 0
+        for node in nodes:
+            var_name = node['node_id']
+            if isinstance(node.get('ids'), list) and len(node['ids']) > 0:
+                list_var = f"list{chr(65 + list_counter)}"  # listA, listB, listC ...
+                list_vars[var_name] = (node['ids'], list_var)
+                list_counter += 1
+            elif node.get('id', '') and ',' in node.get('id', ''):
+                id_list = [i.strip().upper() for i in node['id'].split(',')]
+                list_var = f"list{chr(65 + list_counter)}"
+                list_vars[var_name] = (id_list, list_var)
+                list_counter += 1
+            else:
+                props = node.get('properties', {})
+                for prop_key, prop_val in props.items():
+                    if prop_val and isinstance(prop_val, str) and ',' in prop_val:
+                        id_list = [i.strip() for i in prop_val.split(',')]
+                        list_var = f"list{chr(65 + list_counter)}"
+                        list_vars[var_name] = (id_list, list_var)
+                        list_counter += 1
+                        break
+
+        # WITH clause — only list variables
+        with_parts = [f"{id_list} AS {list_var}" for (id_list, list_var) in list_vars.values()]
+        with_clause = f"WITH {', '.join(with_parts)}" if with_parts else ""
+
+        def get_node_filter(node, var_name):
+            """
+            Returns WHERE conditions for a node:
+            - list node: var.id IN listX
+            - single id node: already in MATCH clause, no extra WHERE needed
+            - property node: var.prop =~ value
+            """
+            reserved = {'start', 'end', 'interval_type', 'upstream_distance', 'downstream_distance'}
+            conditions = []
+
+            if var_name in list_vars:
+                _, list_var = list_vars[var_name]
+                # determine which property to filter on
+                raw_id = node.get('id', '')
+                if raw_id and ',' in raw_id:
+                    conditions.append(f"{var_name}.id IN {list_var}")
+                elif isinstance(node.get('ids'), list):
+                    conditions.append(f"{var_name}.id IN {list_var}")
+                else:
+                    props = node.get('properties', {})
+                    for prop_key, prop_val in props.items():
+                        if prop_val and isinstance(prop_val, str) and ',' in prop_val:
+                            conditions.append(f"{var_name}.{prop_key} IN {list_var}")
+                            break
+
+            # Additional property filters (non-list, non-reserved)
+            props = node.get('properties', {})
+            for key, value in props.items():
+                if key in reserved:
+                    continue
+                if not value:
+                    continue
+                if isinstance(value, str) and ',' in value:
+                    continue
+                conditions.append(f"{var_name}.{key} =~ '(?i){value}'")
+
+            return conditions
+
+        def get_match_node(node, var_name):
+            """
+            Returns MATCH node pattern.
+            - single id: (var:Type {id: 'value'})
+            - list or property node: (var:Type)
+            """
+            raw_id = node.get('id', '')
+            # single non-comma id
+            if raw_id and ',' not in raw_id:
+                return f"({var_name}:{node['type']} {{id: '{raw_id}'}})"
+            return f"({var_name}:{node['type']})"
+
+        clause_list = []
+        all_node_vars = set()
+        all_pred_vars = []
+        all_where_conditions = []
+
+        for i, predicate in enumerate(predicates):
+            predicate_id = predicate['predicate_id']
+            predicate_type = predicate['type'].replace(" ", "_").lower()
+
+            source_node = node_map[predicate['source']]
+            target_node = node_map[predicate['target']]
+            source_var = source_node['node_id']
+            target_var = target_node['node_id']
+
+            source_match = get_match_node(source_node, source_var)
+            target_match = get_match_node(target_node, target_var)
+
+            match_pattern = (
+                f"MATCH {source_match}"
+                f"-[{predicate_id}:{predicate_type}]->"
+                f"{target_match}"
+            )
+
+            # Collect WHERE conditions for new nodes only
+            tmp_conditions = []
+            if source_var not in all_node_vars:
+                tmp_conditions.extend(get_node_filter(source_node, source_var))
+                all_where_conditions.extend(get_node_filter(source_node, source_var))
+            if target_var not in all_node_vars:
+                tmp_conditions.extend(get_node_filter(target_node, target_var))
+                all_where_conditions.extend(get_node_filter(target_node, target_var))
+
+            all_node_vars.add(source_var)
+            all_node_vars.add(target_var)
+            all_pred_vars.append(predicate_id)
+
+            where_clause = f"WHERE {' AND '.join(tmp_conditions)}" if tmp_conditions else ""
+
+            if i < len(predicates) - 1:
+                # Carry forward list vars + all seen node vars + pred vars so far
+                carry = list(list_vars.values())
+                carry_parts = [lv for (_, lv) in carry]
+                with_parts_chain = carry_parts + all_pred_vars + sorted(all_node_vars)
+                with_chain = f"WITH {', '.join(with_parts_chain)}"
+                clause_list.append(f"{match_pattern} {where_clause} {with_chain}")
+            else:
+                # Final predicate — RETURN everything
+                return_vars = all_pred_vars + sorted(all_node_vars)
+                return_clause = f"RETURN {', '.join(return_vars)}"
+                clause_list.append(f"{match_pattern} {where_clause} {return_clause}")
+
+        query = f"{with_clause} {' '.join(clause_list)}"
+        if limit:
+            query += f" LIMIT {limit}"
+
+        # Total count query
+        sorted_nodes = sorted(all_node_vars)
+        node_counts = " + ".join([f"COUNT(DISTINCT {v})" for v in sorted_nodes])
+        edge_counts = " + ".join([f"COUNT(DISTINCT {v})" for v in all_pred_vars])
+
+        # Rebuild match chain without WITH carry for count queries
+        count_match_parts = []
+        count_where_parts = list(all_where_conditions)
+        for predicate in predicates:
+            predicate_id = predicate['predicate_id']
+            predicate_type = predicate['type'].replace(" ", "_").lower()
+            source_node = node_map[predicate['source']]
+            target_node = node_map[predicate['target']]
+            source_var = source_node['node_id']
+            target_var = target_node['node_id']
+            source_match = get_match_node(source_node, source_var)
+            target_match = get_match_node(target_node, target_var)
+            count_match_parts.append(
+                f"{source_match}-[{predicate_id}:{predicate_type}]->{target_match}"
+            )
+
+        count_match_clause = f"MATCH {', '.join(count_match_parts)}"
+        count_where_clause = f"WHERE {' AND '.join(count_where_parts)}" if count_where_parts else ""
+
+        total_count_query = (
+            f"{with_clause} {count_match_clause} {count_where_clause} "
+            f"RETURN {node_counts} AS total_nodes, {edge_counts} AS total_edges"
+        )
+
+        # Count by label query
+        label_parts = []
+        for v in sorted_nodes:
+            node_type = node_map[v]['type']
+            label_parts.append(f"COUNT(DISTINCT {v}) AS {v}_{node_type}")
+        for pred in predicates:
+            pred_id = pred['predicate_id']
+            pred_type = pred['type'].replace(' ', '_')
+            label_parts.append(f"COUNT(DISTINCT {pred_id}) AS {pred_id}_{pred_type}")
+
+        label_count_query = (
+            f"{with_clause} {count_match_clause} {count_where_clause} "
+            f"RETURN {', '.join(label_parts)}"
+        )
+
+        return [query, total_count_query, label_count_query]
 
     def limit_query(self, limit):
         '''
@@ -441,64 +944,102 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         named_types = ['gene_name', 'transcript_name',
                        'protein_name', 'pathway_name', 'term_name']
+        
+        named_types_dict = {
+            "gene": "gene_name",
+            "transcript": "transcript_name",
+            "protein": "protein_name",
+            "pathway": "pathway_name",
+            "term": "term_name"
+        }
+
+        def _process_node(item):
+            """Extract and register a neo4j Node into nodes/node_dict."""
+            node_id = f"{list(item.labels)[0]} {item['id']}"
+            if node_id not in node_dict:
+                node_data = {
+                    "data": {
+                        "id": node_id,
+                        "type": list(item.labels)[0],
+                    }
+                }
+                for key, value in item.items():
+                    if graph_components['properties']:
+                        if key != "id" and key != "synonyms":
+                            node_data["data"][key] = value
+                    else:
+                        if key in named_types:
+                            node_data["data"]["name"] = value
+                if "name" not in node_data["data"]:
+                    if named_types_dict.get(node_data["data"]["type"].lower()):
+                        node_data["data"]["name"] = node_data["data"][named_types_dict[node_data["data"]["type"].lower()]]
+                    else:
+                        node_data["data"]["name"] = node_data["data"]["id"]
+                nodes.append(node_data)
+                if node_data["data"]["type"] not in node_type:
+                    node_type.add(node_data["data"]["type"])
+                    node_to_dict[node_data['data']['type']] = []
+                node_to_dict[node_data['data']['type']].append(node_data)
+                node_dict[node_id] = node_data
+
+        def _process_relationship(item):
+            """Extract and register a neo4j Relationship into edges."""
+            source_label = list(item.start_node.labels)[0]
+            target_label = list(item.end_node.labels)[0]
+            source_id = f"{list(item.start_node.labels)[0]} {item.start_node['id']}"
+            target_id = f"{list(item.end_node.labels)[0]} {item.end_node['id']}"
+            edge_data = {
+                "data": {
+                    # "id": item.id,
+                    "edge_id": f"{source_label}_{item.type}_{target_label}",
+                    "label": item.type,
+                    "source": source_id,
+                    "target": target_id,
+                }
+            }
+            temp_relation_id = f"{source_id} - {item.type} - {target_id}"
+            if temp_relation_id in visited_relations:
+                return
+            visited_relations.add(temp_relation_id)
+            for key, value in item.items():
+                if key == 'source':
+                    edge_data["data"]["source_data"] = value
+                else:
+                    edge_data["data"][key] = value
+            edges.append(edge_data)
+            if edge_data["data"]["label"] not in edge_type:
+                edge_type.add(edge_data["data"]["label"])
+                edge_to_dict[edge_data['data']['label']] = []
+            edge_to_dict[edge_data['data']['label']].append(edge_data)
+
         for record in results:
             for item in record.values():
                 if isinstance(item, neo4j.graph.Node):
-                    node_id = f"{list(item.labels)[0]} {item['id']}"
-                    if node_id not in node_dict:
-                        node_data = {
-                            "data": {
-                                "id": node_id,
-                                "type": list(item.labels)[0],
-                            }
-                        }
-
-                        for key, value in item.items():
-                            if graph_components['properties']:
-                                if key != "id" and key != "synonyms":
-                                    node_data["data"][key] = value
-                            else:
-                                if key in named_types:
-                                    node_data["data"]["name"] = value
-                        if "name" not in node_data["data"]:
-                            node_data["data"]["name"] = node_id
-                        nodes.append(node_data)
-                        if node_data["data"]["type"] not in node_type:
-                            node_type.add(node_data["data"]["type"])
-                            node_to_dict[node_data['data']['type']] = []
-                        node_to_dict[node_data['data']
-                                     ['type']].append(node_data)
-                        node_dict[node_id] = node_data
+                    # Direct node in record (flat query or no-predicate query)
+                    _process_node(item)
                 elif isinstance(item, neo4j.graph.Relationship):
-                    source_label = list(item.start_node.labels)[0]
-                    target_label = list(item.end_node.labels)[0]
-                    source_id = f"{list(item.start_node.labels)[0]} {item.start_node['id']}"
-                    target_id = f"{list(item.end_node.labels)[0]} {item.end_node['id']}"
-                    edge_data = {
-                        "data": {
-                            # "id": item.id,
-                            "edge_id": f"{source_label}_{item.type}_{target_label}",
-                            "label": item.type,
-                            "source": source_id,
-                            "target": target_id,
-                        }
-                    }
-                    temp_relation_id = f"{source_id} - {item.type} - {target_id}"
-                    if temp_relation_id in visited_relations:
-                        continue
-                    visited_relations.add(temp_relation_id)
-
-                    for key, value in item.items():
-                        if key == 'source':
-                            edge_data["data"]["source_data"] = value
-                        else:
-                            edge_data["data"][key] = value
-                    edges.append(edge_data)
-                    if edge_data["data"]["label"] not in edge_type:
-                        edge_type.add(edge_data["data"]["label"])
-                        edge_to_dict[edge_data['data']['label']] = []
-                    edge_to_dict[edge_data['data']
-                                 ['label']].append(edge_data)
+                    # Direct relationship in record (flat query)
+                    _process_relationship(item)
+                    # Also process its endpoint nodes
+                    _process_node(item.start_node)
+                    _process_node(item.end_node)
+                elif isinstance(item, list):
+                    # CALL subquery result: list of maps [{node_var: Node, pred_var: Rel}, ...]
+                    for entry in item:
+                        if isinstance(entry, dict):
+                            for val in entry.values():
+                                if isinstance(val, neo4j.graph.Node):
+                                    _process_node(val)
+                                elif isinstance(val, neo4j.graph.Relationship):
+                                    _process_relationship(val)
+                                    _process_node(val.start_node)
+                                    _process_node(val.end_node)
+                        elif isinstance(entry, neo4j.graph.Node):
+                            _process_node(entry)
+                        elif isinstance(entry, neo4j.graph.Relationship):
+                            _process_relationship(entry)
+                            _process_node(entry.start_node)
+                            _process_node(entry.end_node)
 
         return (nodes, edges, node_to_dict, edge_to_dict)
 
@@ -584,11 +1125,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     def parse_id(self, request):
         nodes = request["nodes"]
         named_types = {"gene": "gene_name", "transcript": "transcript_name"}
-        prefixes = ["ensg", "enst"]
+        prefixes = ["ENSG", "ENST"]
 
         for node in nodes:
             is_named_type = node['type'] in named_types
-            id = node["id"].lower()
+            id = node["id"].upper()
             is_name_as_id = all(not id.startswith(prefix)
                                 for prefix in prefixes)
             no_id = node["id"] != ''
@@ -596,7 +1137,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 node_type = named_types[node['type']]
                 node['properties'][node_type] = node["id"]
                 node['id'] = ''
-            node["id"] = node["id"].lower()
+            node["id"] = node["id"].upper()
         return request
 
     def list_query_generator_source_target(self, source, target, target_ids, relationship):
