@@ -56,16 +56,22 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             retry_policy=_DEFAULT_POLICY,
             timeout_config=_TIMEOUT_CONFIG,
         )
-        self.fly_driver = ResilientDriver(
-            uri=os.getenv('FLY_NEO4J_URI'),
-            auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD')),
-            retry_policy=_DEFAULT_POLICY,
-            timeout_config=_TIMEOUT_CONFIG,
-        )
+        fly_uri = os.getenv('FLY_NEO4J_URI')
+        if fly_uri:
+            self.fly_driver = ResilientDriver(
+                uri=fly_uri,
+                auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD')),
+                retry_policy=_DEFAULT_POLICY,
+                timeout_config=_TIMEOUT_CONFIG,
+            )
+        else:
+            logger.warning("FLY_NEO4J_URI not set — fly species queries will not be available.")
+            self.fly_driver = None
 
     def close(self):
         self.human_driver.close()
-        self.fly_driver.close()
+        if self.fly_driver is not None:
+            self.fly_driver.close()
 
     def load_dataset(self, path: str) -> None:
         if not os.path.exists(path):
@@ -102,8 +108,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
     def run_query(self, query_code, stop_event=None, species="human", query_type: QueryType = QueryType.DEFAULT):
-        driver = self.human_driver if species == "human" else self.fly_driver
-        # use lazy loading for improved performance
+        if species != "human":
+            if self.fly_driver is None:
+                raise RuntimeError("Fly Neo4j driver is not configured. Set FLY_NEO4J_URI.")
+            driver = self.fly_driver
+        else:
+            driver = self.human_driver
         return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type)
 
     def _find_anchor_node(self, predicates):
@@ -282,7 +292,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 inner_lines.append(f"  {virtual_creation}")
 
             # WITH inside CALL — carry prior aliases then add new collect
-            carry_str = ', '.join(carried) + (', ' if carried else '') + collect_expr
+            carry_str = anchor_var + ', ' + ', '.join(carried) + (', ' if carried else '') + collect_expr
             inner_lines.append(f"  WITH {carry_str}")
 
             carried.append(pred_id)
@@ -290,7 +300,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # Final RETURN inside CALL
         inner_lines.append(f"  RETURN {', '.join(aliases)}")
 
-        call_block = "CALL ({}) {{\n{}\n}}".format(anchor_var, '\n'.join(inner_lines))
+        call_block = "CALL {{\n  WITH {}\n{}\n}}".format(anchor_var, '\n'.join(inner_lines))
 
         outer_return = f"RETURN {anchor_var}, {', '.join(aliases)}"
         limit_clause = f"LIMIT {limit}" if limit else ""
