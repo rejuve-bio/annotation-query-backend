@@ -201,8 +201,6 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
         meta_data = AnnotationStorageService.get_by_id(annotation_id)
 
         if summary is not None:
-            created_at = getattr(meta_data, 'created_at', None)
-            total_ms = round((dt.datetime.now() - created_at).total_seconds() * 1000) if created_at else None
             update_task(annotation_id, "summary", 1)
             set_status(annotation_id, TaskStatus.COMPLETE.value)
             AnnotationStorageService.update(
@@ -243,8 +241,8 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
             summary = llm.generate_summary(response, request)
             summary = summary if summary else "Graph too big, could not summarize"
 
-        created_at = getattr(meta_data, 'created_at', None)
-        total_ms = round((dt.datetime.now() - created_at).total_seconds() * 1000) if created_at else None
+        task_start = cache.get("task_start")
+        total_ms = round((time.time() - task_start) * 1000) if task_start else None
 
         AnnotationStorageService.update(annotation_id, {
             "summary": summary,
@@ -311,6 +309,7 @@ def graph_task(
         return
     try:
         annotation_id = str(annotation_id)
+        task_start = time.time()
         db_instance = get_db_for_species(species)
         check_for_cancellation(annotation_id)
 
@@ -477,7 +476,7 @@ def graph_task(
         update_task(annotation_id, "graph", 1)
 
         # Save Result with Status
-        save_result_redis(annotation_id, {"status": status, "graph": grouped_graph})
+        save_result_redis(annotation_id, {"status": status, "graph": grouped_graph, "task_start": task_start})
 
         socket_event = {
             "status": status,
