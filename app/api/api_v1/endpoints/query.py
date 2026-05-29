@@ -195,7 +195,7 @@ def process_query(
         lock_key = f"dedup_lock:{fingerprint}"
         with redis_client.lock(lock_key, timeout=10, blocking_timeout=5):
             existing_doc = AnnotationStorageService.get_by_fingerprint(fingerprint)
-            if existing_doc and existing_doc.status == TaskStatus.COMPLETE.value and not annotation_id:
+            if settings.DEDUP_ENABLED and existing_doc and existing_doc.status == TaskStatus.COMPLETE.value and not annotation_id:
                 # HYPOTHESIS source — never has a question, safe to return
                 # graph nodes directly from cache.
                 if source == "hypothesis":
