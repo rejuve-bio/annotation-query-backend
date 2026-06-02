@@ -429,6 +429,23 @@ def graph_task(
 
             pysam.tabix_index(str(vcf_path), preset="vcf", force=True)
 
+        nodes_list = response.get("nodes", [])
+        edges_list = response.get("edges", [])
+        graph_node_count = len(nodes_list)
+        graph_edge_count = len(edges_list)
+
+        _node_type_counts = {}
+        for n in nodes_list:
+            t = n.get("data", {}).get("type", "unknown")
+            _node_type_counts[t] = _node_type_counts.get(t, 0) + 1
+        graph_node_count_by_label = [{"label": k, "count": v} for k, v in _node_type_counts.items()]
+
+        _edge_label_counts = {}
+        for e in edges_list:
+            lbl = e.get("data", {}).get("label", "unknown")
+            _edge_label_counts[lbl] = _edge_label_counts.get(lbl, 0) + 1
+        graph_edge_count_by_label = [{"label": k, "count": v} for k, v in _edge_label_counts.items()]
+
         graph = Graph()
 
         if len(response["edges"]) == 0 and len(response["nodes"]) > 0:
@@ -476,7 +493,15 @@ def graph_task(
         update_task(annotation_id, "graph", 1)
 
         # Save Result with Status
-        save_result_redis(annotation_id, {"status": status, "graph": grouped_graph, "task_start": task_start})
+        save_result_redis(annotation_id, {
+            "status": status,
+            "graph": grouped_graph,
+            "task_start": task_start,
+            "node_count": graph_node_count,
+            "edge_count": graph_edge_count,
+            "node_count_by_label": graph_node_count_by_label,
+            "edge_count_by_label": graph_edge_count_by_label,
+        })
 
         socket_event = {
             "status": status,
@@ -560,6 +585,29 @@ def total_count_task(
         return
 
     try:
+        if db_type == "cypher":
+            for _ in range(120):  # poll up to 60s; graph_task typically finishes in <10s
+                if get_status(annotation_id) in (TaskStatus.FAILED.value, TaskStatus.CANCELLED.value):
+                    return
+                cache = get_annotation_redis(annotation_id)
+                if cache and "node_count" in cache:
+                    node_count = cache["node_count"]
+                    edge_count = cache["edge_count"]
+                    update_task(annotation_id, "total_count", 1)
+                    AnnotationStorageService.update(
+                        annotation_id,
+                        {"node_count": node_count, "edge_count": edge_count, "status": TaskStatus.PENDING.value},
+                    )
+                    socket_event = {
+                        "status": TaskStatus.PENDING.value,
+                        "update": {"node_count": node_count, "edge_count": edge_count},
+                        "annotation_id": annotation_id,
+                    }
+                    redis_client.publish("socket_event", json.dumps(socket_event))
+                    return
+                time.sleep(0.5)
+            # fallback: graph_task didn't write counts in time — run Neo4j count query below
+
         total_count = db_instance.run_query(count_query, None, species)
 
         if db_type in ["mork", "mork_cli"]:
@@ -758,6 +806,29 @@ def label_count_task(
             }
             redis_client.publish("socket_event", json.dumps(socket_event))
             return
+
+        if db_type == "cypher":
+            for _ in range(120):  # poll up to 60s
+                if get_status(annotation_id) in (TaskStatus.FAILED.value, TaskStatus.CANCELLED.value):
+                    return
+                cache = get_annotation_redis(annotation_id)
+                if cache and "node_count_by_label" in cache:
+                    node_count_by_label = cache["node_count_by_label"]
+                    edge_count_by_label = cache["edge_count_by_label"]
+                    AnnotationStorageService.update(
+                        annotation_id,
+                        {"node_count_by_label": node_count_by_label, "edge_count_by_label": edge_count_by_label},
+                    )
+                    update_task(annotation_id, "label_count", 1)
+                    socket_event = {
+                        "status": TaskStatus.PENDING.value,
+                        "update": {"node_count_by_label": node_count_by_label, "edge_count_by_label": edge_count_by_label},
+                        "annotation_id": annotation_id,
+                    }
+                    redis_client.publish("socket_event", json.dumps(socket_event))
+                    return
+                time.sleep(0.5)
+            # fallback: graph_task didn't write counts in time — run Neo4j count query below
 
         label_count = db_instance.run_query(count_query, None, species)
         count_result = [{}, label_count[0]]
