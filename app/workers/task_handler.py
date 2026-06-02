@@ -235,11 +235,13 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
         response["node_count_by_label"] = meta_data.node_count_by_label
         response["edge_count_by_label"] = meta_data.edge_count_by_label
 
+        t_summary = time.time()
         if len(response["nodes"]) == 0:
             summary = "No summary for this graph because the graph is empty"
         else:
             summary = llm.generate_summary(response, request)
             summary = summary if summary else "Graph too big, could not summarize"
+        summary_ms = round((time.time() - t_summary) * 1000)
 
         task_start = cache.get("task_start")
         total_ms = round((time.time() - task_start) * 1000) if task_start else None
@@ -248,6 +250,7 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
             "summary": summary,
             "status": TaskStatus.COMPLETE.value,
             "total_duration": _format_duration(total_ms),
+            "summary_duration": _format_duration(summary_ms),
         })
         
         update_task(annotation_id, "summary", 1)
