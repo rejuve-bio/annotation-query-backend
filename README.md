@@ -122,10 +122,17 @@ flask run
 2. **Configure Environment Variables**:
    Create a `.env` file in the root folder with the following content:
    ```plaintext
-   NEO4J_URL=your_neo4j_url
-   NEO4J_USERNAME =your_neo4j_user
-   NEO4J_PASSWORD=your_neo4j_password
+   HUMAN_NEO4J_URI=bolt://your-neo4j-host:7687
+   HUMAN_NEO4J_USERNAME=neo4j
+   HUMAN_NEO4J_PASSWORD=your_password
+
+   # Optional — leave commented out if fly (DMEL) data is not yet available.
+   # FLY_NEO4J_URI=bolt://your-fly-neo4j-host:7688
+   # FLY_NEO4J_USERNAME=neo4j
+   # FLY_NEO4J_PASSWORD=your_password
    ```
+   The fly Neo4j driver is created only when `FLY_NEO4J_URI` is set. Omitting it
+   logs a warning but does not prevent human-species queries from working.
 3. **Run**:
    Ensure you are in the root directory of the project and then run:
 
@@ -178,6 +185,9 @@ There should be this environment variable in your .env file
    CADDY_PORT=<the port on which Caddy will listen for incoming requests>
 
    CADDY_PORT_FORWARD=<the internal port inside the Docker container where Caddy forwards requests to>
+
+   # Feature flags (optional — shown with their defaults)
+   DEDUP_ENABLED=true   # set to false to disable request deduplication
    ```
 
 ## Script Usage
@@ -247,3 +257,21 @@ sudo ./run.sh re-run
    ```bash
    sudo ./run.sh clean
    ```
+
+## Feature Flags
+
+Feature flags are environment variables that can be passed at `docker compose up` time or set in `.env`.
+
+### `DEDUP_ENABLED` (default: `true`)
+
+Controls whether repeated identical queries are served from the cache instead of re-running the full pipeline.
+
+When `true` (default), the service fingerprints each incoming query. If a completed annotation with the same fingerprint already exists in MongoDB it is returned immediately, skipping Neo4j / MORK entirely.
+
+Set to `false` to force a fresh query execution every time — useful during development or when debugging pipeline output:
+
+```bash
+DEDUP_ENABLED=false docker compose up -d --no-deps annotation_service celery_worker_fast celery_worker_slow
+```
+
+Disabling dedup does **not** affect fingerprint storage — every new annotation is still fingerprinted and saved.

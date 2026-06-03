@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # Mongo
     MONGO_URI: Optional[str] = None
 
+    # Feature flags
+    DEDUP_ENABLED: bool = True
+
     class Config:
         case_sensitive = True
         env_file = ".env"

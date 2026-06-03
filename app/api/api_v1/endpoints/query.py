@@ -195,7 +195,7 @@ def process_query(
         lock_key = f"dedup_lock:{fingerprint}"
         with redis_client.lock(lock_key, timeout=10, blocking_timeout=5):
             existing_doc = AnnotationStorageService.get_by_fingerprint(fingerprint)
-            if existing_doc and existing_doc.status == TaskStatus.COMPLETE.value and not annotation_id:
+            if settings.DEDUP_ENABLED and existing_doc and existing_doc.status == TaskStatus.COMPLETE.value and not annotation_id:
                 # HYPOTHESIS source — never has a question, safe to return
                 # graph nodes directly from cache.
                 if source == "hypothesis":
@@ -640,6 +640,7 @@ def get_annotation_by_id(
     files = cursor.files
     retrieval_duration = cursor.retrieval_duration
     processing_duration = cursor.processing_duration
+    summary_duration = cursor.summary_duration
     total_duration = cursor.total_duration
     graph_error_message = cursor.graph_error_message
     count_error_message = cursor.count_error_message
@@ -663,6 +664,7 @@ def get_annotation_by_id(
         response_data["edge_count_by_label"] = edge_count_by_label
     if retrieval_duration: response_data["retrieval_duration"] = retrieval_duration
     if processing_duration: response_data["processing_duration"] = processing_duration
+    if summary_duration: response_data["summary_duration"] = summary_duration
     if total_duration: response_data["total_duration"] = total_duration
     if graph_error_message: response_data["graph_error_message"] = graph_error_message
     if count_error_message: response_data["count_error_message"] = count_error_message
