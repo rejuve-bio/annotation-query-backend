@@ -609,7 +609,10 @@ def total_count_task(
                     redis_client.publish("socket_event", json.dumps(socket_event))
                     return
                 time.sleep(0.5)
-            # fallback: graph_task didn't write counts in time — run Neo4j count query below
+            # graph_task didn't write counts within 60s — skip rather than falling back to a
+            # Neo4j count query that can hang and block the chord callback for cypher queries.
+            update_task(annotation_id, "total_count", 1)
+            return
 
         total_count = db_instance.run_query(count_query, None, species)
 
@@ -831,7 +834,10 @@ def label_count_task(
                     redis_client.publish("socket_event", json.dumps(socket_event))
                     return
                 time.sleep(0.5)
-            # fallback: graph_task didn't write counts in time — run Neo4j count query below
+            # graph_task didn't write counts within 60s — skip rather than falling back to a
+            # Neo4j count query that can hang and block the chord callback for cypher queries.
+            update_task(annotation_id, "label_count", 1)
+            return
 
         label_count = db_instance.run_query(count_query, None, species)
         count_result = [{}, label_count[0]]

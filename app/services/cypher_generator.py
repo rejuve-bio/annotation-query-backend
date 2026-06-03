@@ -155,7 +155,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         Build a CALL-subquery-scoped Cypher query:
 
           MATCH (anchor_var:Type) WHERE <anchor conditions>
-          CALL (anchor_var) {
+          CALL {
+            WITH anchor_var
             MATCH <pred0 pattern> WHERE <pred0 conditions>
             WITH collect({<non-anchor node>: <var>, <pred_id>: <var>}) AS p0
             MATCH <pred1 pattern> WHERE <pred1 conditions>
