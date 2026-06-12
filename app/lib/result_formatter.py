@@ -92,7 +92,6 @@ class Result_Formatter:
         raise ValueError(f"Unknown format_type for graph processing: {format_type}")
 
     def _process_neo4j_graph(self, results, graph_components):
-        
         if _NATIVE_AVAILABLE:
             try:
                 out = _graph_native.format_neo4j_graph(results, graph_components)
