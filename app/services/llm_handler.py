@@ -189,7 +189,24 @@ class LLMHandler:
 
         n_type = node.get('type', 'entity').replace('_', ' ').title()
         props = node.get('properties', {})
-        
+
+        # Handle list nodes — return a short label with count instead of listing all values
+        if isinstance(node.get('ids'), list) and len(node['ids']) > 0:
+            count = len(node['ids'])
+            return f"{count} {n_type}s", True
+
+        # Handle comma-separated id field (alternative list format)
+        raw_id = node.get('id', '')
+        if isinstance(raw_id, str) and ',' in raw_id:
+            count = len([i for i in raw_id.split(',') if i.strip()])
+            return f"{count} {n_type}s", True
+
+        # Handle comma-separated property values (another alternative list format)
+        for val in props.values():
+            if isinstance(val, str) and ',' in val:
+                count = len([i for i in val.split(',') if i.strip()])
+                return f"{count} {n_type}s", True
+
         def clean_val(value, key_name):
             """
             Cleans database values:
@@ -256,7 +273,6 @@ class LLMHandler:
     def generate_title_no_llm(self, req, node_map):
         predicates = req.get('predicates', [])
 
-
         if not predicates:
             # List items, adding "Unnamed" if generic
             items = []
@@ -285,14 +301,11 @@ class LLMHandler:
             if s_generic and t_generic and s_text == t_text:
                 fragment = f"a {s_text} {verb} another {t_text}"
             
-            # Scenario 2: "IGF1 in TAD region Tad" (Specific -> Generic Same Type redundancy)
-            # We fix this by removing the target label if it repeats the verb context
-            # e.g. "in tad region" + "Tad" -> just "is in a TAD region"
+            # Scenario 2: target label repeats the verb context
             elif t_generic and t_text.lower() in verb.lower():
-                 fragment = f"{s_text} {verb}"
+                fragment = f"{s_text} {verb}"
             
             # Scenario 3: "IGF1 child of Pathway" (Specific -> Generic)
-            # Add "a" or "an" to make it read naturally
             elif t_generic:
                 fragment = f"{s_text} {verb} a {t_text}"
                 
@@ -304,10 +317,68 @@ class LLMHandler:
             else:
                 fragment = f"{s_text} {verb} {t_text}"
 
-            chains.append(fragment)
+            chains.append({
+                "fragment": fragment,
+                "s_text": s_text,
+                "t_text": t_text,
+                "verb": verb,
+                "s_generic": s_generic,
+                "t_generic": t_generic,
+            })
+
+        # --- STEP 1: Group similar fragments ---
+        # Key: (verb, t_text) — fragments that share the same verb and target
+        # are grouped and their source labels are merged
+        from collections import OrderedDict
+        grouped = OrderedDict()
+        exact_fragments = []  # track final fragment strings for dedup in step 2
+
+        for c in chains:
+            group_key = (c['verb'], c['t_text'])
+
+            if group_key not in grouped:
+                grouped[group_key] = {
+                    "sources": [c['s_text']],
+                    "verb": c['verb'],
+                    "t_text": c['t_text'],
+                    "t_generic": c['t_generic'],
+                    "fragment": c['fragment'],  # fallback if only one source
+                }
+            else:
+                # Only group if source is different — avoid grouping identical fragments
+                if c['s_text'] not in grouped[group_key]['sources']:
+                    grouped[group_key]['sources'].append(c['s_text'])
+
+        # Build grouped fragment strings
+        result_fragments = []
+        for key, g in grouped.items():
+            sources = g['sources']
+            verb = g['verb']
+            t_text = g['t_text']
+            t_generic = g['t_generic']
+
+            if len(sources) > 1:
+                # Merge sources: "15, 7 and 4 Genes transcribe to a Transcript"
+                source_str = ', '.join(sources[:-1]) + f" and {sources[-1]}"
+                if t_generic:
+                    merged = f"{source_str} {verb} a {t_text}"
+                else:
+                    merged = f"{source_str} {verb} {t_text}"
+                result_fragments.append(merged)
+            else:
+                # Single source — use original fragment
+                result_fragments.append(g['fragment'])
+
+        # --- STEP 2: Deduplicate exact repeated fragments ---
+        seen = []
+        deduped = []
+        for f in result_fragments:
+            if f not in seen:
+                seen.append(f)
+                deduped.append(f)
 
         # Final Polish
-        title = ", and ".join(chains)
+        title = ", ".join(deduped)
         return title[0].upper() + title[1:]
 
     def generate_summary(self, graph, request, user_query=None,graph_id=None, summary=None):

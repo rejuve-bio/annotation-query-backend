@@ -1,16 +1,13 @@
-from typing import List
 import logging
 from dotenv import load_dotenv
-import neo4j
 from app.services.query_generator_interface import QueryGeneratorInterface
-from neo4j import GraphDatabase
 import glob
 import os
-from neo4j.graph import Node, Relationship
-from app.error import TaskCancelledException
 from collections import Counter
-
+import re
 from app.lib.db_resilience import ResilientDriver, RetryPolicy, QueryType, QueryTimeoutConfig
+from app.lib.result_formatter import Result_Formatter
+from collections import deque
 
 load_dotenv()
 
@@ -62,6 +59,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             retry_policy=_DEFAULT_POLICY,
             timeout_config=_TIMEOUT_CONFIG,
         )
+        
+        self.formatter = Result_Formatter()
 
     def close(self):
         self.human_driver.close()
@@ -106,17 +105,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # use lazy loading for improved performance
         return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type)
 
-    def _find_anchor_node(self, predicates):
-        """
-        Find a node_id that appears in the majority of predicates (as source or
-        target).  This node is matched outside the CALL subquery and scopes the
-        inner aggregations, which keeps memory flat regardless of result size.
-
-        Returns the best anchor node_id, or None if no suitable anchor exists
-        (e.g. fewer than 2 predicates, or a fully disconnected graph pattern).
-        When None is returned the caller falls back to the original multi-MATCH
-        WITH chain.
-        """
+    def _escape_regex(self, value: str) -> str:
+        """Escape regex special characters in a property value."""
+        return re.escape(value)
+    
+    def _find_anchor_node(self, predicates, node_map):
         if not predicates or len(predicates) < 2:
             return None
 
@@ -127,178 +120,173 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         n = len(predicates)
 
-        # node present in every predicate
-        full_anchors = [nid for nid, cnt in per_pred.items() if cnt == n]
-        if full_anchors:
-            return full_anchors[0]
+        def has_filter(nid):
+            node = node_map[nid]
+            return bool(node.get('id')) or bool(node.get('properties'))
 
-        # node present in all-but-one predicate (handles star+tail patterns)
-        best_nid, best_cnt = per_pred.most_common(1)[0]
-        if best_cnt >= max(2, n - 1):
+        # First priority: filtered node that appears in most predicates
+        # Sort by: (has_filter DESC, count DESC)
+        ranked = sorted(
+            per_pred.items(),
+            key=lambda x: (1 if has_filter(x[0]) else 0, x[1]),
+            reverse=True
+        )
+
+        best_nid, best_cnt = ranked[0]
+
+        # Only use as anchor if it appears in at least 2 predicates
+        # OR if it's the only filtered node (chain pattern with filter at one end)
+        if best_cnt >= 2:
             return best_nid
+
+        # For chain patterns where no node appears in 2+ predicates,
+        # pick the filtered node even if it appears in only 1 predicate
+        filtered_nodes = [(nid, cnt) for nid, cnt in per_pred.items() if has_filter(nid)]
+        if filtered_nodes:
+            return max(filtered_nodes, key=lambda x: x[1])[0]
 
         return None
 
     def _build_call_subquery(self, predicates, node_map, predicate_map,
-                             anchor_var, limit=None, node_only=False, inner_limit=None):
+                            anchor_var, limit=None, node_only=False, inner_limit=None):
         """
-        Build a CALL-subquery-scoped Cypher query:
+        Build a CALL-subquery-scoped Cypher query using independent CALL arms.
 
-          MATCH (anchor_var:Type) WHERE <anchor conditions>
-          CALL (anchor_var) {
-            MATCH <pred0 pattern> WHERE <pred0 conditions>
-            WITH collect({<non-anchor node>: <var>, <pred_id>: <var>}) AS p0
-            MATCH <pred1 pattern> WHERE <pred1 conditions>
-            WITH p0, collect({...}) AS p1
-            ...
-            RETURN p0, p1, ...
-          }
-          RETURN anchor_var, p0, p1, ...
-          [LIMIT n]
-
-        Each predicate alias (p0, p1 …) is a list of maps so the result is a
-        single row per anchor node instead of a Cartesian product of rows.
-
-        When a non-anchor node was already collected in a previous predicate
-        (e.g. n5 collected in p1 then reused in p4), the method UNWINDs the
-        prior collect to bring that node back into scope rather than doing a
-        free MATCH against all nodes of that type in the database.
+        The anchor node is always matched in the outer MATCH with its own
+        filters. Every predicate goes into an independent CALL arm.
+        This ensures 1 row per anchor node regardless of connection count,
+        and avoids Cartesian product row explosion entirely.
 
         Returns:
-            cypher_str   – the full query string
-            aliases      – list of collect-alias names  (e.g. ['p0','p1',...])
-            outer_nodes  – [anchor_var]
+            cypher_str   - the full query string
+            aliases      - list of collect-alias names per arm
+            outer_nodes  - [anchor_var]
         """
         anchor_node = node_map[anchor_var]
-        anchor_match = self.match_node(anchor_node, anchor_var)
         anchor_where = self.where_construct(anchor_node, anchor_var)
 
-        outer_match = f"MATCH {anchor_match}"
+        # Always use anchor as outer MATCH with its own filters
+        outer_match = f"MATCH {self.match_node(anchor_node, anchor_var)}"
         outer_where = f"WHERE {' AND '.join(anchor_where)}" if anchor_where else ""
 
-        inner_lines = []
-        aliases = []        # collect alias per predicate (same as predicate_id)
-        carried = []        # aliases already collected and carried forward
+        # All predicates go into independent CALL arms
+        remaining_predicates = predicates
 
-        # Track which non-anchor node vars have been collected and in which alias
-        # key: node_var, value: (alias, key_in_map) e.g. ('p1', 'n5')
-        collected_nodes = {}
+        # Group predicates into independent arms.
+        # An arm starts with a predicate touching the anchor.
+        # It then greedily pulls in ALL predicates that touch any node
+        # already in the arm (multi-branch chains like transcript->pathway
+        # AND transcript->protein both get pulled into the same arm).
+        # Predicates with NO connection to anchor go into their own arm.
+        arms = []
+        assigned = set()
 
-        for i, predicate in enumerate(predicates):
-            pred_id   = predicate['predicate_id']
-            pred_type = predicate['type'].replace(' ', '_').lower()
-            source_var = predicate['source']
-            target_var = predicate['target']
-            source_node = node_map[source_var]
-            target_node = node_map[target_var]
+        for pred in remaining_predicates:
+            if pred['predicate_id'] in assigned:
+                continue
+            src = pred['source']
+            tgt = pred['target']
 
-            is_virtual = (pred_type == 'overlaps_with')
+            arm = [pred]
+            assigned.add(pred['predicate_id'])
 
-            # Determine which end(s) of this predicate need to be unwound
-            # because they were already collected in a previous step
-            unwind_lines = []
-            needs_unwind_source = (
-                source_var != anchor_var and
-                source_var in collected_nodes
-            )
-            needs_unwind_target = (
-                target_var != anchor_var and
-                target_var in collected_nodes
-            )
+            # Collect all nodes introduced by this arm so far
+            arm_nodes = {src, tgt}
 
-            if needs_unwind_source:
-                prev_alias, prev_key = collected_nodes[source_var]
-                unwind_lines.append(f"  UNWIND [x IN {prev_alias} | x.{prev_key}] AS {source_var}")
-            if needs_unwind_target:
-                prev_alias, prev_key = collected_nodes[target_var]
-                unwind_lines.append(f"  UNWIND [x IN {prev_alias} | x.{prev_key}] AS {target_var}")
+            # Greedily pull in any unassigned predicate that shares a node
+            # with the current arm — repeat until no more can be added
+            changed = True
+            while changed:
+                changed = False
+                for next_pred in remaining_predicates:
+                    if next_pred['predicate_id'] in assigned:
+                        continue
+                    ns = next_pred['source']
+                    nt = next_pred['target']
+                    # Only pull in if it connects to a non-anchor arm node
+                    # (prevents pulling in unrelated predicates that only
+                    # share the anchor — those get their own arm)
+                    non_anchor_arm_nodes = arm_nodes - {anchor_var}
+                    if ns in non_anchor_arm_nodes or nt in non_anchor_arm_nodes:
+                        arm.append(next_pred)
+                        assigned.add(next_pred['predicate_id'])
+                        arm_nodes.add(ns)
+                        arm_nodes.add(nt)
+                        changed = True
 
-            # Build MATCH pattern — skip re-declaring the anchor node
-            # and skip re-declaring nodes that were just unwound (they are already in scope)
-            source_match_str = self.match_node(source_node, source_var)
-            target_match_str = self.match_node(target_node, target_var)
+            arms.append(arm)
+        # Build independent CALL arms
+        call_blocks = []
+        all_aliases = []
 
-            if source_var == anchor_var:
-                match_pattern = f"MATCH ({anchor_var})-[{pred_id}:{pred_type}]->{target_match_str}"
-            elif target_var == anchor_var:
-                match_pattern = f"MATCH {source_match_str}-[{pred_id}:{pred_type}]->({anchor_var})"
-            elif needs_unwind_source and not needs_unwind_target:
-                # source already in scope via UNWIND — only declare target
-                match_pattern = f"MATCH ({source_var})-[{pred_id}:{pred_type}]->{target_match_str}"
-            elif needs_unwind_target and not needs_unwind_source:
-                # target already in scope via UNWIND — only declare source
-                match_pattern = f"MATCH {source_match_str}-[{pred_id}:{pred_type}]->({target_var})"
-            elif needs_unwind_source and needs_unwind_target:
-                # both already in scope
-                match_pattern = f"MATCH ({source_var})-[{pred_id}:{pred_type}]->({target_var})"
-            else:
-                match_pattern = f"MATCH {source_match_str}-[{pred_id}:{pred_type}]->{target_match_str}"
+        for arm in arms:
+            arm_pred_ids = [p['predicate_id'] for p in arm]
+            arm_alias = '_'.join(arm_pred_ids)
 
-            # WHERE conditions — only for non-anchor, non-unwound nodes
-            where_parts = []
-            overlap_parts = self.construct_overlap_clause(source_var, target_var, pred_type)
-            if overlap_parts:
-                where_parts.extend(overlap_parts)
-            for var in [source_var, target_var]:
-                if var != anchor_var and var not in collected_nodes:
-                    where_parts.extend(self.where_construct(node_map[var], var))
-            where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-
-            # Virtual relationship creation (overlaps_with)
-            virtual_creation = ""
-            if is_virtual:
-                virtual_creation = (
-                    f"WITH *, apoc.create.vRelationship({source_var}, '{pred_type}', "
-                    f"{{source:'virtual'}}, {target_var}) AS {pred_id}"
-                )
-
-            # collect() map — include non-anchor node(s) and the relationship
+            match_lines = []
+            where_lines = []
             map_entries = {}
-            for var in [source_var, target_var]:
-                if var != anchor_var:
-                    map_entries[var] = var
-            map_entries[pred_id] = pred_id
+            seen_in_arm = {anchor_var}
+
+            for pred in arm:
+                pred_id = pred['predicate_id']
+                pred_type = pred['type'].replace(' ', '_').lower()
+                src = pred['source']
+                tgt = pred['target']
+                src_node = node_map[src]
+                tgt_node = node_map[tgt]
+
+                src_match_str = self.match_node(src_node, src)
+                tgt_match_str = self.match_node(tgt_node, tgt)
+
+                # Build MATCH pattern
+                if src == anchor_var:
+                    match_lines.append(f"  MATCH ({anchor_var})-[{pred_id}:{pred_type}]->{tgt_match_str}")
+                elif tgt == anchor_var:
+                    match_lines.append(f"  MATCH {src_match_str}-[{pred_id}:{pred_type}]->({anchor_var})")
+                elif src in seen_in_arm:
+                    match_lines.append(f"  MATCH ({src})-[{pred_id}:{pred_type}]->{tgt_match_str}")
+                elif tgt in seen_in_arm:
+                    match_lines.append(f"  MATCH {src_match_str}-[{pred_id}:{pred_type}]->({tgt})")
+                else:
+                    match_lines.append(f"  MATCH {src_match_str}-[{pred_id}:{pred_type}]->{tgt_match_str}")
+
+                # WHERE conditions for new nodes introduced in this arm
+                where_parts = []
+                for var in [src, tgt]:
+                    if var != anchor_var and var not in seen_in_arm:
+                        conds = self.where_construct(node_map[var], var)
+                        if conds:
+                            where_parts.extend(conds)
+                        seen_in_arm.add(var)
+
+                if where_parts:
+                    match_lines.append(f"  WHERE {' AND '.join(where_parts)}")
+
+                # Add non-anchor vars and relationship to collect map
+                for var in [src, tgt]:
+                    if var != anchor_var:
+                        map_entries[var] = var
+                map_entries[pred_id] = pred_id
+
+            # Build collect expression
             collect_map = '{' + ', '.join(f"{k}: {v}" for k, v in map_entries.items()) + '}'
-            if inner_limit:
-                collect_expr = f"[x IN collect({collect_map}) | x][0..{inner_limit}] AS {pred_id}"
-            else:
-                collect_expr = f"collect({collect_map}) AS {pred_id}"
+            collect_expr = f"collect(DISTINCT {collect_map}) AS {arm_alias}"
 
-            aliases.append(pred_id)
+            inner_lines = match_lines + [f"  RETURN {collect_expr}"]
+            call_block = f"CALL ({anchor_var}) {{\n" + '\n'.join(inner_lines) + "\n}"
+            call_blocks.append(call_block)
+            all_aliases.append(arm_alias)
 
-            # Register newly seen non-anchor nodes as collected under this alias
-            for var in [source_var, target_var]:
-                if var != anchor_var and var not in collected_nodes:
-                    collected_nodes[var] = (pred_id, var)
-
-            # Emit UNWIND lines first (bring previously collected nodes back into scope)
-            for ul in unwind_lines:
-                inner_lines.append(ul)
-
-            inner_lines.append(f"  {match_pattern}")
-            if where_clause:
-                inner_lines.append(f"  {where_clause}")
-            if virtual_creation:
-                inner_lines.append(f"  {virtual_creation}")
-
-            # WITH inside CALL — carry prior aliases then add new collect
-            carry_str = ', '.join(carried) + (', ' if carried else '') + collect_expr
-            inner_lines.append(f"  WITH {carry_str}")
-
-            carried.append(pred_id)
-
-        # Final RETURN inside CALL
-        inner_lines.append(f"  RETURN {', '.join(aliases)}")
-
-        call_block = "CALL ({}) {{\n{}\n}}".format(anchor_var, '\n'.join(inner_lines))
-
-        outer_return = f"RETURN {anchor_var}, {', '.join(aliases)}"
+        # Build outer RETURN — anchor + all arm aliases
+        outer_return = f"RETURN {anchor_var}, {', '.join(all_aliases)}"
         limit_clause = f"LIMIT {limit}" if limit else ""
 
-        parts = [p for p in [outer_match, outer_where, call_block, outer_return, limit_clause] if p.strip()]
+        parts = [outer_match, outer_where] + call_blocks + [outer_return, limit_clause]
+        parts = [p for p in parts if p.strip()]
         cypher_str = '\n'.join(parts)
 
-        return cypher_str, aliases, [anchor_var]
+        return cypher_str, all_aliases, [anchor_var]
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
         if self.is_in_list_request(requests):
@@ -366,7 +354,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         else:
             # Try CALL subquery pattern first — avoids Cartesian product row explosion
-            anchor_var = self._find_anchor_node(predicates)
+            anchor_var = self._find_anchor_node(predicates, node_map=node_map)
 
             if anchor_var is not None:
                 cypher_query, aliases, outer_nodes = self._build_call_subquery(
@@ -623,6 +611,80 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 if isinstance(val, str) and ',' in val:
                     return True
         return False
+    
+    def _topological_sort_predicates(self, predicates, list_vars):
+        """
+        Reorders predicates so that every node is matched before it is
+        referenced in a WHERE filter. List nodes must be introduced via a
+        MATCH before their list filter can be applied.
+        """
+
+        pred_ids = [p['predicate_id'] for p in predicates]
+        pred_map = {p['predicate_id']: p for p in predicates}
+
+        # Find which predicate first introduces each node as a target
+        # A node is only truly "introduced" when it appears as a target
+        # in a MATCH — being a source doesn't introduce it
+        target_introducer = {}   # node_var -> pred_id that matches it as target
+        source_introducer = {}   # node_var -> pred_id that uses it as source
+
+        for pred in predicates:
+            src = pred['source']
+            tgt = pred['target']
+            if tgt not in target_introducer:
+                target_introducer[tgt] = pred['predicate_id']
+            if src not in source_introducer:
+                source_introducer[src] = pred['predicate_id']
+
+        # Build dependency graph
+        # dep[pred_id] = set of pred_ids that must come before it
+        dep = {pid: set() for pid in pred_ids}
+
+        for pred in predicates:
+            pred_id = pred['predicate_id']
+            src = pred['source']
+            tgt = pred['target']
+
+            # If source is a list node and was introduced as a target
+            # in another predicate, that predicate must come first
+            if src in list_vars and src in target_introducer:
+                introducer = target_introducer[src]
+                if introducer != pred_id:
+                    dep[pred_id].add(introducer)
+
+            # If target is a list node and was introduced as a target
+            # in another predicate, that predicate must come first
+            if tgt in list_vars and tgt in target_introducer:
+                introducer = target_introducer[tgt]
+                if introducer != pred_id:
+                    dep[pred_id].add(introducer)
+
+            # If source was already seen as a target in another predicate
+            # that predicate must come first
+            if src in target_introducer:
+                introducer = target_introducer[src]
+                if introducer != pred_id:
+                    dep[pred_id].add(introducer)
+
+        # Kahn's algorithm
+        in_degree = {pid: len(deps) for pid, deps in dep.items()}
+        queue = deque(sorted([pid for pid, d in in_degree.items() if d == 0]))
+        sorted_pred_ids = []
+
+        while queue:
+            pid = queue.popleft()
+            sorted_pred_ids.append(pid)
+            for other_pid in pred_ids:
+                if pid in dep[other_pid]:
+                    in_degree[other_pid] -= 1
+                    if in_degree[other_pid] == 0:
+                        queue.append(other_pid)
+
+        # If cycle detected fall back to original order
+        if len(sorted_pred_ids) != len(predicates):
+            return predicates
+
+        return [pred_map[pid] for pid in sorted_pred_ids]
 
     def in_list_query_generator(self, requests, limit=None):
         nodes = requests['nodes']
@@ -635,22 +697,43 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         for idx, pred in enumerate(predicates):
             if 'predicate_id' not in pred:
                 pred['predicate_id'] = f'p{idx}'
-
+                
         node_map = {n['node_id']: n for n in nodes}
 
+        # named_types mirrors parse_id logic — used to detect gene_name vs id
+        named_types = {"gene": "gene_name", "transcript": "transcript_name"}
+        ensembl_prefixes = ["ENSG", "ENST", "FBT", "FBG"]
+
+        def get_list_prop(node, id_list):
+            """
+            Determines which property to filter on for a list node.
+            - If values look like Ensembl IDs → use 'id'
+            - If node type is in named_types → use gene_name / transcript_name
+            - Otherwise fall back to 'id'
+            """
+            if not id_list:
+                return 'id'
+            sample = str(id_list[0]).upper()
+            if any(sample.startswith(p) for p in ensembl_prefixes):
+                return 'id'
+            return named_types.get(node['type'], 'id')
+
         # Build list variables for WITH clause — only for list nodes
-        list_vars = {}
+        list_vars = {}   # var_name -> (id_list, list_var_name, filter_prop)
         list_counter = 0
         for node in nodes:
             var_name = node['node_id']
             if isinstance(node.get('ids'), list) and len(node['ids']) > 0:
-                list_var = f"list{chr(65 + list_counter)}"  # listA, listB, listC ...
-                list_vars[var_name] = (node['ids'], list_var)
+                id_list = node['ids']
+                list_var = f"list{chr(65 + list_counter)}"
+                filter_prop = get_list_prop(node, id_list)
+                list_vars[var_name] = (id_list, list_var, filter_prop)
                 list_counter += 1
             elif node.get('id', '') and ',' in node.get('id', ''):
                 id_list = [i.strip().upper() for i in node['id'].split(',')]
                 list_var = f"list{chr(65 + list_counter)}"
-                list_vars[var_name] = (id_list, list_var)
+                filter_prop = get_list_prop(node, id_list)
+                list_vars[var_name] = (id_list, list_var, filter_prop)
                 list_counter += 1
             else:
                 props = node.get('properties', {})
@@ -658,18 +741,19 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     if prop_val and isinstance(prop_val, str) and ',' in prop_val:
                         id_list = [i.strip() for i in prop_val.split(',')]
                         list_var = f"list{chr(65 + list_counter)}"
-                        list_vars[var_name] = (id_list, list_var)
+                        list_vars[var_name] = (id_list, list_var, prop_key)
                         list_counter += 1
                         break
-
+        
+        predicates = self._topological_sort_predicates(predicates, list_vars)
         # WITH clause — only list variables
-        with_parts = [f"{id_list} AS {list_var}" for (id_list, list_var) in list_vars.values()]
+        with_parts = [f"{id_list} AS {list_var}" for (id_list, list_var, _) in list_vars.values()]
         with_clause = f"WITH {', '.join(with_parts)}" if with_parts else ""
 
         def get_node_filter(node, var_name):
             """
             Returns WHERE conditions for a node:
-            - list node: var.id IN listX
+            - list node: var.prop IN listX (prop detected via get_list_prop)
             - single id node: already in MATCH clause, no extra WHERE needed
             - property node: var.prop =~ value
             """
@@ -677,19 +761,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             conditions = []
 
             if var_name in list_vars:
-                _, list_var = list_vars[var_name]
-                # determine which property to filter on
-                raw_id = node.get('id', '')
-                if raw_id and ',' in raw_id:
-                    conditions.append(f"{var_name}.id IN {list_var}")
-                elif isinstance(node.get('ids'), list):
-                    conditions.append(f"{var_name}.id IN {list_var}")
-                else:
-                    props = node.get('properties', {})
-                    for prop_key, prop_val in props.items():
-                        if prop_val and isinstance(prop_val, str) and ',' in prop_val:
-                            conditions.append(f"{var_name}.{prop_key} IN {list_var}")
-                            break
+                _, list_var, filter_prop = list_vars[var_name]
+                conditions.append(f"{var_name}.{filter_prop} IN {list_var}")
 
             # Additional property filters (non-list, non-reserved)
             props = node.get('properties', {})
@@ -707,11 +780,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         def get_match_node(node, var_name):
             """
             Returns MATCH node pattern.
-            - single id: (var:Type {id: 'value'})
+            - single non-comma id: (var:Type {id: 'value'})
             - list or property node: (var:Type)
             """
             raw_id = node.get('id', '')
-            # single non-comma id
             if raw_id and ',' not in raw_id:
                 return f"({var_name}:{node['type']} {{id: '{raw_id}'}})"
             return f"({var_name}:{node['type']})"
@@ -739,14 +811,16 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 f"{target_match}"
             )
 
-            # Collect WHERE conditions for new nodes only
+            # Collect WHERE conditions only for nodes being introduced for the first time
             tmp_conditions = []
             if source_var not in all_node_vars:
-                tmp_conditions.extend(get_node_filter(source_node, source_var))
-                all_where_conditions.extend(get_node_filter(source_node, source_var))
+                filters = get_node_filter(source_node, source_var)
+                tmp_conditions.extend(filters)
+                all_where_conditions.extend(filters)
             if target_var not in all_node_vars:
-                tmp_conditions.extend(get_node_filter(target_node, target_var))
-                all_where_conditions.extend(get_node_filter(target_node, target_var))
+                filters = get_node_filter(target_node, target_var)
+                tmp_conditions.extend(filters)
+                all_where_conditions.extend(filters)
 
             all_node_vars.add(source_var)
             all_node_vars.add(target_var)
@@ -756,8 +830,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
             if i < len(predicates) - 1:
                 # Carry forward list vars + all seen node vars + pred vars so far
-                carry = list(list_vars.values())
-                carry_parts = [lv for (_, lv) in carry]
+                carry_parts = [lv for (_, lv, _) in list_vars.values()]
                 with_parts_chain = carry_parts + all_pred_vars + sorted(all_node_vars)
                 with_chain = f"WITH {', '.join(with_parts_chain)}"
                 clause_list.append(f"{match_pattern} {where_clause} {with_chain}")
@@ -881,7 +954,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         for key, value in node['properties'].items():
             if key in ['start', 'end', 'interval_type', 'upstream_distance', 'downstream_distance']:
                 continue
-            properties.append(f"{var_name}.{key} =~ '(?i){value}'")
+            escaped = self._escape_regex(value)
+            properties.append(f"{var_name}.{key} =~ '(?i){escaped}'")
     
         # Interval logic with start and end
         if start is not None and end is not None:
@@ -910,222 +984,18 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     
         return properties
 
-    def parse_neo4j_results(self, results, graph_components, result_type):
-        (nodes, edges, _, _, meta_data) = self.process_result(
-            results, graph_components, result_type)
-        return {"nodes": nodes, "edges": edges,
-                "node_count": meta_data.get('node_count', 0),
-                "edge_count": meta_data.get('edge_count', 0),
-                "node_count_by_label": meta_data.get('node_count_by_label', []),
-                "edge_count_by_label": meta_data.get('edge_count_by_label', [])
-                }
-
     def parse_and_serialize(self, input, schema, graph_components, result_type):
-        parsed_result = self.parse_neo4j_results(
-            input, graph_components, result_type)
-        return parsed_result
+        return self.formatter.format_result(input, "neo4j", graph_components, result_type)
 
     def convert_to_dict(self, results, schema, graph_components):
         graph_components['properties'] = True
-        (_, _, node_dict, edge_dict, _) = self.process_result(
-            results, graph_components)
-        return (node_dict, edge_dict)
-
-    def process_result_graph(self, results, graph_components):
-        node_dict = {}
-        visited_relations = set()
-        nodes = []
-        edges = []
-        node_dict = {}
-        node_to_dict = {}
-        edge_to_dict = {}
-        node_type = set()
-        edge_type = set()
-
-        named_types = ['gene_name', 'transcript_name',
-                       'protein_name', 'pathway_name', 'term_name']
-        
-        named_types_dict = {
-            "gene": "gene_name",
-            "transcript": "transcript_name",
-            "protein": "protein_name",
-            "pathway": "pathway_name",
-            "term": "term_name"
-        }
-
-        def _process_node(item):
-            """Extract and register a neo4j Node into nodes/node_dict."""
-            node_id = f"{list(item.labels)[0]} {item['id']}"
-            if node_id not in node_dict:
-                node_data = {
-                    "data": {
-                        "id": node_id,
-                        "type": list(item.labels)[0],
-                    }
-                }
-                for key, value in item.items():
-                    if graph_components['properties']:
-                        if key != "id" and key != "synonyms":
-                            node_data["data"][key] = value
-                    else:
-                        if key in named_types:
-                            node_data["data"]["name"] = value
-                if "name" not in node_data["data"]:
-                    if named_types_dict.get(node_data["data"]["type"].lower()):
-                        node_data["data"]["name"] = node_data["data"][named_types_dict[node_data["data"]["type"].lower()]]
-                    else:
-                        node_data["data"]["name"] = node_data["data"]["id"]
-                nodes.append(node_data)
-                if node_data["data"]["type"] not in node_type:
-                    node_type.add(node_data["data"]["type"])
-                    node_to_dict[node_data['data']['type']] = []
-                node_to_dict[node_data['data']['type']].append(node_data)
-                node_dict[node_id] = node_data
-
-        def _process_relationship(item):
-            """Extract and register a neo4j Relationship into edges."""
-            source_label = list(item.start_node.labels)[0]
-            target_label = list(item.end_node.labels)[0]
-            source_id = f"{list(item.start_node.labels)[0]} {item.start_node['id']}"
-            target_id = f"{list(item.end_node.labels)[0]} {item.end_node['id']}"
-            edge_data = {
-                "data": {
-                    # "id": item.id,
-                    "edge_id": f"{source_label}_{item.type}_{target_label}",
-                    "label": item.type,
-                    "source": source_id,
-                    "target": target_id,
-                }
-            }
-            temp_relation_id = f"{source_id} - {item.type} - {target_id}"
-            if temp_relation_id in visited_relations:
-                return
-            visited_relations.add(temp_relation_id)
-            for key, value in item.items():
-                if key == 'source':
-                    edge_data["data"]["source_data"] = value
-                else:
-                    edge_data["data"][key] = value
-            edges.append(edge_data)
-            if edge_data["data"]["label"] not in edge_type:
-                edge_type.add(edge_data["data"]["label"])
-                edge_to_dict[edge_data['data']['label']] = []
-            edge_to_dict[edge_data['data']['label']].append(edge_data)
-
-        for record in results:
-            for item in record.values():
-                if isinstance(item, neo4j.graph.Node):
-                    # Direct node in record (flat query or no-predicate query)
-                    _process_node(item)
-                elif isinstance(item, neo4j.graph.Relationship):
-                    # Direct relationship in record (flat query)
-                    _process_relationship(item)
-                    # Also process its endpoint nodes
-                    _process_node(item.start_node)
-                    _process_node(item.end_node)
-                elif isinstance(item, list):
-                    # CALL subquery result: list of maps [{node_var: Node, pred_var: Rel}, ...]
-                    for entry in item:
-                        if isinstance(entry, dict):
-                            for val in entry.values():
-                                if isinstance(val, neo4j.graph.Node):
-                                    _process_node(val)
-                                elif isinstance(val, neo4j.graph.Relationship):
-                                    _process_relationship(val)
-                                    _process_node(val.start_node)
-                                    _process_node(val.end_node)
-                        elif isinstance(entry, neo4j.graph.Node):
-                            _process_node(entry)
-                        elif isinstance(entry, neo4j.graph.Relationship):
-                            _process_relationship(entry)
-                            _process_node(entry.start_node)
-                            _process_node(entry.end_node)
-
-        return (nodes, edges, node_to_dict, edge_to_dict)
-
-    def process_result_count(self, node_and_edge_count, count_by_label, graph_components):
-        node_count_by_label = []
-        edge_count_by_label = []
-        node_count = 0
-        edge_count = 0
-
-        node_count += node_and_edge_count.get('total_nodes', 0)
-        edge_count += node_and_edge_count.get('total_edges', 0)
-        # build edge type set
-        node_count_aggregate = {}
-        ege_count_aggregate = {}
-
-        if len(count_by_label) != 0:
-            # initialize node count aggreate dictionary where the key is the label.
-            for node in graph_components['nodes']:
-                node_type = node['type']
-                node_count_aggregate[node_type] = {'count': 0}
-
-            # initialize edge count aggreate dictionary where the key is the label.
-            for predicate in graph_components['predicates']:
-                edge_type = predicate['type'].replace(" ", "_").lower()
-                ege_count_aggregate[edge_type] = {'count': 0}
-
-            # update node count aggregate dictionary with the count of each label
-            for key, value in count_by_label.items():
-                node_type_key = '_'.join(key.split('_')[1:])
-                if node_type_key in node_count_aggregate:
-                    node_count_aggregate[node_type_key]['count'] += value
-
-            # update edge count aggregate dictionary with the count of each label
-            for key, value in count_by_label.items():
-                edge_type_key = '_'.join(key.split('_')[1:])
-                if edge_type_key in ege_count_aggregate:
-                    ege_count_aggregate[edge_type_key]['count'] += value
-
-            # update the way node count by label and edge count by label are represented
-            for key, value in node_count_aggregate.items():
-                node_count_by_label.append(
-                    {'label': key, 'count': value['count']})
-
-            for key, value in ege_count_aggregate.items():
-                edge_count_by_label.append(
-                    {'label': key, 'count': value['count']})
-
-        meta_data = {
-            "node_count": node_count,
-            "edge_count": edge_count,
-            "node_count_by_label": node_count_by_label,
-            "edge_count_by_label": edge_count_by_label
-        }
-
-        return meta_data
-
-    def process_result(self, results, graph_components, result_type):
-        match_result = results
-        node_and_edge_count = {}
-        count_by_label = {}
-        nodes = []
-        edges = []
-        node_to_dict = {}
-        edge_to_dict = {}
-        meta_data = {}
-
-        if len(results) > 0:
-            node_and_edge_count = results[0]
-
-        if len(results) > 1:
-            count_by_label = results[1]
-
-        if result_type == 'graph':
-            nodes, edges, node_to_dict, edge_to_dict = self.process_result_graph(
-                match_result, graph_components)
-
-        if result_type == 'count':
-            meta_data = self.process_result_count(
-                node_and_edge_count, count_by_label, graph_components)
-
-        return (nodes, edges, node_to_dict, edge_to_dict, meta_data)
+        res = self.formatter.format_result(results, "neo4j", graph_components, result_type='graph')
+        return (res['nodes'], res['edges'])
 
     def parse_id(self, request):
         nodes = request["nodes"]
         named_types = {"gene": "gene_name", "transcript": "transcript_name"}
-        prefixes = ["ENSG", "ENST"]
+        prefixes = ["ENSG", "ENST", "FBT", "FBG"]
 
         for node in nodes:
             is_named_type = node['type'] in named_types

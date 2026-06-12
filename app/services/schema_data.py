@@ -182,31 +182,88 @@ class SchemaManager:
         return schema_representation
 
     def get_fly_schema_representation(self, prime_service):
+
+        ABSTRACT_NODE_LABELS = {
+            'biological entity', 'position entity', 'coding element',
+            'ontology term', 'ontology class', 'entity',
+            'non coding element', 'genomic variant',
+            'position_entity', 'biological_entity', 'coding_element',
+            'non_coding_element', 'genomic_variant'
+        }
+
+        BIOLINK_SOURCE_MAP = {
+            'biolink:GeneOrGeneProduct': ['gene', 'transcript', 'protein']
+        }
+
+        def normalize(label):
+            """Normalize to underscore format for consistent comparison."""
+            return label.replace(' ', '_').lower() if label else label
+
+        def resolve_labels(value):
+            if value is None:
+                return []
+            items = value if isinstance(value, list) else [value]
+            resolved = []
+            for item in items:
+                if item in BIOLINK_SOURCE_MAP:
+                    resolved.extend(BIOLINK_SOURCE_MAP[item])
+                else:
+                    resolved.append(normalize(item))  # ← normalize here
+            return resolved
+
         fly_schema = {'nodes': {}, 'edges': {}}
 
+        # Step 1: Build edges first — all sources/targets normalized
         for value in prime_service.values():
-            if value.get('is_a') == 'biological entity' or value.get('is_a') == 'position entity':
+            if value.get('represented_as') != 'edge':
                 continue
 
-            if value.get('represented_as') == 'node':
-                if value.get('input_label') == 'ontology term' or value.get('output_label') == 'ontology term':
-                    continue
-                label = value.get('output_label') or value.get('input_label')
-                fly_schema['nodes'][label] = {
-                    'label': label,
-                    'properties': value.get('properties', {}),
-                }
-            elif value.get('represented_as') == 'edge':
-                if value.get('source') == 'ontology term' or value.get('target') == 'ontology term':
-                    continue
-                if value.get('source') is not None and value.get('target') is not None:
-                    label = value.get('output_label') or value.get('input_label')
-                    fly_schema['edges'][label] = {
-                        'source': value.get('source'),
-                        'target': value.get('target'),
+            raw_source = value.get('source')
+            raw_target = value.get('target')
+            if not raw_source or not raw_target:
+                continue
+
+            label = value.get('output_label') or value.get('input_label')
+            sources = resolve_labels(raw_source)
+            targets = resolve_labels(raw_target)
+
+            for s in sources:
+                for t in targets:
+                    if s in ABSTRACT_NODE_LABELS or t in ABSTRACT_NODE_LABELS:
+                        continue
+                    if normalize(s) in {normalize(a) for a in ABSTRACT_NODE_LABELS}:
+                        continue
+                    if normalize(t) in {normalize(a) for a in ABSTRACT_NODE_LABELS}:
+                        continue
+                    edge_key = f"{s}__{label}__{t}"
+                    fly_schema['edges'][edge_key] = {
+                        'source': s,
+                        'target': t,
                         'properties': value.get('properties', {}),
                         'input_label': label,
                     }
+
+        # Step 2: Collect normalized node labels referenced by edges
+        nodes_in_edges = set()
+        for edge in fly_schema['edges'].values():
+            nodes_in_edges.add(normalize(edge['source']))
+            nodes_in_edges.add(normalize(edge['target']))
+
+        # Step 3: Add nodes — normalize their label before comparing
+        for value in prime_service.values():
+            if value.get('represented_as') != 'node':
+                continue
+            label = value.get('output_label') or value.get('input_label')
+            if not label:
+                continue
+            if normalize(label) in {normalize(a) for a in ABSTRACT_NODE_LABELS}:
+                continue
+            if normalize(label) not in nodes_in_edges:  # ← normalized comparison
+                continue
+            fly_schema['nodes'][normalize(label)] = {
+                'label': normalize(label),
+                'properties': value.get('properties', {}),
+            }
 
         return fly_schema
 
