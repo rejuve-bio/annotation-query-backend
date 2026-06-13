@@ -237,6 +237,13 @@ class QueryTimeoutConfig:
 DEFAULT_TIMEOUT_CONFIG = QueryTimeoutConfig()
 
 
+# Default instance – all timeouts are indefinite, no fallbacks.
+# Import and mutate this in your app startup if you want to set limits:
+#
+#   from app.services.db_resilience import DEFAULT_TIMEOUT_CONFIG, QueryType
+#   DEFAULT_TIMEOUT_CONFIG.timeouts[QueryType.COUNT] = 30.0
+#   DEFAULT_TIMEOUT_CONFIG.timeouts[QueryType.GRAPH] = 120.0
+
 # 4. Resilient driver
 
 class ResilientDriver:
