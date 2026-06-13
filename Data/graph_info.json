@@ -8,60 +8,90 @@
     {
       "name": "snp",
       "count": 37375099
+      "name": "snp",
+      "count": 37375099
     },
     {
+      "name": "tfbs",
+      "count": 10548882
       "name": "tfbs",
       "count": 10548882
     },
     {
       "name": "enhancer",
       "count": 4000929
+      "name": "enhancer",
+      "count": 4000929
     },
     {
+      "name": "exon",
+      "count": 1217227
       "name": "exon",
       "count": 1217227
     },
     {
       "name": "transcript",
       "count": 371310
+      "name": "transcript",
+      "count": 371310
     },
     {
+      "name": "promoter",
+      "count": 228127
       "name": "promoter",
       "count": 228127
     },
     {
       "name": "non_coding_rna",
       "count": 222161
+      "name": "non_coding_rna",
+      "count": 222161
     },
     {
+      "name": "small_molecule",
+      "count": 205461
       "name": "small_molecule",
       "count": 205461
     },
     {
       "name": "gene",
       "count": 78691
+      "name": "gene",
+      "count": 78691
     },
     {
+      "name": "super_enhancer",
+      "count": 68740
       "name": "super_enhancer",
       "count": 68740
     },
     {
       "name": "protein",
       "count": 53391
+      "name": "protein",
+      "count": 53391
     },
     {
+      "name": "cell_line",
+      "count": 41050
       "name": "cell_line",
       "count": 41050
     },
     {
       "name": "phenotype",
       "count": 30600
+      "name": "phenotype",
+      "count": 30600
     },
     {
       "name": "biological_process",
       "count": 24428
+      "name": "biological_process",
+      "count": 24428
     },
     {
+      "name": "experimental_factor",
+      "count": 20032
       "name": "experimental_factor",
       "count": 20032
     },
@@ -76,10 +106,16 @@
     {
       "name": "reaction",
       "count": 15063
+      "name": "reaction",
+      "count": 15063
     },
     {
       "name": "disease",
       "count": 11872
+    },
+    {
+      "name": "molecular_function",
+      "count": 10056
     },
     {
       "name": "molecular_function",
@@ -90,44 +126,65 @@
     {
       "name": "coexpressed_with",
       "count": 220477952
+      "name": "coexpressed_with",
+      "count": 220477952
     },
     {
+      "name": "associated_with",
+      "count": 76007061
       "name": "associated_with",
       "count": 76007061
     },
     {
       "name": "expressed_in",
       "count": 70164253
+      "name": "expressed_in",
+      "count": 70164253
     },
     {
+      "name": "eqtl_association",
+      "count": 63025736
       "name": "eqtl_association",
       "count": 63025736
     },
     {
       "name": "tf_snp",
       "count": 49370387
+      "name": "tf_snp",
+      "count": 49370387
     },
     {
+      "name": "closest_gene",
+      "count": 29221771
       "name": "closest_gene",
       "count": 29221771
     },
     {
       "name": "activity_by_contact",
       "count": 24155642
+      "name": "activity_by_contact",
+      "count": 24155642
     },
     {
+      "name": "accessible_in",
+      "count": 18390169
       "name": "accessible_in",
       "count": 18390169
     },
     {
       "name": "interacts_with",
       "count": 12075314
+      "count": 12075314
     },
     {
       "name": "binds_to",
       "count": 10496609
+      "name": "binds_to",
+      "count": 10496609
     },
     {
+      "name": "regulates",
+      "count": 5721809
       "name": "regulates",
       "count": 5721809
     },
@@ -140,66 +197,99 @@
       "count": 2411994
     },
     {
+      "name": "part_of",
+      "count": 2411994
+    },
+    {
       "name": "histone_modification",
       "count": 2080252
     },
     {
       "name": "involved_in",
       "count": 1389235
+      "name": "involved_in",
+      "count": 1389235
     },
     {
+      "name": "participates_in",
+      "count": 1090031
       "name": "participates_in",
       "count": 1090031
     },
     {
       "name": "in_linkage_disequilibrium_with",
       "count": 977055
+      "count": 977055
     },
     {
+      "name": "located_in",
+      "count": 720750
       "name": "located_in",
       "count": 720750
     },
     {
       "name": "is_a",
       "count": 495914
+      "name": "is_a",
+      "count": 495914
     },
     {
+      "name": "transcribes_to",
+      "count": 371310
       "name": "transcribes_to",
       "count": 371310
     },
     {
       "name": "enables",
       "count": 281425
+      "name": "enables",
+      "count": 281425
     },
     {
       "name": "upstream_of",
+      "count": 266422
       "count": 266422
     },
     {
       "name": "downstream_of",
       "count": 266408
+      "count": 266408
     },
     {
+      "name": "produced_by",
+      "count": 125574
       "name": "produced_by",
       "count": 125574
     },
     {
       "name": "has_xref",
       "count": 92939
+      "count": 92939
     },
     {
+      "name": "in_dnase_i_hotspot",
+      "count": 49110
       "name": "in_dnase_i_hotspot",
       "count": 49110
     },
     {
       "name": "translates_to",
       "count": 42650
+      "name": "translates_to",
+      "count": 42650
     },
     {
       "name": "is_implicated_in",
       "count": 18999
+      "count": 18999
     },
     {
+      "name": "in_tad_region",
+      "count": 18929
+    },
+    {
+      "name": "positively_regulates",
+      "count": 13259
       "name": "in_tad_region",
       "count": 18929
     },
@@ -211,82 +301,125 @@
   "frequent_relationships": [
     {
       "count": 226140501,
+      "count": 226140501,
       "entities": [
         "gene",
+        "gene"
+      ]
         "gene"
       ]
     },
     {
       "count": 95343774,
+      "count": 95343774,
       "entities": [
+        "snp",
+        "gene"
+      ]
         "snp",
         "gene"
       ]
     },
     {
       "count": 70164253,
+      "count": 70164253,
       "entities": [
+        "gene",
+        "anatomy"
+      ]
         "gene",
         "anatomy"
       ]
     },
     {
       "count": 50030335,
+      "count": 50030335,
       "entities": [
+        "enhancer",
+        "gene"
+      ]
         "enhancer",
         "gene"
       ]
     },
     {
       "count": 49370387,
+      "count": 49370387,
       "entities": [
+        "gene",
+        "snp"
+      ]
         "gene",
         "snp"
       ]
     },
     {
       "count": 48044021,
+      "count": 48044021,
       "entities": [
+        "promoter",
+        "gene"
+      ]
         "promoter",
         "gene"
       ]
     },
     {
       "count": 12075314,
+      "count": 12075314,
       "entities": [
         "protein",
+        "protein"
+      ]
         "protein"
       ]
     },
     {
       "count": 10841690,
+      "count": 10841690,
       "entities": [
+        "enhancer",
+        "cell_type"
+      ]
         "enhancer",
         "cell_type"
       ]
     },
     {
       "count": 10496609,
+      "count": 10496609,
       "entities": [
+        "gene",
+        "tfbs"
+      ]
         "gene",
         "tfbs"
       ]
     },
     {
       "count": 7034272,
+      "count": 7034272,
       "entities": [
+        "promoter",
+        "cell_type"
+      ]
         "promoter",
         "cell_type"
       ]
     },
     {
       "count": 2610592,
+      "count": 2610592,
       "entities": [
+        "snp",
+        "anatomy"
+      ]
         "snp",
         "anatomy"
       ]
     },
     {
+      "count": 1914838,
       "count": 1914838,
       "entities": [
         "snp",
@@ -295,68 +428,107 @@
     },
     {
       "count": 1049676,
-      "entities": [
-        "exon",
-        "gene"
+        "snp",
+        "cell_type"
       ]
     },
     {
       "count": 1049676,
       "entities": [
         "exon",
+        "gene"
+      ]
+        "exon",
+        "gene"
+      ]
+    },
+    {
+      "count": 1049676,
+      "count": 1049676,
+      "entities": [
+        "exon",
+        "transcript"
+      ]
+        "exon",
         "transcript"
       ]
     },
     {
       "count": 977055,
+      "count": 977055,
       "entities": [
+        "snp",
+        "snp"
+      ]
         "snp",
         "snp"
       ]
     },
     {
       "count": 609452,
+      "count": 609452,
       "entities": [
         "protein",
+        "reaction"
+      ]
         "reaction"
       ]
     },
     {
       "count": 544859,
+      "count": 544859,
       "entities": [
         "protein",
+        "pathway"
+      ]
         "pathway"
       ]
     },
     {
       "count": 405422,
+      "count": 405422,
       "entities": [
+        "transcript",
+        "pathway"
+      ]
         "transcript",
         "pathway"
       ]
     },
     {
       "count": 371310,
+      "count": 371310,
       "entities": [
         "gene",
+        "transcript"
+      ]
         "transcript"
       ]
     },
     {
       "count": 350390,
+      "count": 350390,
       "entities": [
+        "enhancer",
+        "anatomy"
+      ]
         "enhancer",
         "anatomy"
       ]
     },
     {
       "count": 337155,
+      "count": 337155,
       "entities": [
+        "transcript",
+        "reaction"
+      ]
         "transcript",
         "reaction"
       ]
     },
     {
+      "count": 299848,
       "count": 299848,
       "entities": [
         "gene",
@@ -369,115 +541,185 @@
         "small_molecule",
         "small_molecule"
       ]
+        "phenotype"
+      ]
     },
     {
+      "count": 285777,
+      "entities": [
+        "small_molecule",
+        "small_molecule"
+      ]
+    },
+    {
+      "count": 180818,
       "count": 180818,
       "entities": [
         "protein",
         "cellular_component"
       ]
+        "cellular_component"
+      ]
     },
     {
+      "count": 179884,
       "count": 179884,
       "entities": [
         "gene",
         "cellular_component"
       ]
+        "cellular_component"
+      ]
     },
     {
       "count": 163817,
+      "count": 163817,
       "entities": [
+        "promoter",
+        "anatomy"
+      ]
         "promoter",
         "anatomy"
       ]
     },
     {
       "count": 158016,
+      "count": 158016,
       "entities": [
         "gene",
+        "pathway"
+      ]
         "pathway"
       ]
     },
     {
       "count": 135440,
+      "count": 135440,
       "entities": [
+        "gene",
+        "reaction"
+      ]
         "gene",
         "reaction"
       ]
     },
     {
       "count": 128633,
+      "count": 128633,
       "entities": [
+        "reaction",
+        "pathway"
+      ]
         "reaction",
         "pathway"
       ]
     },
     {
       "count": 122376,
+      "count": 122376,
       "entities": [
         "protein",
+        "protein",
         "biological_process"
+      ]
       ]
     },
     {
       "count": 121971,
+      "count": 121971,
       "entities": [
+        "gene",
+        "biological_process"
+      ]
         "gene",
         "biological_process"
       ]
     },
     {
       "count": 77329,
+      "count": 77329,
       "entities": [
+        "snp",
+        "cell_line"
+      ]
         "snp",
         "cell_line"
       ]
     },
     {
       "count": 76822,
+      "count": 76822,
       "entities": [
+        "protein",
+        "molecular_function"
+      ]
         "protein",
         "molecular_function"
       ]
     },
     {
       "count": 76380,
+      "count": 76380,
       "entities": [
         "gene",
+        "molecular_function"
+      ]
         "molecular_function"
       ]
     },
     {
       "count": 61561,
+      "count": 61561,
       "entities": [
         "super_enhancer",
+        "super_enhancer",
         "gene"
+      ]
       ]
     },
     {
       "count": 51744,
+      "count": 51744,
       "entities": [
+        "snp",
+        "experimental_factor"
+      ]
         "snp",
         "experimental_factor"
       ]
     },
     {
       "count": 48550,
+      "count": 48550,
       "entities": [
+        "gene",
+        "disease"
+      ]
         "gene",
         "disease"
       ]
     },
     {
       "count": 42650,
+      "count": 42650,
       "entities": [
+        "transcript",
+        "protein"
+      ]
         "transcript",
         "protein"
       ]
     },
     {
       "count": 42650,
+      "count": 42650,
       "entities": [
+        "protein",
+        "transcript"
+      ]
+    },
+    {
+      "count": 42221,
         "protein",
         "transcript"
       ]
@@ -488,73 +730,110 @@
         "small_molecule",
         "pathway"
       ]
+        "small_molecule",
+        "pathway"
+      ]
     },
     {
       "count": 41537,
+      "count": 41537,
       "entities": [
         "biological_process",
+        "biological_process",
         "biological_process"
+      ]
       ]
     },
     {
       "count": 41218,
+      "count": 41218,
       "entities": [
+        "cell_line",
+        "cell_line"
+      ]
         "cell_line",
         "cell_line"
       ]
     },
     {
       "count": 40409,
+      "count": 40409,
       "entities": [
+        "phenotype",
+        "phenotype"
+      ]
         "phenotype",
         "phenotype"
       ]
     },
     {
       "count": 36187,
+      "count": 36187,
       "entities": [
         "snp",
+        "snp",
         "tissue"
+      ]
       ]
     },
     {
       "count": 30870,
+      "count": 30870,
       "entities": [
+        "protein",
+        "small_molecule"
+      ]
         "protein",
         "small_molecule"
       ]
     },
     {
       "count": 29451,
+      "count": 29451,
       "entities": [
         "small_molecule",
+        "reaction"
+      ]
         "reaction"
       ]
     },
     {
       "count": 23129,
+      "count": 23129,
       "entities": [
         "anatomy",
+        "anatomy",
         "anatomy"
+      ]
       ]
     },
     {
       "count": 21336,
+      "count": 21336,
       "entities": [
+        "experimental_factor",
+        "experimental_factor"
+      ]
         "experimental_factor",
         "experimental_factor"
       ]
     },
     {
       "count": 19419,
+      "count": 19419,
       "entities": [
         "protein",
         "gene"
       ]
+      ]
     },
     {
       "count": 18929,
+      "count": 18929,
       "entities": [
+        "gene",
+        "tad"
+      ]
         "gene",
         "tad"
       ]
@@ -565,7 +844,11 @@
       {
         "data": {
           "id": "anatomy",
+          "id": "anatomy",
           "properties": [
+            "alternative_ids",
+            "synonym",
+            "term_name"
             "alternative_ids",
             "synonym",
             "term_name"
@@ -575,7 +858,11 @@
       {
         "data": {
           "id": "biological_process",
+          "id": "biological_process",
           "properties": [
+            "alternative_ids",
+            "synonym",
+            "term_name"
             "alternative_ids",
             "synonym",
             "term_name"
@@ -585,7 +872,11 @@
       {
         "data": {
           "id": "cell_line",
+          "id": "cell_line",
           "properties": [
+            "alternative_ids",
+            "synonym",
+            "term_name"
             "alternative_ids",
             "synonym",
             "term_name"
@@ -595,7 +886,10 @@
       {
         "data": {
           "id": "cell_type",
+          "id": "cell_type",
           "properties": [
+            "synonym",
+            "term_name"
             "synonym",
             "term_name"
           ]
@@ -604,7 +898,11 @@
       {
         "data": {
           "id": "cellular_component",
+          "id": "cellular_component",
           "properties": [
+            "alternative_ids",
+            "synonym",
+            "term_name"
             "alternative_ids",
             "synonym",
             "term_name"
@@ -614,7 +912,11 @@
       {
         "data": {
           "id": "disease",
+          "id": "disease",
           "properties": [
+            "alternative_ids",
+            "synonym",
+            "term_name"
             "alternative_ids",
             "synonym",
             "term_name"
@@ -624,7 +926,17 @@
       {
         "data": {
           "id": "enhancer",
+          "id": "enhancer",
           "properties": [
+            "accession",
+            "ccre_module",
+            "chr",
+            "data_source",
+            "development_stage",
+            "end",
+            "enhancer_id",
+            "start",
+            "taxon_id"
             "accession",
             "ccre_module",
             "chr",
@@ -640,7 +952,15 @@
       {
         "data": {
           "id": "exon",
+          "id": "exon",
           "properties": [
+            "chr",
+            "end",
+            "exon_id",
+            "exon_number",
+            "gene_id",
+            "start",
+            "transcript_id"
             "chr",
             "end",
             "exon_id",
@@ -654,8 +974,11 @@
       {
         "data": {
           "id": "experimental_factor",
+          "id": "experimental_factor",
           "properties": [
             "alternative_ids",
+            "synonym",
+            "term_name"
             "synonym",
             "term_name"
           ]
@@ -664,9 +987,15 @@
       {
         "data": {
           "id": "gene",
+          "id": "gene",
           "properties": [
             "chr",
             "end",
+            "gene_name",
+            "gene_type",
+            "old_gene_name",
+            "start",
+            "synonym"
             "gene_name",
             "gene_type",
             "old_gene_name",
@@ -678,7 +1007,11 @@
       {
         "data": {
           "id": "molecular_function",
+          "id": "molecular_function",
           "properties": [
+            "alternative_ids",
+            "synonym",
+            "term_name"
             "alternative_ids",
             "synonym",
             "term_name"
@@ -694,13 +1027,19 @@
             "rna_type",
             "start",
             "taxon_id"
+            "rna_type",
+            "start",
+            "taxon_id"
           ]
         }
       },
       {
         "data": {
           "id": "pathway",
+          "id": "pathway",
           "properties": [
+            "pathway_name",
+            "taxon_id"
             "pathway_name",
             "taxon_id"
           ]
@@ -709,7 +1048,11 @@
       {
         "data": {
           "id": "phenotype",
+          "id": "phenotype",
           "properties": [
+            "alternative_ids",
+            "synonym",
+            "term_name"
             "alternative_ids",
             "synonym",
             "term_name"
@@ -719,12 +1062,18 @@
       {
         "data": {
           "id": "promoter",
+          "id": "promoter",
           "properties": [
+            "accession",
+            "ccre_module",
             "accession",
             "ccre_module",
             "chr",
             "development_stage",
+            "development_stage",
             "end",
+            "start",
+            "taxon_id"
             "start",
             "taxon_id"
           ]
@@ -733,7 +1082,14 @@
       {
         "data": {
           "id": "protein",
+          "id": "protein",
           "properties": [
+            "accessions",
+            "canonical_accession",
+            "is_canonical",
+            "is_isoform",
+            "isoform_name",
+            "protein_name"
             "accessions",
             "canonical_accession",
             "is_canonical",
@@ -746,7 +1102,13 @@
       {
         "data": {
           "id": "reaction",
+          "id": "reaction",
           "properties": [
+            "evidence",
+            "pubmed_url",
+            "reaction_name",
+            "reaction_url",
+            "taxon_id"
             "evidence",
             "pubmed_url",
             "reaction_name",
@@ -758,7 +1120,11 @@
       {
         "data": {
           "id": "small_molecule",
+          "id": "small_molecule",
           "properties": [
+            "alternative_ids",
+            "synonym",
+            "term_name"
             "alternative_ids",
             "synonym",
             "term_name"
@@ -768,7 +1134,17 @@
       {
         "data": {
           "id": "snp",
+          "id": "snp",
           "properties": [
+            "alt",
+            "caf_alt",
+            "caf_ref",
+            "chr",
+            "end",
+            "phred_score",
+            "raw_cadd_score",
+            "ref",
+            "start"
             "alt",
             "caf_alt",
             "caf_ref",
@@ -784,7 +1160,12 @@
       {
         "data": {
           "id": "super_enhancer",
+          "id": "super_enhancer",
           "properties": [
+            "chr",
+            "end",
+            "se_id",
+            "start"
             "chr",
             "end",
             "se_id",
@@ -795,7 +1176,12 @@
       {
         "data": {
           "id": "tad",
+          "id": "tad",
           "properties": [
+            "chr",
+            "end",
+            "start",
+            "taxon_id"
             "chr",
             "end",
             "start",
@@ -806,7 +1192,12 @@
       {
         "data": {
           "id": "tfbs",
+          "id": "tfbs",
           "properties": [
+            "chr",
+            "end",
+            "start",
+            "taxon_id"
             "chr",
             "end",
             "start",
@@ -817,7 +1208,11 @@
       {
         "data": {
           "id": "tissue",
+          "id": "tissue",
           "properties": [
+            "alternative_ids",
+            "synonym",
+            "term_name"
             "alternative_ids",
             "synonym",
             "term_name"
@@ -827,7 +1222,13 @@
       {
         "data": {
           "id": "transcript",
+          "id": "transcript",
           "properties": [
+            "gene_name",
+            "old_gene_name",
+            "transcript_id",
+            "transcript_name",
+            "transcript_type"
             "gene_name",
             "old_gene_name",
             "transcript_id",
@@ -842,7 +1243,10 @@
         "data": {
           "source": "anatomy",
           "target": "anatomy",
+          "source": "anatomy",
+          "target": "anatomy",
           "possible_connections": [
+            "is_a"
             "is_a"
           ]
         }
@@ -851,7 +1255,10 @@
         "data": {
           "source": "biological_process",
           "target": "biological_process",
+          "source": "biological_process",
+          "target": "biological_process",
           "possible_connections": [
+            "is_a"
             "is_a"
           ]
         }
@@ -860,7 +1267,10 @@
         "data": {
           "source": "cell_line",
           "target": "cell_line",
+          "source": "cell_line",
+          "target": "cell_line",
           "possible_connections": [
+            "is_a"
             "is_a"
           ]
         }
@@ -869,13 +1279,18 @@
         "data": {
           "source": "cell_line",
           "target": "cell_type",
+          "source": "cell_line",
+          "target": "cell_type",
           "possible_connections": [
+            "is_a"
             "is_a"
           ]
         }
       },
       {
         "data": {
+          "source": "cell_type",
+          "target": "anatomy",
           "source": "cell_type",
           "target": "anatomy",
           "possible_connections": [
@@ -887,7 +1302,10 @@
         "data": {
           "source": "cell_type",
           "target": "biological_process",
+          "source": "cell_type",
+          "target": "biological_process",
           "possible_connections": [
+            "capable_of"
             "capable_of"
           ]
         }
@@ -896,7 +1314,10 @@
         "data": {
           "source": "cell_type",
           "target": "cell_type",
+          "source": "cell_type",
+          "target": "cell_type",
           "possible_connections": [
+            "is_a"
             "is_a"
           ]
         }
@@ -905,7 +1326,10 @@
         "data": {
           "source": "cell_type",
           "target": "tissue",
+          "source": "cell_type",
+          "target": "tissue",
           "possible_connections": [
+            "part_of"
             "part_of"
           ]
         }
@@ -914,7 +1338,10 @@
         "data": {
           "source": "cellular_component",
           "target": "cellular_component",
+          "source": "cellular_component",
+          "target": "cellular_component",
           "possible_connections": [
+            "is_a"
             "is_a"
           ]
         }
@@ -923,7 +1350,10 @@
         "data": {
           "source": "disease",
           "target": "disease",
+          "source": "disease",
+          "target": "disease",
           "possible_connections": [
+            "is_a"
             "is_a"
           ]
         }
@@ -932,7 +1362,10 @@
         "data": {
           "source": "enhancer",
           "target": "anatomy",
+          "source": "enhancer",
+          "target": "anatomy",
           "possible_connections": [
+            "accessible_in"
             "accessible_in"
           ]
         }
@@ -941,7 +1374,10 @@
         "data": {
           "source": "enhancer",
           "target": "cell_type",
+          "source": "enhancer",
+          "target": "cell_type",
           "possible_connections": [
+            "accessible_in"
             "accessible_in"
           ]
         }
@@ -950,7 +1386,11 @@
         "data": {
           "source": "enhancer",
           "target": "gene",
+          "source": "enhancer",
+          "target": "gene",
           "possible_connections": [
+            "activity_by_contact",
+            "associated_with"
             "activity_by_contact",
             "associated_with"
           ]
@@ -960,6 +1400,18 @@
         "data": {
           "source": "exon",
           "target": "gene",
+          "source": "exon",
+          "target": "gene",
+          "possible_connections": [
+            "part_of"
+            "part_of"
+          ]
+        }
+      },
+      {
+        "data": {
+          "source": "exon",
+          "target": "transcript",
           "possible_connections": [
             "part_of"
           ]
@@ -967,6 +1419,8 @@
       },
       {
         "data": {
+          "source": "experimental_factor",
+          "target": "experimental_factor",
           "source": "exon",
           "target": "transcript",
           "possible_connections": [
@@ -987,7 +1441,10 @@
         "data": {
           "source": "gene",
           "target": "anatomy",
+          "source": "gene",
+          "target": "anatomy",
           "possible_connections": [
+            "expressed_in"
             "expressed_in"
           ]
         }
@@ -996,7 +1453,10 @@
         "data": {
           "source": "gene",
           "target": "biological_process",
+          "source": "gene",
+          "target": "biological_process",
           "possible_connections": [
+            "involved_in"
             "involved_in"
           ]
         }
@@ -1004,9 +1464,11 @@
       {
         "data": {
           "source": "gene",
+          "source": "gene",
           "target": "cellular_component",
           "possible_connections": [
             "located_in",
+            "part_of"
             "part_of"
           ]
         }
@@ -1015,7 +1477,22 @@
         "data": {
           "source": "gene",
           "target": "disease",
+          "target": "disease",
           "possible_connections": [
+            "biomarker_via_orthology",
+            "implicated_via_orthology",
+            "is_implicated_in",
+            "is_marker_for"
+          ]
+        }
+      },
+      {
+        "data": {
+          "source": "gene",
+          "target": "gene",
+          "possible_connections": [
+            "coexpressed_with",
+            "regulates"
             "biomarker_via_orthology",
             "implicated_via_orthology",
             "is_implicated_in",
@@ -1046,7 +1523,9 @@
         "data": {
           "source": "gene",
           "target": "pathway",
+          "target": "pathway",
           "possible_connections": [
+            "participates_in"
             "participates_in"
           ]
         }
@@ -1055,7 +1534,9 @@
         "data": {
           "source": "gene",
           "target": "phenotype",
+          "target": "phenotype",
           "possible_connections": [
+            "involved_in"
             "involved_in"
           ]
         }
@@ -1064,7 +1545,10 @@
         "data": {
           "source": "gene",
           "target": "reaction",
+          "source": "gene",
+          "target": "reaction",
           "possible_connections": [
+            "involved_in"
             "involved_in"
           ]
         }
@@ -1073,7 +1557,9 @@
         "data": {
           "source": "gene",
           "target": "snp",
+          "target": "snp",
           "possible_connections": [
+            "tf_snp"
             "tf_snp"
           ]
         }
@@ -1082,7 +1568,10 @@
         "data": {
           "source": "gene",
           "target": "tad",
+          "source": "gene",
+          "target": "tad",
           "possible_connections": [
+            "in_tad_region"
             "in_tad_region"
           ]
         }
@@ -1091,7 +1580,9 @@
         "data": {
           "source": "gene",
           "target": "tfbs",
+          "target": "tfbs",
           "possible_connections": [
+            "binds_to"
             "binds_to"
           ]
         }
@@ -1100,7 +1591,10 @@
         "data": {
           "source": "gene",
           "target": "transcript",
+          "source": "gene",
+          "target": "transcript",
           "possible_connections": [
+            "transcribes_to"
             "transcribes_to"
           ]
         }
@@ -1109,7 +1603,10 @@
         "data": {
           "source": "molecular_function",
           "target": "molecular_function",
+          "source": "molecular_function",
+          "target": "molecular_function",
           "possible_connections": [
+            "is_a"
             "is_a"
           ]
         }
@@ -1135,6 +1632,15 @@
       {
         "data": {
           "source": "non_coding_rna",
+          "target": "cellular_component",
+          "possible_connections": [
+            "located_in"
+          ]
+        }
+      },
+      {
+        "data": {
+          "source": "non_coding_rna",
           "target": "molecular_function",
           "possible_connections": [
             "enables"
@@ -1145,7 +1651,10 @@
         "data": {
           "source": "pathway",
           "target": "biological_process",
+          "source": "pathway",
+          "target": "biological_process",
           "possible_connections": [
+            "equivalent_to"
             "equivalent_to"
           ]
         }
@@ -1154,7 +1663,11 @@
         "data": {
           "source": "pathway",
           "target": "pathway",
+          "source": "pathway",
+          "target": "pathway",
           "possible_connections": [
+            "child_pathway_of",
+            "parent_pathway_of"
             "child_pathway_of",
             "parent_pathway_of"
           ]
@@ -1164,7 +1677,10 @@
         "data": {
           "source": "phenotype",
           "target": "phenotype",
+          "source": "phenotype",
+          "target": "phenotype",
           "possible_connections": [
+            "is_a"
             "is_a"
           ]
         }
@@ -1173,7 +1689,9 @@
         "data": {
           "source": "promoter",
           "target": "anatomy",
+          "target": "anatomy",
           "possible_connections": [
+            "accessible_in"
             "accessible_in"
           ]
         }
@@ -1182,13 +1700,17 @@
         "data": {
           "source": "promoter",
           "target": "cell_type",
+          "source": "promoter",
+          "target": "cell_type",
           "possible_connections": [
+            "accessible_in"
             "accessible_in"
           ]
         }
       },
       {
         "data": {
+          "source": "promoter",
           "source": "promoter",
           "target": "gene",
           "possible_connections": [
@@ -1200,7 +1722,10 @@
         "data": {
           "source": "protein",
           "target": "biological_process",
+          "source": "protein",
+          "target": "biological_process",
           "possible_connections": [
+            "involved_in"
             "involved_in"
           ]
         }
@@ -1209,7 +1734,11 @@
         "data": {
           "source": "protein",
           "target": "cellular_component",
+          "source": "protein",
+          "target": "cellular_component",
           "possible_connections": [
+            "located_in",
+            "part_of"
             "located_in",
             "part_of"
           ]
@@ -1219,7 +1748,10 @@
         "data": {
           "source": "protein",
           "target": "gene",
+          "source": "protein",
+          "target": "gene",
           "possible_connections": [
+            "has_xref"
             "has_xref"
           ]
         }
@@ -1228,7 +1760,10 @@
         "data": {
           "source": "protein",
           "target": "molecular_function",
+          "source": "protein",
+          "target": "molecular_function",
           "possible_connections": [
+            "enables"
             "enables"
           ]
         }
@@ -1237,7 +1772,15 @@
         "data": {
           "source": "protein",
           "target": "pathway",
+          "source": "protein",
+          "target": "pathway",
           "possible_connections": [
+            "enables",
+            "negatively_regulates",
+            "participates_in",
+            "positively_regulates",
+            "produced_by",
+            "regulates"
             "enables",
             "negatively_regulates",
             "participates_in",
@@ -1251,7 +1794,10 @@
         "data": {
           "source": "protein",
           "target": "protein",
+          "source": "protein",
+          "target": "protein",
           "possible_connections": [
+            "interacts_with"
             "interacts_with"
           ]
         }
@@ -1260,7 +1806,15 @@
         "data": {
           "source": "protein",
           "target": "reaction",
+          "source": "protein",
+          "target": "reaction",
           "possible_connections": [
+            "enables",
+            "involved_in",
+            "negatively_regulates",
+            "positively_regulates",
+            "produced_by",
+            "regulates"
             "enables",
             "involved_in",
             "negatively_regulates",
@@ -1274,7 +1828,10 @@
         "data": {
           "source": "protein",
           "target": "small_molecule",
+          "source": "protein",
+          "target": "small_molecule",
           "possible_connections": [
+            "has_xref"
             "has_xref"
           ]
         }
@@ -1283,7 +1840,10 @@
         "data": {
           "source": "protein",
           "target": "transcript",
+          "source": "protein",
+          "target": "transcript",
           "possible_connections": [
+            "has_xref"
             "has_xref"
           ]
         }
@@ -1292,7 +1852,10 @@
         "data": {
           "source": "reaction",
           "target": "pathway",
+          "source": "reaction",
+          "target": "pathway",
           "possible_connections": [
+            "part_of"
             "part_of"
           ]
         }
@@ -1301,7 +1864,10 @@
         "data": {
           "source": "small_molecule",
           "target": "pathway",
+          "source": "small_molecule",
+          "target": "pathway",
           "possible_connections": [
+            "participates_in"
             "participates_in"
           ]
         }
@@ -1310,7 +1876,10 @@
         "data": {
           "source": "small_molecule",
           "target": "reaction",
+          "source": "small_molecule",
+          "target": "reaction",
           "possible_connections": [
+            "participates_in"
             "participates_in"
           ]
         }
@@ -1329,7 +1898,12 @@
         "data": {
           "source": "snp",
           "target": "anatomy",
+          "source": "snp",
+          "target": "anatomy",
           "possible_connections": [
+            "chromatin_state",
+            "histone_modification",
+            "in_dnase_i_hotspot"
             "chromatin_state",
             "histone_modification",
             "in_dnase_i_hotspot"
@@ -1340,7 +1914,12 @@
         "data": {
           "source": "snp",
           "target": "cell_line",
+          "source": "snp",
+          "target": "cell_line",
           "possible_connections": [
+            "chromatin_state",
+            "histone_modification",
+            "in_dnase_i_hotspot"
             "chromatin_state",
             "histone_modification",
             "in_dnase_i_hotspot"
@@ -1350,8 +1929,12 @@
       {
         "data": {
           "source": "snp",
+          "source": "snp",
           "target": "cell_type",
           "possible_connections": [
+            "chromatin_state",
+            "histone_modification",
+            "in_dnase_i_hotspot"
             "chromatin_state",
             "histone_modification",
             "in_dnase_i_hotspot"
@@ -1362,7 +1945,10 @@
         "data": {
           "source": "snp",
           "target": "experimental_factor",
+          "source": "snp",
+          "target": "experimental_factor",
           "possible_connections": [
+            "chromatin_state"
             "chromatin_state"
           ]
         }
@@ -1371,7 +1957,15 @@
         "data": {
           "source": "snp",
           "target": "gene",
+          "source": "snp",
+          "target": "gene",
           "possible_connections": [
+            "activity_by_contact",
+            "closest_gene",
+            "downstream_of",
+            "eqtl_association",
+            "located_in",
+            "upstream_of"
             "activity_by_contact",
             "closest_gene",
             "downstream_of",
@@ -1385,7 +1979,10 @@
         "data": {
           "source": "snp",
           "target": "snp",
+          "source": "snp",
+          "target": "snp",
           "possible_connections": [
+            "in_linkage_disequilibrium_with"
             "in_linkage_disequilibrium_with"
           ]
         }
@@ -1394,7 +1991,11 @@
         "data": {
           "source": "snp",
           "target": "tissue",
+          "source": "snp",
+          "target": "tissue",
           "possible_connections": [
+            "histone_modification",
+            "in_dnase_i_hotspot"
             "histone_modification",
             "in_dnase_i_hotspot"
           ]
@@ -1404,7 +2005,10 @@
         "data": {
           "source": "super_enhancer",
           "target": "gene",
+          "source": "super_enhancer",
+          "target": "gene",
           "possible_connections": [
+            "associated_with"
             "associated_with"
           ]
         }
@@ -1413,7 +2017,10 @@
         "data": {
           "source": "tissue",
           "target": "anatomy",
+          "source": "tissue",
+          "target": "anatomy",
           "possible_connections": [
+            "part_of"
             "part_of"
           ]
         }
@@ -1422,8 +2029,37 @@
         "data": {
           "source": "tissue",
           "target": "tissue",
+          "source": "tissue",
+          "target": "tissue",
           "possible_connections": [
             "is_a"
+          ]
+        }
+      },
+      {
+        "data": {
+          "source": "transcript",
+          "target": "pathway",
+          "possible_connections": [
+            "participates_in"
+          ]
+        }
+      },
+      {
+        "data": {
+          "source": "transcript",
+          "target": "protein",
+          "possible_connections": [
+            "translates_to"
+          ]
+        }
+      },
+      {
+        "data": {
+          "source": "transcript",
+          "target": "reaction",
+          "possible_connections": [
+            "involved_in"
           ]
         }
       },
@@ -1461,15 +2097,22 @@
       "name": "BRENDA_TISSUE_ONTOLOGY",
       "version": "v1",
       "url": "http://purl.obolibrary.org/obo/bto.owl",
+      "name": "BRENDA_TISSUE_ONTOLOGY",
+      "version": "v1",
+      "url": "http://purl.obolibrary.org/obo/bto.owl",
       "nodes": [
+        "tissue"
         "tissue"
       ],
       "edges": [
         "is_a",
+        "is_a",
         "part_of"
       ],
       "imported_on": "2026-04-23"
+      "imported_on": "2026-04-23"
     },
+    
     {
       "name": "CADD",
       "version": "v1",
@@ -1488,6 +2131,7 @@
       "edges": [],
       "imported_on": "2026-04-27"
     },
+  
     {
       "name": "CATLAS_CCRE",
       "version": "v1",
@@ -1501,6 +2145,7 @@
         "activity_by_contact",
         "associated_with"
       ],
+      "imported_on": "2026-04-23"
       "imported_on": "2026-04-23"
     },
     {
@@ -1521,6 +2166,7 @@
       "edges": [
         "is_a"
       ],
+      "imported_on": "2026-04-23"
       "imported_on": "2026-04-23"
     },
     {
@@ -1548,13 +2194,14 @@
         "is_a"
       ],
       "imported_on": "2026-04-23"
+      "imported_on": "2026-04-23"
     },
     {
       "name": "DBSNP",
       "version": "v1",
       "url": "https://ftp.ncbi.nih.gov/snp/organisms/human_9606_b151_GRCh38p7/VCF/",
       "nodes": [
-        "snp"
+        "promoter"
       ],
       "edges": [],
       "imported_on": "2026-04-23"
@@ -1570,6 +2217,7 @@
         "associated_with"
       ],
       "imported_on": "2026-04-23"
+      "imported_on": "2026-04-23"
     },
     {
       "name": "DISEASE",
@@ -1581,6 +2229,7 @@
       "edges": [
         "is_a"
       ],
+      "imported_on": "2026-04-23"
       "imported_on": "2026-04-23"
     },
     {
@@ -1594,17 +2243,20 @@
         "associated_with"
       ],
       "imported_on": "2026-04-23"
+      "imported_on": "2026-04-23"
     },
     {
       "name": "EPD",
       "version": "v1",
       "url": "https://epd.expasy.org/ftp/epdnew/H_sapiens/",
       "nodes": [
-        "promoter"
+        "phenotype"
       ],
       "edges": [
-        "associated_with"
+        "involved_in",
+        "is_a"
       ],
+      "imported_on": "2026-04-23"
       "imported_on": "2026-04-23"
     },
     {
@@ -1617,6 +2269,7 @@
       "edges": [
         "is_a"
       ],
+      "imported_on": "2026-04-23"
       "imported_on": "2026-04-23"
     },
     {
@@ -1633,6 +2286,7 @@
         "transcribes_to"
       ],
       "imported_on": "2026-04-23"
+      "imported_on": "2026-04-23"
     },
     {
       "name": "GENE_ONTOLOGY",
@@ -1647,6 +2301,7 @@
         "is_a"
       ],
       "imported_on": "2026-04-23"
+      "imported_on": "2026-04-23"
     },
     {
       "name": "HUMAN_PHENOTYPE_ONTOLOGY",
@@ -1660,6 +2315,7 @@
         "is_a"
       ],
       "imported_on": "2026-04-23"
+      "imported_on": "2026-04-23"
     },
     {
       "name": "PEREGRINE",
@@ -1671,6 +2327,7 @@
       "edges": [
         "associated_with"
       ],
+      "imported_on": "2026-04-23"
       "imported_on": "2026-04-23"
     },
     {

@@ -51,6 +51,13 @@ async def lifespan(app: FastAPI):
             await redis_client.aclose()
             print("Redis connection closed.")
 
+    # Register MORK cleanup signal handlers from the main thread so they are
+    # installed even when the module is first imported via the FastAPI
+    # threadpool path (app.api.deps._make_mork_cli_generator).
+    if settings.DATABASE_TYPE.get("type") == "mork_cli":
+        import importlib as _il
+        _il.import_module("app.services.mork_cli_generator")._register_cleanup_signals()
+
     # Start the background task
     listener_task = asyncio.create_task(listen_to_redis())
     

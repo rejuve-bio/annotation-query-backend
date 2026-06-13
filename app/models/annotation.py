@@ -28,12 +28,10 @@ class Annotation(Schema):
     path_url = None
     retrieval_duration = None
     processing_duration = None
+    summary_duration = None
     total_duration = None
     query_fingerprint = None
     participant_user_ids = None
-    retrieval_duration = None
-    processing_duration = None
-    total_duration = None
     graph_error_message = None
     count_error_message = None
     label_count_error_message = None
@@ -76,6 +74,7 @@ class Annotation(Schema):
             "path_url": Types.String,
             "retrieval_duration": Types.String,
             "processing_duration": Types.String,
+            "summary_duration": Types.String,
             "total_duration": Types.String,
             "species": {"type": Types.String, "required": True, "default": "human"},
             "data_source": any,

@@ -1,10 +1,13 @@
+import gc
 import json
 import logging
 import os
 import traceback
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pysam
+import redis as _redis
 from celery import chord
 
 # Global Variables
@@ -14,7 +17,7 @@ from app.api.deps import (
     get_redis_client,
     get_schema_manager,
 )
-from app.constants import TaskStatus, QUERY_MAX_NODES
+from app.constants import TaskStatus, QUERY_MAX_NODES, TASK_STALE_SECS
 from app.core.config import settings
 from app.error import TaskCancelledException
 from app.events import RedisStopEvent
@@ -40,6 +43,62 @@ EXP = os.getenv("REDIS_EXPIRATION", 3600)
 
 llm = get_llm_handler()
 db_type = settings.DATABASE_TYPE.get("type")
+
+# Broker Redis — used only for queue depth checks, not for task data.
+# Reads the same URL Celery uses so llen() always targets the right DB.
+_broker_url = celery_app.conf.broker_url or "redis://localhost:6379/0"
+_bp = urlparse(_broker_url)
+_redis_broker = _redis.Redis(
+    host=_bp.hostname or "localhost",
+    port=_bp.port or 6379,
+    password=_bp.password,
+    db=int(_bp.path.lstrip("/") or 0),
+)
+
+# Maximum number of tasks allowed in the slow queue before new slow queries are
+# rejected at dispatch time. Keeps the queue from growing unboundedly under load.
+_MAX_SLOW_QUEUE = int(os.environ.get("MAX_SLOW_QUEUE", "20"))
+
+# Tasks older than this (seconds) are dropped immediately when a worker picks them
+# up — the client has already timed out and running them wastes worker capacity.
+_TASK_STALE_SECS = TASK_STALE_SECS
+
+
+def _task_is_stale(annotation_id: str) -> bool:
+    """Return True if the annotation was created more than _TASK_STALE_SECS ago."""
+    try:
+        from bson import ObjectId
+        created_at = ObjectId(annotation_id).generation_time.replace(tzinfo=None)
+        return (dt.datetime.utcnow() - created_at).total_seconds() > _TASK_STALE_SECS
+    except Exception:
+        return False
+
+
+def _drop_stale(annotation_id: str, task_name: str) -> bool:
+    """
+    If the task is stale, mark the annotation FAILED, emit a socket event, and
+    return True so the caller can exit immediately. Returns False if still fresh.
+    """
+    if not _task_is_stale(annotation_id):
+        return False
+    logger.warning("[%s] Dropping stale task for annotation %s (> %ds old)",
+                   task_name, annotation_id, _TASK_STALE_SECS)
+    try:
+        set_status(annotation_id, TaskStatus.FAILED.value)
+        AnnotationStorageService.update(
+            annotation_id, {"status": TaskStatus.FAILED.value,
+                             "error": "Task expired: client timeout exceeded"}
+        )
+        socket_event = {
+            "status": TaskStatus.FAILED.value,
+            "update": {task_name: False},
+            "annotation_id": annotation_id,
+        }
+        redis_client.publish("socket_event", json.dumps(socket_event))
+    except Exception:
+        logger.exception("[%s] Failed to mark stale annotation %s as FAILED",
+                         task_name, annotation_id)
+    return True
 
 
 def update_task(annotation_id, task_type, status):
@@ -121,6 +180,7 @@ def generate_empty_label_count(requests):
 @celery_app.task
 def summary_task(chord_results, annotation_id, request, all_status, summary=None):
     try:
+        annotation_id = str(annotation_id)
         if get_status(annotation_id) == TaskStatus.FAILED.value:
             summary = "Failed to generate summary"
             update_task(annotation_id, "summary", 1)
@@ -141,8 +201,6 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
         meta_data = AnnotationStorageService.get_by_id(annotation_id)
 
         if summary is not None:
-            created_at = getattr(meta_data, 'created_at', None)
-            total_ms = round((dt.datetime.now() - created_at).total_seconds() * 1000) if created_at else None
             update_task(annotation_id, "summary", 1)
             set_status(annotation_id, TaskStatus.COMPLETE.value)
             AnnotationStorageService.update(
@@ -177,19 +235,22 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
         response["node_count_by_label"] = meta_data.node_count_by_label
         response["edge_count_by_label"] = meta_data.edge_count_by_label
 
+        t_summary = time.time()
         if len(response["nodes"]) == 0:
             summary = "No summary for this graph because the graph is empty"
         else:
             summary = llm.generate_summary(response, request)
             summary = summary if summary else "Graph too big, could not summarize"
+        summary_ms = round((time.time() - t_summary) * 1000)
 
-        created_at = getattr(meta_data, 'created_at', None)
-        total_ms = round((dt.datetime.now() - created_at).total_seconds() * 1000) if created_at else None
+        task_start = cache.get("task_start")
+        total_ms = round((time.time() - task_start) * 1000) if task_start else None
 
         AnnotationStorageService.update(annotation_id, {
             "summary": summary,
             "status": TaskStatus.COMPLETE.value,
             "total_duration": _format_duration(total_ms),
+            "summary_duration": _format_duration(summary_ms),
         })
         
         update_task(annotation_id, "summary", 1)
@@ -247,7 +308,11 @@ def summary_task(chord_results, annotation_id, request, all_status, summary=None
 def graph_task(
     query_code, annotation_id, requests, result_status, species, status=None
 ):
+    if _drop_stale(annotation_id, "graph"):
+        return
     try:
+        annotation_id = str(annotation_id)
+        task_start = time.time()
         db_instance = get_db_for_species(species)
         check_for_cancellation(annotation_id)
 
@@ -287,12 +352,15 @@ def graph_task(
             "graph",
         )
         processing_ms = round((time.time() - t1) * 1000)
-        
+
         if db_type == "mork_cli":
             response['truncated'] = truncated
             if truncated:
                 AnnotationStorageService.update(annotation_id, {"node_count": response['node_count']})
-    
+            del all_atoms
+        del response_data
+        gc.collect()
+
         snp_nodes = [n for n in response["nodes"] if n["data"].get("label") == "snp"]
 
         if snp_nodes:
@@ -364,12 +432,31 @@ def graph_task(
 
             pysam.tabix_index(str(vcf_path), preset="vcf", force=True)
 
+        nodes_list = response.get("nodes", [])
+        edges_list = response.get("edges", [])
+        graph_node_count = len(nodes_list)
+        graph_edge_count = len(edges_list)
+
+        _node_type_counts = {}
+        for n in nodes_list:
+            t = n.get("data", {}).get("type", "unknown")
+            _node_type_counts[t] = _node_type_counts.get(t, 0) + 1
+        graph_node_count_by_label = [{"label": k, "count": v} for k, v in _node_type_counts.items()]
+
+        _edge_label_counts = {}
+        for e in edges_list:
+            lbl = e.get("data", {}).get("label", "unknown")
+            _edge_label_counts[lbl] = _edge_label_counts.get(lbl, 0) + 1
+        graph_edge_count_by_label = [{"label": k, "count": v} for k, v in _edge_label_counts.items()]
+
         graph = Graph()
 
         if len(response["edges"]) == 0 and len(response["nodes"]) > 0:
             grouped_graph = graph.group_node_only(response, requests)
         else:
             grouped_graph = graph.group_graph(response)
+        del response
+        gc.collect()
 
         base_graph_dir = Path("/app/public/graph")
         file_path = base_graph_dir / f"{annotation_id}.json"
@@ -409,7 +496,15 @@ def graph_task(
         update_task(annotation_id, "graph", 1)
 
         # Save Result with Status
-        save_result_redis(annotation_id, {"status": status, "graph": grouped_graph})
+        save_result_redis(annotation_id, {
+            "status": status,
+            "graph": grouped_graph,
+            "task_start": task_start,
+            "node_count": graph_node_count,
+            "edge_count": graph_edge_count,
+            "node_count_by_label": graph_node_count_by_label,
+            "edge_count_by_label": graph_edge_count_by_label,
+        })
 
         socket_event = {
             "status": status,
@@ -417,6 +512,8 @@ def graph_task(
             "annotation_id": annotation_id,
         }
         redis_client.publish("socket_event", json.dumps(socket_event))
+        del grouped_graph
+        gc.collect()
         return
 
     except TaskCancelledException as e:
@@ -456,6 +553,8 @@ def graph_task(
 def total_count_task(
     count_query, annotation_id, requests, total_count_status, species, meta_data=None
 ):
+    if _drop_stale(annotation_id, "total_count"):
+        return
     db_instance = get_db_for_species(species)
     if get_status(annotation_id) == TaskStatus.FAILED.value:
         socket_event = {
@@ -489,6 +588,32 @@ def total_count_task(
         return
 
     try:
+        if db_type == "cypher":
+            for _ in range(120):  # poll up to 60s; graph_task typically finishes in <10s
+                if get_status(annotation_id) in (TaskStatus.FAILED.value, TaskStatus.CANCELLED.value):
+                    return
+                cache = get_annotation_redis(annotation_id)
+                if cache and "node_count" in cache:
+                    node_count = cache["node_count"]
+                    edge_count = cache["edge_count"]
+                    update_task(annotation_id, "total_count", 1)
+                    AnnotationStorageService.update(
+                        annotation_id,
+                        {"node_count": node_count, "edge_count": edge_count, "status": TaskStatus.PENDING.value},
+                    )
+                    socket_event = {
+                        "status": TaskStatus.PENDING.value,
+                        "update": {"node_count": node_count, "edge_count": edge_count},
+                        "annotation_id": annotation_id,
+                    }
+                    redis_client.publish("socket_event", json.dumps(socket_event))
+                    return
+                time.sleep(0.5)
+            # graph_task didn't write counts within 60s — skip rather than falling back to a
+            # Neo4j count query that can hang and block the chord callback for cypher queries.
+            update_task(annotation_id, "total_count", 1)
+            return
+
         total_count = db_instance.run_query(count_query, None, species)
 
         if db_type in ["mork", "mork_cli"]:
@@ -611,6 +736,8 @@ def label_count_task(
     species="human",
     meta_data=None,
 ):
+    if _drop_stale(annotation_id, "label_count"):
+        return
     db_instance = get_db_for_species(species)
     if get_status(annotation_id) == TaskStatus.FAILED.value:
         update = generate_empty_label_count(requests)
@@ -686,6 +813,32 @@ def label_count_task(
             redis_client.publish("socket_event", json.dumps(socket_event))
             return
 
+        if db_type == "cypher":
+            for _ in range(120):  # poll up to 60s
+                if get_status(annotation_id) in (TaskStatus.FAILED.value, TaskStatus.CANCELLED.value):
+                    return
+                cache = get_annotation_redis(annotation_id)
+                if cache and "node_count_by_label" in cache:
+                    node_count_by_label = cache["node_count_by_label"]
+                    edge_count_by_label = cache["edge_count_by_label"]
+                    AnnotationStorageService.update(
+                        annotation_id,
+                        {"node_count_by_label": node_count_by_label, "edge_count_by_label": edge_count_by_label},
+                    )
+                    update_task(annotation_id, "label_count", 1)
+                    socket_event = {
+                        "status": TaskStatus.PENDING.value,
+                        "update": {"node_count_by_label": node_count_by_label, "edge_count_by_label": edge_count_by_label},
+                        "annotation_id": annotation_id,
+                    }
+                    redis_client.publish("socket_event", json.dumps(socket_event))
+                    return
+                time.sleep(0.5)
+            # graph_task didn't write counts within 60s — skip rather than falling back to a
+            # Neo4j count query that can hang and block the chord callback for cypher queries.
+            update_task(annotation_id, "label_count", 1)
+            return
+
         label_count = db_instance.run_query(count_query, None, species)
         count_result = [{}, label_count[0]]
         graph_components = {
@@ -753,6 +906,39 @@ def label_count_task(
         traceback.print_exc()
 
 
+# High-cardinality predicates (>20M edges per graph_info.json); queries using these
+# produce large intermediate binding sets that saturate the fast workers.
+_SLOW_PREDICATE_TYPES = frozenset({
+    'associated_with',     # 79.5M edges
+    'coexpressed_with',    # 251.7M edges
+    'eqtl_association',    # 67.5M edges
+    'expressed_in',        # 81.9M edges
+    'tf_snp',              # 49.3M edges
+    'activity_by_contact', # 23.4M edges
+    'closest_gene',        # 20.5M edges
+})
+# High-cardinality node types (>1M nodes); including these in a query as unfiltered
+# traversal targets produces binding sets too large for the fast queue.
+_SLOW_NODE_TYPES = frozenset({'snp', 'enhancer', 'tfbs', 'promoter'})
+
+def is_slow_query(request: dict) -> bool:
+    """
+    Route to the slow queue when any factor suggests large intermediate binding sets:
+    - query uses a known high-cardinality predicate type, OR
+    - query has >= 4 predicates (combinatorial blowup risk), OR
+    - query targets a high-cardinality node type (snp/enhancer/tfbs/promoter)
+    """
+    predicates = request.get('predicates', [])
+    nodes = request.get('nodes', [])
+    pred_types = {p.get('type', '') for p in predicates}
+    node_types = {n.get('type', '') for n in nodes}
+    return (
+        bool(pred_types & _SLOW_PREDICATE_TYPES)
+        or len(predicates) >= 4
+        or bool(node_types & _SLOW_NODE_TYPES)
+    )
+
+
 def start_thread(annotation_id, args):
     annotation_id = str(annotation_id)
     all_status = args["all_status"]
@@ -764,11 +950,45 @@ def start_thread(annotation_id, args):
     meta_data = args["meta_data"]
     species = args["species"]
 
+    queue = 'slow' if is_slow_query(request) else 'fast'
+
+    # Admission control: reject slow queries when the slow queue is already saturated.
+    # This prevents unbounded backlog growth and gives the user an immediate, honest
+    # FAILED response instead of a 40-minute timeout.
+    if queue == 'slow':
+        try:
+            slow_depth = _redis_broker.llen('slow')
+        except Exception:
+            slow_depth = 0
+        if slow_depth >= _MAX_SLOW_QUEUE:
+            logger.warning(
+                "[start_thread] Slow queue full (%d tasks). Rejecting annotation %s.",
+                slow_depth, annotation_id
+            )
+            AnnotationStorageService.update(
+                annotation_id,
+                {
+                    "status": TaskStatus.FAILED.value,
+                    "graph_error_message": (
+                        f"System busy: the complex query queue has {slow_depth} tasks pending. "
+                        "Please simplify your query or try again later."
+                    ),
+                }
+            )
+            set_status(annotation_id, TaskStatus.FAILED.value)
+            socket_event = {
+                "status": TaskStatus.FAILED.value,
+                "update": {"graph": False},
+                "annotation_id": annotation_id,
+            }
+            redis_client.publish("socket_event", json.dumps(socket_event))
+            return
+
     workflow = chord(
         [
             graph_task.s(
                 find_query, annotation_id, request, all_status["result_done"], species
-            ),
+            ).set(queue=queue),
             total_count_task.s(
                 total_count_query,
                 annotation_id,
@@ -776,7 +996,7 @@ def start_thread(annotation_id, args):
                 all_status["total_count_done"],
                 species,
                 meta_data,
-            ),
+            ).set(queue=queue),
             label_count_task.s(
                 label_count_query,
                 annotation_id,
@@ -784,9 +1004,9 @@ def start_thread(annotation_id, args):
                 all_status["label_count_done"],
                 species,
                 meta_data,
-            ),
+            ).set(queue=queue),
         ],
-        summary_task.s(annotation_id, request, all_status, summary),
+        summary_task.s(annotation_id, request, all_status, summary).set(queue=queue),
     )
 
     workflow.apply_async()
