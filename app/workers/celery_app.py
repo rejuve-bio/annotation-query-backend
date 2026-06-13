@@ -42,4 +42,7 @@ def init_request_state(request_id):
 @worker_process_init.connect
 def init_mongo_worker(**kwargs):
     mongo_init()
+    if settings.DATABASE_TYPE.get("type") == "mork_cli":
+        from app.services.mork_cli_generator import set_keep_containers_on_exit
+        set_keep_containers_on_exit(True)
 
