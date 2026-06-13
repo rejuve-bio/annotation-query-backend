@@ -208,12 +208,12 @@ class SchemaManager:
                 if item in BIOLINK_SOURCE_MAP:
                     resolved.extend(BIOLINK_SOURCE_MAP[item])
                 else:
-                    resolved.append(normalize(item))  # ← normalize here
+                    resolved.append(normalize(item))
             return resolved
 
         fly_schema = {'nodes': {}, 'edges': {}}
 
-        # Step 1: Build edges first — all sources/targets normalized
+       # Build edges first — all sources/targets normalized
         for value in prime_service.values():
             if value.get('represented_as') != 'edge':
                 continue
@@ -243,13 +243,13 @@ class SchemaManager:
                         'input_label': label,
                     }
 
-        # Step 2: Collect normalized node labels referenced by edges
+        # Collect normalized node labels referenced by edges
         nodes_in_edges = set()
         for edge in fly_schema['edges'].values():
             nodes_in_edges.add(normalize(edge['source']))
             nodes_in_edges.add(normalize(edge['target']))
 
-        # Step 3: Add nodes — normalize their label before comparing
+        # Add nodes — normalize their label before comparing
         for value in prime_service.values():
             if value.get('represented_as') != 'node':
                 continue
