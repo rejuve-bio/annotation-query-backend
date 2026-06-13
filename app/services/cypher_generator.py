@@ -53,18 +53,24 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             retry_policy=_DEFAULT_POLICY,
             timeout_config=_TIMEOUT_CONFIG,
         )
-        self.fly_driver = ResilientDriver(
-            uri=os.getenv('FLY_NEO4J_URI'),
-            auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD')),
-            retry_policy=_DEFAULT_POLICY,
-            timeout_config=_TIMEOUT_CONFIG,
-        )
-        
+       
+        fly_uri = os.getenv('FLY_NEO4J_URI')
+        if fly_uri:
+            self.fly_driver = ResilientDriver(
+                uri=fly_uri,
+                auth=(os.getenv('FLY_NEO4J_USERNAME'), os.getenv('FLY_NEO4J_PASSWORD')),
+                retry_policy=_DEFAULT_POLICY,
+                timeout_config=_TIMEOUT_CONFIG,
+            )
+        else:
+            logger.warning("FLY_NEO4J_URI not set — fly species queries will not be available.")
+            self.fly_driver = None
         self.formatter = Result_Formatter()
 
     def close(self):
         self.human_driver.close()
-        self.fly_driver.close()
+        if self.fly_driver is not None:
+            self.fly_driver.close()
 
     def load_dataset(self, path: str) -> None:
         if not os.path.exists(path):
@@ -101,8 +107,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
     def run_query(self, query_code, stop_event=None, species="human", query_type: QueryType = QueryType.DEFAULT):
-        driver = self.human_driver if species == "human" else self.fly_driver
-        # use lazy loading for improved performance
+        if species != "human":
+            if self.fly_driver is None:
+                raise RuntimeError("Fly Neo4j driver is not configured. Set FLY_NEO4J_URI.")
+            driver = self.fly_driver
+        else:
+            driver = self.human_driver
         return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type)
 
     def _escape_regex(self, value: str) -> str:
@@ -156,7 +166,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         filters. Every predicate goes into an independent CALL arm.
         This ensures 1 row per anchor node regardless of connection count,
         and avoids Cartesian product row explosion entirely.
-
+        
         Returns:
             cypher_str   - the full query string
             aliases      - list of collect-alias names per arm
