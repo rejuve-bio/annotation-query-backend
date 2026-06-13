@@ -4,8 +4,8 @@ Title: BioCypher graph schema configuration file (Biolink-adapted for dmel)
   represented_as: node
   is_a: position entity
   mixins:
-  - biolink:GenomicEntity-test
-  biolink_category: biolink:GenomicEntity-test
+  - biolink:GenomicEntity
+  biolink_category: biolink:GenomicEntity
   input_label: 3d_genome_structure
   inherit_properties: true
   description: A region of the genome that is associated with 3D genome structure
@@ -54,8 +54,8 @@ chromosome chain:
   represented_as: node
   is_a: position entity
   mixins:
-  - biolink:GenomicEntity-test
-  biolink_category: biolink:GenomicEntity-test
+  - biolink:GenomicEntity
+  biolink_category: biolink:GenomicEntity
   inherit_properties: true
   input_label: chromosome_chain
   properties:
@@ -71,9 +71,9 @@ coding element:
   represented_as: node
   is_a: biological entity
   mixins:
-  - biolink:GenomicEntity-test
+  - biolink:GenomicEntity
   - biolink:BiologicalEntity
-  biolink_category: biolink:GenomicEntity-test
+  biolink_category: biolink:GenomicEntity
   input_label: coding_element
   description: A region of a gene that codes for a protein or peptide
   properties:
@@ -370,9 +370,9 @@ position entity:
   represented_as: node
   is_a: biological entity
   mixins:
-  - biolink:GenomicEntity-test
+  - biolink:GenomicEntity
   - biolink:BiologicalEntity
-  biolink_category: biolink:GenomicEntity-test
+  biolink_category: biolink:GenomicEntity
   input_label: position_entity
   description: A biological entity that is defined by its position in the genome
   properties:
@@ -1830,8 +1830,8 @@ regulatory association:
   represented_as: edge
   input_label: regulatory_association
   kgx_properties:
-    subject_category: biolink:GenomicEntity-test
-    object_category: biolink:GenomicEntity-test
+    subject_category: biolink:GenomicEntity
+    object_category: biolink:GenomicEntity
     knowledge_level: knowledge_assertion
     agent_type: manual_agent
   properties:

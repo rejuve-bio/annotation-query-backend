@@ -158,7 +158,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return None
 
     def _build_call_subquery(self, predicates, node_map, predicate_map,
-                            anchor_var, limit=None, node_only=False, inner_limit=None):
+                            anchor_var, limit=None, node_only=False, inner_limit=None, strict=True):
         """
         Build a CALL-subquery-scoped Cypher query using independent CALL arms.
 
@@ -225,6 +225,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         changed = True
 
             arms.append(arm)
+
         # Build independent CALL arms
         call_blocks = []
         all_aliases = []
@@ -234,7 +235,6 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             arm_alias = '_'.join(arm_pred_ids)
 
             match_lines = []
-            where_lines = []
             map_entries = {}
             seen_in_arm = {anchor_var}
 
@@ -292,7 +292,13 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         outer_return = f"RETURN {anchor_var}, {', '.join(all_aliases)}"
         limit_clause = f"LIMIT {limit}" if limit else ""
 
-        parts = [outer_match, outer_where] + call_blocks + [outer_return, limit_clause]
+        # strict=True (default): all arms must return data, otherwise the whole
+        # result is empty. strict=False: return partial results even if some arms
+        # have no data.
+        size_checks = ' AND '.join(f"size({alias}) > 0" for alias in all_aliases)
+        strict_where = f"WITH * WHERE {size_checks}" if strict else ""
+
+        parts = [outer_match, outer_where] + call_blocks + [strict_where, outer_return, limit_clause]
         parts = [p for p in parts if p.strip()]
         cypher_str = '\n'.join(parts)
 
