@@ -326,7 +326,7 @@ class LLMHandler:
                 "t_generic": t_generic,
             })
 
-        # --- STEP 1: Group similar fragments ---
+        # Group similar fragments
         # Key: (verb, t_text) — fragments that share the same verb and target
         # are grouped and their source labels are merged
         from collections import OrderedDict
@@ -369,7 +369,7 @@ class LLMHandler:
                 # Single source — use original fragment
                 result_fragments.append(g['fragment'])
 
-        # --- STEP 2: Deduplicate exact repeated fragments ---
+        # Deduplicate exact repeated fragments
         seen = []
         deduped = []
         for f in result_fragments:
