@@ -23,7 +23,7 @@ _redis_client: Optional[redis.Redis] = None
 _schema_manager: Optional[SchemaManager] = None
 _db_instance: Any = None
 _llm_handler: Optional[LLMHandler] = None
-_meili_client: Optional[meilisearch.Client] = None  # ← new
+_meili_client: Optional[meilisearch.Client] = None 
  
 # --- Security Setup ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
