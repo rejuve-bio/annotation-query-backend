@@ -1,32 +1,33 @@
-from typing import Optional, Any, Dict
+
+from typing import Optional, Any
 import redis
-from elasticsearch import Elasticsearch
+import meilisearch
 import jwt
 import logging
 import os
-
+ 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-
+ 
 from app.core.config import settings
 from app.services.schema_data import SchemaManager
 from app.services.cypher_generator import CypherQueryGenerator
 from app.services.metta_generator import MeTTa_Query_Generator
 from app.services.mork_generator import MorkQueryGenerator
 from app.services.llm_handler import LLMHandler
-
+ 
 logger = logging.getLogger(__name__)
-
+ 
 # --- Private Singleton Storage ---
 _redis_client: Optional[redis.Redis] = None
-_es_client: Optional[Elasticsearch] = None
 _schema_manager: Optional[SchemaManager] = None
 _db_instance: Any = None
 _llm_handler: Optional[LLMHandler] = None
-
+_meili_client: Optional[meilisearch.Client] = None  # ← new
+ 
 # --- Security Setup ---
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
-
+ 
 # --- Dependency Functions ---
 
 def get_redis_client() -> redis.Redis:
@@ -46,22 +47,22 @@ def get_redis_client() -> redis.Redis:
             raise e
     return _redis_client
 
-def get_es_client() -> Optional[Elasticsearch]:
-    """Returns a singleton Elasticsearch client."""
-    global _es_client
-    if _es_client is None:
-        if settings.ES_URL and settings.ES_API_KEY:
-             try:
-                _es_client = Elasticsearch(settings.ES_URL, api_key=settings.ES_API_KEY)
-                if _es_client.ping():
-                    logger.info("✅ [Deps] Elasticsearch connected")
-                else:
-                     logger.warning("⚠️ [Deps] Elasticsearch not reachable")
-                     _es_client = None
-             except Exception as e:
-                 logger.error(f"❌ [Deps] Elasticsearch connection error: {e}")
-                 _es_client = None
-    return _es_client
+def get_meili_client() -> meilisearch.Client:
+    """Returns a singleton Meilisearch client."""
+    global _meili_client
+    if _meili_client is None:
+        url = os.getenv("MEILI_URL", "http://meilisearch:7700")
+        key = os.getenv("MEILI_MASTER_KEY", "")
+        try:
+            _meili_client = meilisearch.Client(url, key)
+            # Quick health check
+            _meili_client.health()
+            logger.info(f"✅ [Deps] Meilisearch connected at {url}")
+        except Exception as e:
+            logger.error(f"❌ [Deps] Meilisearch connection error: {e}")
+            # Return the client anyway — let the endpoint handle the error
+            _meili_client = meilisearch.Client(url, key)
+    return _meili_client
 
 def get_schema_manager() -> SchemaManager:
     """Returns a singleton SchemaManager instance."""

@@ -8,6 +8,7 @@ import glob
 import os
 from neo4j.graph import Node, Relationship
 from app.error import TaskCancelledException
+from typing import Optional
 
 load_dotenv()
 
@@ -714,3 +715,61 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         '''
 
         return query
+    
+    def get_index_query(self, label: str, name_prop: Optional[str]) -> str:
+        """
+        Build a Cypher query that returns (id, name) for every node of
+        the given label.
+
+        - If name_prop is provided: return it as `name`, skip nodes where
+          the property is NULL.
+        - If name_prop is None: fall back to `id` as the display name.
+        """
+        if name_prop:
+            return (
+                f"MATCH (n:{label}) "
+                f"WHERE n.{name_prop} IS NOT NULL AND n.id IS NOT NULL "
+                f"RETURN n.id AS id, n.{name_prop} AS name"
+            )
+        return (
+            f"MATCH (n:{label}) "
+            f"WHERE n.id IS NOT NULL "
+            f"RETURN n.id AS id, n.id AS name"
+        )
+
+    def fetch_nodes_for_index(
+        self,
+        label: str,
+        name_prop, 
+        species: str,
+    ) -> list:
+        """
+        Run get_index_query for the given label + species and return a
+        list of dicts with keys: id, name, label, species.
+
+        Uses the existing run_query() so retry / resilience logic is
+        inherited automatically.
+        """
+        query = self.get_index_query(label, name_prop)
+        try:
+            records = self.run_query(query, species=species)
+        except Exception as e:
+            logger.error(f"[Error] fetch_nodes_for_index failed [{label}/{species}]: {e}")
+            return []
+
+        docs = []
+        for record in records:
+            node_id = record.get("id")
+            name    = record.get("name")
+            if not node_id:
+                continue
+            # Meilisearch primary key must be a string with no spaces / slashes
+            meili_id = f"{label}__{species}__{str(node_id).replace(' ', '_')}"
+            docs.append({
+                "id": meili_id,
+                "neo4j_id": str(node_id),
+                "name": str(name) if name else str(node_id),
+                "label": label,
+                "species": species,
+            })
+        return docs

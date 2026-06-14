@@ -31,3 +31,4 @@ uvicorn
 pydantic-settings
 python-multipart
 python-socketio
+meilisearch==0.31.4
