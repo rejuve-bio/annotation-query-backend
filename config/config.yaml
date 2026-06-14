@@ -1,2 +1,10 @@
 database:
   type: cypher
+  human:
+    data_dir: /mnt/hdd_1/biocypher-kg/output/hsa/metta_out_v6
+    act_file: human_v6.act
+    graph_info_path: ./Data/graph_info.json
+  fly:
+    data_dir: /mnt/hdd_1/biocypher-kg/output/dmel/metta
+    act_file: flybase.act
+    # graph_info_path: ./Data/graph_info.json

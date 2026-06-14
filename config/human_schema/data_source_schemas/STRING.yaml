@@ -1,0 +1,20 @@
+name: STRING
+website: https://string-db.org
+relationships:
+  post translational interaction:
+    url: https://string-db.org/
+    input_label: interacts_with
+    output_label: interacts_with
+    source: protein
+    target: protein
+    properties:
+      score: float
+  protein coexpression:
+    url: https://string-db.org/
+    input_label: protein_coexpressed_with
+    output_label: coexpressed_with
+    description: Proteins whose genes are co-expressed according to STRING coexpression scores.
+    source: protein
+    target: protein
+    properties:
+      coexpression_score: float
