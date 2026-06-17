@@ -1291,9 +1291,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     def fetch_nodes_for_index(
         self,
         label: str,
-        name_prop, 
+        name_prop: Optional[str],
         species: str,
-    ) -> list:
+    ) -> List[dict]:
         """
         Run get_index_query for the given label + species and return a
         list of dicts with keys: id, name, label, species.
