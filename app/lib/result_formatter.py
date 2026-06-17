@@ -260,10 +260,11 @@ class Result_Formatter:
         if _NATIVE_AVAILABLE:
             try:
                 return _graph_native.format_neo4j_count(results, graph_components)
-            except Exception as e:
-                print("PROCESS NEO4j COUNT------------------------", flush=True)
-                print(e, flush=True)
-                pass  
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "Native Neo4j count formatter failed; falling back to Python implementation"
+                )
 
         node_and_edge_count = results[0]
         count_by_label = results[1] if len(results) > 1 else {}
