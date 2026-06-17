@@ -82,6 +82,7 @@ services:
     restart: always
 
   redis:
+    container_name: annotation_redis
     image: redis:latest
     ports:
       - "${REDIS_DOCKER_PORT:-6380}:6379"
