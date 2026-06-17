@@ -213,7 +213,7 @@ class SchemaManager:
 
         fly_schema = {'nodes': {}, 'edges': {}}
 
-       # Build edges first — all sources/targets normalized
+        # Build edges first — all sources/targets normalized
         for value in prime_service.values():
             if value.get('represented_as') != 'edge':
                 continue
