@@ -115,7 +115,8 @@ def configure_index(client: meilisearch.Client) -> meilisearch.index.Index:
 
 def index_is_populated(client: meilisearch.Client) -> bool:
     try:
-        return client.index(INDEX_NAME).get_stats().number_of_documents > 0
+        stats = client.index(INDEX_NAME).get_stats()
+        return int(stats.get("numberOfDocuments", 0)) > 0
     except Exception:
         return False
 
