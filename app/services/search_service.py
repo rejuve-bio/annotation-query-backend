@@ -191,10 +191,9 @@ def search_entities(
     Search kg_entities.
     Filter order: species → label → fuzzy name match.
     """
-    filters = [f"species = {species}"]
+    filters = [f'species = "{species}"']
     if label:
-        filters.append(f"label = {label}")
-
+        filters.append(f'label = "{label}"')
     results = client.index(INDEX_NAME).search(
         query,
         {
