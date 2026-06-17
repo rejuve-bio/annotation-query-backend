@@ -115,9 +115,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             driver = self.human_driver
         return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type)
 
-    def _escape_regex(self, value: str) -> str:
+    def _escape_regex(self, value) -> str:
         """Escape regex special characters in a property value."""
-        return re.escape(value)
+        return re.escape(str(value))
     
     def _find_anchor_node(self, predicates, node_map):
         if not predicates or len(predicates) < 2:
