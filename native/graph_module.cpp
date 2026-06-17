@@ -1,6 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include "graph_core.hpp"
+#include "neo4j_formatter.hpp"
 
 namespace py = pybind11;
 
@@ -133,4 +134,11 @@ PYBIND11_MODULE(graph_native, m) {
         }
         return res;
     });
+    m.def("format_neo4j_graph", [](py::object results, py::dict graph_components) {
+        return format_neo4j_graph(results, graph_components);
+    }, py::arg("results"), py::arg("graph_components"));
+
+    m.def("format_neo4j_count", [](py::object results, py::dict graph_components) {
+        return format_neo4j_count(results, graph_components);
+    }, py::arg("results"), py::arg("graph_components"));
 }

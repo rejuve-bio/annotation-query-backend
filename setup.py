@@ -3,7 +3,7 @@ from pybind11.setup_helpers import Pybind11Extension, build_ext
 ext_modules = [
     Pybind11Extension(
         "graph_native",
-        ["native/graph_module.cpp", "native/graph_core.cpp"],
+        ["native/graph_module.cpp", "native/graph_core.cpp", "native/neo4j_formatter.cpp"],
         include_dirs=["native"],
         cxx_std=17,
     ),

@@ -78,7 +78,7 @@ def get_schema_manager() -> SchemaManager:
             output_path="./config/human_schema/human_full_schema_config.yaml",
         )
         merge_schemas(
-            primer_schema_path="./config/primer_schema_config.yaml",
+            primer_schema_path="./config/dmel_primer_schema_config.yaml",
             species_schema_path="./config/fly_base_schema/dmel_schema_config.yaml",
             output_path="./config/fly_base_schema/dmel_full_schema_config.yaml",
         )
