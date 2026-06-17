@@ -145,7 +145,6 @@ def search(
             content={
                 "status": "error",
                 "message": "Search failed. Is Meilisearch running?",
-                "detail": str(e),
                 "timestamp": datetime.datetime.utcnow().isoformat(),
             },
         )
