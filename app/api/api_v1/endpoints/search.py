@@ -55,6 +55,12 @@ def trigger_indexing(
     - Runs in the background so the request returns immediately.
     - Only one indexing job runs at a time.
     """
+    if not hasattr(db_instance, "fetch_nodes_for_index"):
+        raise HTTPException(
+            status_code=500,
+            detail="Indexing requires the Neo4j/Cypher database backend.",
+        )
+
     if _indexing_state["in_progress"]:
         return JSONResponse(
             status_code=202,
