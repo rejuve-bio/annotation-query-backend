@@ -100,10 +100,11 @@ class Result_Formatter:
                     [n["data"] for n in out["nodes"]],
                     [e["data"] for e in out["edges"]],
                 )
-            except Exception as e:
-                print("PROCESS NEO$J GRAPH--------------------------------", flush=True)
-                print(e, flush=True)
-                pass  
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "Native Neo4j graph formatter failed; falling back to Python implementation"
+                )
 
         nodes = []
         node_seen = {}
