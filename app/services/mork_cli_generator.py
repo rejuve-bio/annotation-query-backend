@@ -9,6 +9,7 @@ import hashlib
 import uuid
 from pathlib import Path
 from app.services.mork_generator import MorkQueryGenerator
+from app.constants import QUERY_MAX_NODES, MAX_BINDING_VALS, MAX_COMBOS
 from hyperon import MeTTa
 import logging
 
@@ -27,31 +28,77 @@ _session_registry: dict = {}
 _registry_lock = threading.Lock()
 
 
+_keep_containers_on_exit: bool = False
+
+
+def set_keep_containers_on_exit(value: bool = True) -> None:
+    """Called by Celery pool workers so containers survive process restart."""
+    global _keep_containers_on_exit
+    _keep_containers_on_exit = value
+
+
 class _MorkSession:
     """Manages one long-running mork:latest container for a dataset path."""
 
     MORK_BIN = "/app/MORK/target/release/mork"
+
+    _ALIVE_TTL = 5.0
 
     def __init__(self, dataset_path: str):
         self._path = dataset_path
         self._uid_gid = f"{os.getuid()}:{os.getgid()}"
         self._cid: str | None = None
         self._lock = threading.Lock()
+        self._last_alive_check: float = 0.0
+        self._dataset_id = hashlib.md5(dataset_path.encode()).hexdigest()[:8]
 
     def _alive(self) -> bool:
         if not self._cid:
             return False
+        now = time.monotonic()
+        if now - self._last_alive_check < self._ALIVE_TTL:
+            return True
         r = subprocess.run(
             ["docker", "inspect", "--format={{.State.Running}}", self._cid],
             capture_output=True, text=True,
         )
-        return r.returncode == 0 and r.stdout.strip() == "true"
+        alive = r.returncode == 0 and r.stdout.strip() == "true"
+        if alive:
+            self._last_alive_check = now
+        return alive
+
+    def _recover(self) -> bool:
+        """Reconnect to an existing container left by a previous worker process."""
+        project = os.environ.get("COMPOSE_PROJECT_NAME", "")
+        filters = [
+            "--filter", "label=mork.worker=1",
+            "--filter", f"label=mork.dataset={self._dataset_id}",
+        ]
+        if project:
+            filters += ["--filter", f"label=mork.project={project}"]
+        r = subprocess.run(
+            ["docker", "ps", "-q", *filters],
+            capture_output=True, text=True,
+        )
+        # docker ps -q may return multiple IDs (one per line); take the first
+        cid = r.stdout.strip().split("\n")[0].strip()
+        if cid:
+            self._cid = cid
+            self._last_alive_check = time.monotonic()
+            logger.info(f"[MORK] Recovered container {cid[:12]} for {self._path}")
+            return True
+        return False
 
     def _start(self):
+        labels = ["--label", "mork.worker=1", "--label", f"mork.dataset={self._dataset_id}"]
+        project = os.environ.get("COMPOSE_PROJECT_NAME")
+        if project:
+            labels += ["--label", f"mork.project={project}"]
         try:
             r = subprocess.run([
                 "docker", "run", "-d", "--rm",
                 "-u", self._uid_gid,
+                *labels,
                 "-v", f"{self._path}:{self._path}:rw",
                 "-v", "/dev/shm:/dev/shm",
                 "-w", self._path,
@@ -70,10 +117,22 @@ class _MorkSession:
         with self._lock:
             if not self._alive():
                 self._start()
-            return subprocess.run([
-                "docker", "exec", self._cid,
-                self.MORK_BIN, "run", query_file_name,
-            ], capture_output=True, text=True, check=True)
+            try:
+                return subprocess.run([
+                    "docker", "exec", self._cid,
+                    self.MORK_BIN, "run", query_file_name,
+                ], capture_output=True, text=True, check=True)
+            except subprocess.CalledProcessError:
+                # Invalidate TTL cache; if the container actually died within the
+                # TTL window, restart and retry once to preserve self-healing.
+                self._last_alive_check = 0.0
+                if not self._alive():
+                    self._start()
+                    return subprocess.run([
+                        "docker", "exec", self._cid,
+                        self.MORK_BIN, "run", query_file_name,
+                    ], capture_output=True, text=True, check=True)
+                raise
 
     def stop(self):
         if self._cid:
@@ -85,16 +144,69 @@ def _get_session(dataset_path: str) -> _MorkSession:
     key = str(Path(dataset_path).resolve())
     with _registry_lock:
         if key not in _session_registry:
-            _session_registry[key] = _MorkSession(key)
+            session = _MorkSession(key)
+            session._recover()  # reuse container if a previous worker left one running
+            _session_registry[key] = session
         return _session_registry[key]
 
 
 def _cleanup_sessions():
+    if _keep_containers_on_exit:
+        # Pool worker exiting due to max_tasks_per_child — keep containers alive
+        # so the next worker process can recover them without a cold ACT reload.
+        logger.info("[MORK] Pool worker exiting; containers kept alive for next worker")
+        return
     for session in list(_session_registry.values()):
         session.stop()
 
 
 atexit.register(_cleanup_sessions)
+
+import signal as _signal
+
+def _make_signal_handler(sig: int):
+    _prev = _signal.getsignal(sig)
+    def _handler(signum: int, frame) -> None:
+        try:
+            _cleanup_sessions()
+        except Exception:
+            logger.exception("Error during MORK session cleanup")
+        finally:
+            if callable(_prev):
+                _prev(signum, frame)
+            elif _prev == _signal.SIG_IGN:
+                return
+            else:
+                _signal.signal(sig, _signal.SIG_DFL)
+                os.kill(os.getpid(), sig)
+    return _handler
+
+_signals_registered = False
+
+def _register_cleanup_signals() -> None:
+    """Register SIGTERM/SIGINT handlers that stop MORK containers on shutdown.
+
+    Idempotent — safe to call from both the module-level guard and from a
+    process-startup hook (e.g. FastAPI lifespan, Celery worker_init signal).
+    Must be called from the main thread.
+
+    Note: the module-level call below only fires when the module is first imported
+    from the main thread.  When first imported via the FastAPI sync-dependency
+    threadpool path (app.api.deps._make_mork_cli_generator) the guard is skipped
+    and the module is then cached — so handlers are never installed for that
+    worker process on that import path.  The lifespan call in app/main.py covers
+    this gap.  atexit(_cleanup_sessions) still runs on normal (sys.exit) shutdown.
+    """
+    global _signals_registered
+    if _signals_registered:
+        return
+    _signal.signal(_signal.SIGTERM, _make_signal_handler(_signal.SIGTERM))
+    _signal.signal(_signal.SIGINT,  _make_signal_handler(_signal.SIGINT))
+    _signals_registered = True
+
+
+if threading.current_thread() is threading.main_thread():
+    _register_cleanup_signals()
 
 
 # ---------------------------------------------------------------------------
@@ -400,9 +512,10 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
         resolved_vars = set(bindings.keys())
         remaining     = list(predicate_pats)
         all_atoms     = []
+        _atom_cap     = False
 
         for _ in range(len(predicate_pats) ** 2 + 1):
-            if not remaining:
+            if not remaining or _atom_cap:
                 break
             deferred = []
             progress = False
@@ -428,10 +541,20 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
 
                 tmpl           = body_to_tmpl[pred_pat.strip()]
                 input_var_list = sorted(input_vars)
+
+                # B4: cap each binding list before building the Cartesian product
+                for v in input_var_list:
+                    if len(bindings[v]) > MAX_BINDING_VALS:
+                        logger.warning(f"[MORK] Capping binding ${v}: {len(bindings[v])} → {MAX_BINDING_VALS}")
+                        bindings[v] = bindings[v][:MAX_BINDING_VALS]
+
                 combos = (
                     list(itertools.product(*[bindings[v] for v in input_var_list]))
                     if input_var_list else [()]
                 )
+                if len(combos) > MAX_COMBOS:
+                    logger.warning(f"[MORK] Combo cap: {len(combos)} → {MAX_COMBOS}")
+                    combos = combos[:MAX_COMBOS]
 
                 new_vals = {v: [] for v in output_vars}
 
@@ -445,6 +568,12 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
 
                     atoms = self._run_single_pattern(subst_pat, subst_tmpl)
                     all_atoms.extend(atoms)
+
+                    # B5: early exit if atom count hits the hard cap
+                    if len(all_atoms) >= QUERY_MAX_NODES:
+                        logger.warning(f"[MORK] Early atom exit: {len(all_atoms)} atoms reached cap")
+                        _atom_cap = True
+                        break
 
                     # Capture output vars that feed into downstream predicates
                     for out_var in output_vars:
@@ -467,7 +596,7 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 break
 
         duration = (time.time() - start_time) * 1000
-        logger.info("Query executed", extra={"query": str(query_obj), "duration_ms": duration, "status": "success"})
+        logger.info("Query executed", extra={"query": str(query_obj), "duration_ms": duration, "status": "capped" if _atom_cap else "success"})
         return [all_atoms]
 
     def run_query(self, query, stop_event=None, species='human'):
