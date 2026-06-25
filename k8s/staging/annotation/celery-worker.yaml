@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker-staging
+  namespace: annotation-staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: celery-worker-staging
+  template:
+    metadata:
+      labels:
+        app: celery-worker-staging
+    spec:
+      imagePullSecrets:
+        - name: dockerhub-creds
+      containers:
+        - name: celery-worker-staging
+          image: abdum1964/annotation:staging
+          imagePullPolicy: Always
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+          env:
+            - name: C_FORCE_ROOT
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: annotation-secrets
+          command:
+            - "celery"
+            - "-A"
+            - "app.workers.celery_app"
+            - "worker"
+            - "--loglevel=info"
