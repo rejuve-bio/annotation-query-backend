@@ -1,9 +1,11 @@
+from pydantic import BaseModel
+from app.persistence.custom_schema_storage_service import CustomSchemaStorageService
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
 from fastapi.responses import JSONResponse, StreamingResponse
 from typing import List, Optional, Dict, Any
 import json
 import logging
-from app.api.deps import get_current_user, get_schema_manager
+from app.api.deps import get_current_user, get_schema_manager, get_current_user_test
 from app.services.schema_data import SchemaManager
 from app.persistence import UserStorageService
 from app.constants import Species, form_fields
@@ -170,18 +172,18 @@ def get_preference_option(
     schema_manager: SchemaManager = Depends(get_schema_manager)
 ):
     response = {
-        'species': [specie.value for specie in Species ],
+        'species': [specie.value for specie in Species] + [{'id': 'custom', 'name': 'Custom'}],
         'sources': {
             'human': [],
-            'fly': []
+            'fly': [],
+            'custom': []
         }
     }
     
+    # Human sources — unchanged
     schema_list = schema_manager.schema_list
-
     for source in schema_list:
         if source['id'] not in ['polyphen-2', 'bgee']:
-            # Call helper logic
             sch = get_schema_by_source_logic(schema_manager, 'human', [source['name']])
             data = {
                 'id': source['id'],
@@ -190,40 +192,83 @@ def get_preference_option(
                 'schema': sch['schema']
             }
             response['sources']['human'].append(data)
-            
+
+    # Fly sources — unchanged
     schema_fly = get_schema_by_source_logic(schema_manager, 'fly', 'all')
-    data = {
+    response['sources']['fly'].append({
         'id': 'flyall',
         'name': 'all',
         'schema': schema_fly
-    }
-    response['sources']['fly'].append(data)
-    
+    })
+
+    # Custom sources — list all schemas uploaded by this user
+    custom_schemas = CustomSchemaStorageService.get_by_user_id(current_user_id)
+    for schema in custom_schemas:
+        response['sources']['custom'].append({
+            'id': schema['folder_id'],
+            'name': schema['name'],
+        })
+
     return response
 
 @router.get("/schema")
 def get_schema_by_data_source(
     species: str = 'human',
     data_source: List[str] = Query(default=[]),
+    current_user_id: str = Depends(get_current_user),
     schema_manager: SchemaManager = Depends(get_schema_manager)
 ):
-    
+    response = {'nodes': [], 'edges': []}
+
+    # Handle custom schema
+    if species == 'custom':
+        if not data_source:
+            raise HTTPException(status_code=400, detail="data_source (folder_id) is required for custom species")
+
+        folder_id = data_source[0]
+
+        # Validate ownership
+        record = CustomSchemaStorageService.get_by_folder_id(current_user_id, folder_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Custom schema not found for this user")
+
+        schema_path = f"/shared/output/{folder_id}/schema.json"
+        parsed_schema = schema_manager.load_custom_schema(schema_path)
+
+        for node_name, node_data in parsed_schema['nodes'].items():
+            response['nodes'].append({
+                'id': node_name,
+                'name': node_name,
+                'inputs': [
+                    {'label': prop, 'name': prop, 'inputType': 'input'}
+                    for prop in node_data['properties'].keys()
+                ]
+            })
+
+        for edge_name, edge_data in parsed_schema['edges'].items():
+            response['edges'].append({
+                'id': generate(),
+                'source': edge_data['source'],
+                'target': edge_data['target'],
+                'label': edge_name
+            })
+
+        return response
+
+    # Existing human/fly logic — unchanged
     if len(data_source) == 1 and data_source[0] == 'flyall':
-            data_source = 'all'
+        data_source = 'all'
 
     schemas = get_schema_by_source_logic(schema_manager, species, data_source)
-    
-    response = {'nodes': [], 'edges': []}
     nodes = schemas['schema']['nodes']
     edges = schemas['schema']['edges']
-    
+
     for node in nodes:
         label = node['data']['name']
         if label in form_fields:
             node_data = form_fields[label]
         else:
             node_data = []
-
         response['nodes'].append({
             'id': label,
             'name': label,
@@ -241,7 +286,7 @@ def get_schema_by_data_source(
                 'target': target,
                 'label': possible_connection
             })
-            
+
     return response
 
 def get_schema_list():
@@ -268,7 +313,30 @@ async def update_settings(
                 "timestamp": datetime.datetime.now().isoformat()
             }
         )
-    
+
+    # Handle custom species
+    if species == 'custom':
+        if not data_source:
+            raise HTTPException(status_code=400, detail="data_source (folder_id) is required for custom species")
+
+        folder_id = data_source if isinstance(data_source, str) else data_source[0]
+
+        # Validate ownership
+        record = CustomSchemaStorageService.get_by_folder_id(current_user_id, folder_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Custom schema not found for this user")
+
+        UserStorageService.upsert_by_user_id(
+            current_user_id,
+            {'species': 'custom', 'data_source': folder_id}
+        )
+
+        return {
+            'message': 'Data source updated successfully',
+            'data_source': folder_id,
+            'species': 'custom'
+        }
+
     # Logic for species override
     if species == "fly":
         data_source = 'all'
@@ -280,7 +348,6 @@ async def update_settings(
                 current_user_id,
                 {'data_source': 'all', 'species': species}
             )
-
             display_source = ['flyall'] if species == 'fly' else ['all']
             return {
                 'message': 'Data source updated successfully',
@@ -296,7 +363,7 @@ async def update_settings(
                 }
             )
 
-    # Case 2: List-based data source validation
+    # Case 2: fly with invalid source
     if species == "fly" and data_source != "flyall":
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -307,10 +374,10 @@ async def update_settings(
             }
         )
 
+    # Case 3: human — validate against schema list
     schema_list = get_schema_list()
     valid_ids = {schema['id'].lower() for schema in schema_list}
 
-    # Validate each source in the list
     for ds in data_source:
         if str(ds).lower() not in valid_ids:
             raise HTTPException(status_code=400, detail=f"Invalid data source: {ds}")
@@ -322,7 +389,7 @@ async def update_settings(
         )
 
         logger.info(json.dumps({
-            "status": "success", 
+            "status": "success",
             "method": "POST",
             "timestamp": datetime.datetime.now().isoformat(),
             "endpoint": "/save-preference"
@@ -335,14 +402,13 @@ async def update_settings(
 
     except Exception as e:
         logger.error(json.dumps({
-            "status": "error", 
+            "status": "error",
             "method": "POST",
             "timestamp": datetime.datetime.now().isoformat(),
             "endpoint": "/save-preference",
             "exception": str(e)
         }), exc_info=True)
-        
-        # Consistent error response matching your preference route
+
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -387,6 +453,93 @@ def get_saved_preferences(current_user_id: str = Depends(get_current_user)):
         "timestamp": datetime.datetime.now().isoformat()
         }
 
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": "error",
+                "message": "An internal server error occurred. Please try again later.",
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+        )
+        
+
+class LoadDataRequest(BaseModel):
+    folder_id: str
+    type: str
+    name: str | None = None  # optional, falls back to folder_id
+
+@router.post('/annotation/load')
+async def load_data(
+    data: LoadDataRequest,
+    current_user_id: str = Depends(get_current_user_test),
+    schema_manager: SchemaManager = Depends(get_schema_manager)
+):
+    try:
+        folder_id = data.folder_id
+        name = data.name or folder_id
+        schema_path = f"/shared/output/{folder_id}/schema.json"
+
+        # Validate and parse the schema
+        parsed_schema = schema_manager.load_custom_schema(schema_path)
+
+        if not parsed_schema['nodes'] and not parsed_schema['edges']:
+            raise HTTPException(status_code=400, detail="Schema is empty")
+
+        # Persist the custom schema record
+        CustomSchemaStorageService.upsert(
+            user_id=current_user_id,
+            folder_id=folder_id,
+            name=name
+        )
+
+        # Update user preference to custom
+        UserStorageService.upsert_by_user_id(
+            current_user_id,
+            {
+                'species': 'custom',
+                'data_source': folder_id
+            }
+        )
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "Schema loaded successfully",
+                "folder_id": folder_id,
+                "name": name,
+                "nodes": list(parsed_schema['nodes'].keys()),
+                "edges": list(parsed_schema['edges'].keys())
+            }
+        )
+
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        logger.error(json.dumps({
+            "status": "error",
+            "method": "POST",
+            "timestamp": datetime.datetime.now().isoformat(),
+            "endpoint": "/annotation/load",
+            "exception": str(e)
+        }))
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        logger.error(json.dumps({
+            "status": "error",
+            "method": "POST",
+            "timestamp": datetime.datetime.now().isoformat(),
+            "endpoint": "/annotation/load",
+            "exception": str(e)
+        }))
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(json.dumps({
+            "status": "error",
+            "method": "POST",
+            "timestamp": datetime.datetime.now().isoformat(),
+            "endpoint": "/annotation/load",
+            "exception": str(e)
+        }), exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={

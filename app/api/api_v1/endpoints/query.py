@@ -89,7 +89,13 @@ def process_query(
         species = user.species if user else 'human'
         
         # schema for validation
-        schema_for_species = schema_manager.schema.get(species, {})
+        if species == 'custom':
+            folder_id = user.data_source
+            schema_path = f"/shared/output/{folder_id}/schema.json"
+            schema_for_species = schema_manager.get_custom_schema_for_validation(schema_path)
+        else:
+            schema_for_species = schema_manager.schema.get(species, {})
+
         node_map = validate_request(requests, schema_for_species, source)
         if node_map is None:
              raise HTTPException(status_code=400, detail="Invalid node_map returned by validate_request")

@@ -393,6 +393,70 @@ class SchemaManager:
                 }
 
         return schema
+    
+    def load_custom_schema(self, schema_path: str) -> dict:
+        try:
+            with open(schema_path, 'r') as file:
+                raw_schema = json.load(file)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Schema file not found: {schema_path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in schema file: {e}")
+
+        vertex_labels = raw_schema.get('vertex_labels')
+        edge_labels = raw_schema.get('edge_labels')
+
+        if vertex_labels is None:
+            raise ValueError("vertex_labels is missing in the schema")
+        if edge_labels is None:
+            raise ValueError("edge_labels is missing in the schema")
+
+        parsed_schema = {'nodes': {}, 'edges': {}}
+
+        for node in vertex_labels:
+            key = node['name']
+            parsed_schema['nodes'][key] = {
+                'label': key,
+                'properties': {prop: {} for prop in node.get('properties', [])}
+            }
+
+        for edge in edge_labels:
+            key = edge['name']
+            parsed_schema['edges'][key] = {
+                'label': key,
+                'source': edge.get('source_label'),
+                'target': edge.get('target_label'),
+                'properties': {prop: {} for prop in edge.get('properties', [])}
+            }
+
+        return parsed_schema
+
+    def get_custom_schema_for_validation(self, schema_path: str) -> dict:
+        """
+        Loads a custom schema from disk and converts it into the flat
+        keyed format that validate_request expects:
+        { 'Person_owns_Property': { 'source': 'Person', 'target': 'Property', 'label': 'owns', 'id': '...' } }
+        """
+        parsed = self.load_custom_schema(schema_path)
+        validation_schema = {}
+
+        for edge_name, edge_data in parsed['edges'].items():
+            source = edge_data.get('source')
+            target = edge_data.get('target')
+            label = edge_data.get('label')
+
+            if not source or not target or not label:
+                continue
+
+            key = f"{source}_{label}_{target}"
+            validation_schema[key] = {
+                'source': source,
+                'target': target,
+                'label': label,
+                'id': key
+            }
+
+        return validation_schema
 
     def get_graph_info(self, file_path='./Data/graph_info.json'):
         try:
@@ -401,3 +465,4 @@ class SchemaManager:
                 return graph_info
         except Exception as e:
             return {"error": str(e)}
+        

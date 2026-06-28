@@ -140,3 +140,6 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token is invalid!",
         )
+        
+async def get_current_user_test():
+    return "9"
