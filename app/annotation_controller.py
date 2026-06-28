@@ -3,7 +3,7 @@ import json
 import os
 import datetime
 from app.api.deps import get_db_instance, get_schema_manager
-from app.workers.task_handler import graph_task, start_thread, reset_task, reset_status
+from app.workers.task_handler import graph_task, start_thread, reset_task, reset_status, is_slow_query
 from app.lib import convert_to_csv, generate_file_path, \
     adjust_file_path
 import time
@@ -13,14 +13,12 @@ from .workers.celery_app import init_request_state
 from app.api.deps import get_llm_handler
 
 logger = logging.getLogger(__name__)
-# Initialize locally for module-level usage if required but preferably lazy load
-db_instance = get_db_instance()
 schema_manager = get_schema_manager()
 
 llm = get_llm_handler()
 EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
 
-def handle_client_request(query, request, current_user_id, node_types, species, data_source, node_map):
+def handle_client_request(query, request, current_user_id, node_types, species, data_source, node_map, fingerprint=None):
     annotation_id = request.get('annotation_id', None)
     # --- 1. Check for existing Annotation ---
     if annotation_id:
@@ -73,7 +71,8 @@ def handle_client_request(query, request, current_user_id, node_types, species, 
                       "query": str(query[0]), "request": request,
                       "title": title, "node_types": node_types,
                       "status": TaskStatus.PENDING.value,
-                      "data_source": data_source, "species": species}
+                      "data_source": data_source, "species": species,
+                      "query_fingerprint": fingerprint}
 
         annotation_id = AnnotationStorageService.save(annotation)
         init_request_state(annotation_id)
@@ -106,7 +105,8 @@ def handle_client_request(query, request, current_user_id, node_types, species, 
                       "title": title, "node_types": node_types,
                       'status': TaskStatus.PENDING.value, 'node_count': None,
                       'edge_count': None, 'node_count_by_label': None,
-                      'edge_count_by_label': None, 'species': species, 'data_source': data_source}
+                      'edge_count_by_label': None, 'species': species, 'data_source': data_source,
+                      'query_fingerprint': fingerprint}
 
         AnnotationStorageService.update(annotation_id, annotation)
         reset_task(annotation_id)
@@ -150,6 +150,7 @@ def process_full_data(current_user_id, annotation_id):
             link = f'{request.host_url}{file_path}'
             return link
 
+        db_instance = get_db_instance()
         result = db_instance.run_query(query)
         parsed_result = db_instance.convert_to_dict(
             result, schema_manager.schema, graph_components)
@@ -182,13 +183,11 @@ def requery(annotation_id, query, request, species='human'):
     # graph_task signature: (query_code, annotation_id, requests, result_status, species, status=None)
     # result_status argument is legacy (was event), passing 0 or None
     try:
-        graph_task.delay(
-            query, 
-            annotation_id, 
-            request, 
-            0, # dummy for 'result_status'
-            species, 
-            status=TaskStatus.COMPLETE.value
+        queue = 'slow' if is_slow_query(request) else 'fast'
+        graph_task.apply_async(
+            args=[query, annotation_id, request, 0, species],
+            kwargs={'status': TaskStatus.COMPLETE.value},
+            queue=queue,
         )
     except Exception as e:
         logger.error("Error triggering graph_task celery job %s", e)

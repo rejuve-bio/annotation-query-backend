@@ -19,6 +19,11 @@ def heuristic_sort(requests, node_map):
         Returns a score (lower is better) based on property keys.
         """
         node = node_map.get(node_id, {})
+
+        # Priority 1: Node has a specific top-level id (e.g. "id": "P92177")
+        if node.get('id'):
+            return 0
+
         props = node.get('properties')
 
         # Priority 4: If properties is None or empty dict

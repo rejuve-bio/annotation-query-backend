@@ -8,11 +8,12 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 class SchemaManager:
-    def __init__(self, schema_config_path: str,
+    def __init__(self, human_schema_config_path: str,
                  biocypher_config_path: str,
-                 config_path: str,
-                 fly_schema_config_path: str):
-        self.human_bcy = BioCypher(schema_config_path=schema_config_path, biocypher_config_path=biocypher_config_path)
+                 human_datasources_config_path: str,
+                 fly_schema_config_path: str,
+                 fly_datasources_config_path: str = None):
+        self.human_bcy = BioCypher(schema_config_path=human_schema_config_path, biocypher_config_path=biocypher_config_path)
         self.fly_bcy = BioCypher(schema_config_path=fly_schema_config_path, biocypher_config_path=biocypher_config_path)
         self.human_schema = self.process_schema(self.human_bcy._get_ontology_mapping()._extend_schema())
         self.fly_schema = self.process_schema(self.fly_bcy._get_ontology_mapping()._extend_schema())
@@ -22,7 +23,8 @@ class SchemaManager:
         self.parent_edges = self.parent_edges()
         self.graph_info = self.get_graph_info()
         self.filter_schema = self.filter_schema(self.schema)
-        self.config_path = config_path
+        self.human_datasources_config_path = human_datasources_config_path
+        self.fly_datasources_config_path = fly_datasources_config_path
         self.schema_list = self.get_schema_list()
         self.biocypher_config_path = biocypher_config_path
         self.schmea_representation = self.get_schema_represnetion_per_source(self.schema_list)
@@ -58,8 +60,10 @@ class SchemaManager:
 
     def get_schema_list(self):
         schema_list = []
-        for file in os.listdir(self.config_path):
-            schema_dir = Path(__file__).parent / ".." / ".." / "config" / "schema" / file
+        for file in os.listdir(self.human_datasources_config_path):
+            if not file.endswith('.yaml'):
+                continue
+            schema_dir = Path(self.human_datasources_config_path) / file
             with open(schema_dir, 'r') as f:
                 file_output = yaml.safe_load(f)
             url = file_output.get('website', None)
@@ -76,7 +80,7 @@ class SchemaManager:
 
     def get_schema_representation(self, schema_list: list):
         schema_representation = {"nodes": {}, "edges": {}}
-        schema_dir = Path(__file__).parent / ".." / ".." / "config" / "schema"
+        schema_dir = Path(self.human_datasources_config_path)
         to_remove_nodes = {'ontology term', 'biological process', 'molecular function', 'cellular component'}
 
         for schema in schema_list:
@@ -127,7 +131,7 @@ class SchemaManager:
     def get_schema_represnetion_per_source(self, schema_list: list):
         schema_representation = {}
         whole_schema = self.get_schema_representation(schema_list)
-        schema_dir = Path(__file__).parent / ".." / ".." / "config" / "schema"
+        schema_dir = Path(self.human_datasources_config_path)
         to_remove_node = ['ontology term', 'biological process', 'molecular function', 'cellular component']
         for schema in schema_list:
             schema_abs_path = str((schema_dir / f"{schema['file_name']}.yaml").resolve())
@@ -157,48 +161,109 @@ class SchemaManager:
                         schema_representation[name]['edges'][edge_key]['label'] = value.get('output_label') or value.get('input_label', '')
 
                     for key in schema_representation[name]['edges'].keys():
-                        source_node_rep = schema_representation[name]['edges'][key]['source']
-                        target_node_rep = schema_representation[name]['edges'][key]['target']
-                        node_to_add_src = whole_schema['nodes'][source_node_rep]
-                        node_to_add_trgt = whole_schema['nodes'][target_node_rep]
+                        raw_src = schema_representation[name]['edges'][key]['source']
+                        raw_trgt = schema_representation[name]['edges'][key]['target']
+                        src_nodes = raw_src if isinstance(raw_src, list) else [raw_src]
+                        trgt_nodes = raw_trgt if isinstance(raw_trgt, list) else [raw_trgt]
 
-                        schema_representation[name]['nodes'][node_to_add_src['label']] = {
-                            'label': node_to_add_src['label'],
-                            'properties': node_to_add_src['properties']
-                        }
-                        schema_representation[name]['nodes'][node_to_add_trgt['label']] = {
-                            'label': node_to_add_trgt['label'],
-                            'properties': node_to_add_trgt['properties']
-                        }
+                        for src in src_nodes:
+                            node = whole_schema['nodes'][src]
+                            schema_representation[name]['nodes'][node['label']] = {
+                                'label': node['label'],
+                                'properties': node['properties']
+                            }
+                        for trgt in trgt_nodes:
+                            node = whole_schema['nodes'][trgt]
+                            schema_representation[name]['nodes'][node['label']] = {
+                                'label': node['label'],
+                                'properties': node['properties']
+                            }
 
         return schema_representation
 
     def get_fly_schema_representation(self, prime_service):
+
+        ABSTRACT_NODE_LABELS = {
+            'biological entity', 'position entity', 'coding element',
+            'ontology term', 'ontology class', 'entity',
+            'non coding element', 'genomic variant',
+            'position_entity', 'biological_entity', 'coding_element',
+            'non_coding_element', 'genomic_variant'
+        }
+
+        BIOLINK_SOURCE_MAP = {
+            'biolink:GeneOrGeneProduct': ['gene', 'transcript', 'protein']
+        }
+
+        def normalize(label):
+            """Normalize to underscore format for consistent comparison."""
+            return label.replace(' ', '_').lower() if label else label
+
+        def resolve_labels(value):
+            if value is None:
+                return []
+            items = value if isinstance(value, list) else [value]
+            resolved = []
+            for item in items:
+                if item in BIOLINK_SOURCE_MAP:
+                    resolved.extend(BIOLINK_SOURCE_MAP[item])
+                else:
+                    resolved.append(normalize(item))
+            return resolved
+
         fly_schema = {'nodes': {}, 'edges': {}}
 
+        # Build edges first — all sources/targets normalized
         for value in prime_service.values():
-            if value.get('is_a') == 'biological entity' or value.get('is_a') == 'position entity':
+            if value.get('represented_as') != 'edge':
                 continue
 
-            if value.get('represented_as') == 'node':
-                if value.get('input_label') == 'ontology term' or value.get('output_label') == 'ontology term':
-                    continue
-                label = value.get('output_label') or value.get('input_label')
-                fly_schema['nodes'][label] = {
-                    'label': label,
-                    'properties': value.get('properties', {}),
-                }
-            elif value.get('represented_as') == 'edge':
-                if value.get('source') == 'ontology term' or value.get('target') == 'ontology term':
-                    continue
-                if value.get('source') is not None and value.get('target') is not None:
-                    label = value.get('output_label') or value.get('input_label')
-                    fly_schema['edges'][label] = {
-                        'source': value.get('source'),
-                        'target': value.get('target'),
+            raw_source = value.get('source')
+            raw_target = value.get('target')
+            if not raw_source or not raw_target:
+                continue
+
+            label = value.get('output_label') or value.get('input_label')
+            sources = resolve_labels(raw_source)
+            targets = resolve_labels(raw_target)
+
+            for s in sources:
+                for t in targets:
+                    if s in ABSTRACT_NODE_LABELS or t in ABSTRACT_NODE_LABELS:
+                        continue
+                    if normalize(s) in {normalize(a) for a in ABSTRACT_NODE_LABELS}:
+                        continue
+                    if normalize(t) in {normalize(a) for a in ABSTRACT_NODE_LABELS}:
+                        continue
+                    edge_key = f"{s}__{label}__{t}"
+                    fly_schema['edges'][edge_key] = {
+                        'source': s,
+                        'target': t,
                         'properties': value.get('properties', {}),
                         'input_label': label,
                     }
+
+        # Collect normalized node labels referenced by edges
+        nodes_in_edges = set()
+        for edge in fly_schema['edges'].values():
+            nodes_in_edges.add(normalize(edge['source']))
+            nodes_in_edges.add(normalize(edge['target']))
+
+        # Add nodes — normalize their label before comparing
+        for value in prime_service.values():
+            if value.get('represented_as') != 'node':
+                continue
+            label = value.get('output_label') or value.get('input_label')
+            if not label:
+                continue
+            if normalize(label) in {normalize(a) for a in ABSTRACT_NODE_LABELS}:
+                continue
+            if normalize(label) not in nodes_in_edges:  # ← normalized comparison
+                continue
+            fly_schema['nodes'][normalize(label)] = {
+                'label': normalize(label),
+                'properties': value.get('properties', {}),
+            }
 
         return fly_schema
 
