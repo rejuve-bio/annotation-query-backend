@@ -574,7 +574,7 @@ biological process gene:
   output_label: involved_in
   source: gene
   target: biological process
-  gx_properties:
+  kgx_properties:
     subject_category: biolink:Gene
     object_category: biolink:BiologicalProcess
     knowledge_level: knowledge_assertion
