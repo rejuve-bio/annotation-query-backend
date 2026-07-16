@@ -233,7 +233,7 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Login to Docker Hub
-      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+      if: github.event_name == 'push'
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_HUB_USERNAME }}
@@ -686,7 +686,7 @@ jobs:
 
     # STEP 9: Push to Docker Hub (only on merge)
     - name: Push to Docker Hub
-      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
+      if: github.event_name == 'push' && steps.validate-container.outcome == 'success'
       run: |
         echo "=== Pushing validated Annotation Backend image to Docker Hub ==="
         IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
@@ -716,11 +716,11 @@ jobs:
 
     # STEP 10: Image Signing with Cosign
     - name: Install Cosign
-      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
+      if: github.event_name == 'push' && steps.validate-container.outcome == 'success'
       uses: sigstore/cosign-installer@v3
     
     - name: Sign Docker image
-      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
+      if: github.event_name == 'push' && steps.validate-container.outcome == 'success'
       env:
         COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
@@ -733,7 +733,7 @@ jobs:
         echo "[SUCCESS] Image signing completed"
 
     - name: Set deployment trigger
-      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
+      if: github.event_name == 'push' && steps.validate-container.outcome == 'success'
       id: deployment-trigger
       run: |
         echo "docker_pushed=true" >> $GITHUB_OUTPUT
@@ -748,7 +748,7 @@ jobs:
 
     # STEP 11: Trigger CD workflow
     - name: Trigger CD workflow via Repository Dispatch
-      if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.validate-container.outcome == 'success'
+      if: github.event_name == 'push' && steps.validate-container.outcome == 'success'
       run: |
         curl -L -X POST \
           -H "Accept: application/vnd.github+json" \
