@@ -360,15 +360,15 @@ def get_saved_preferences(current_user_id: str = Depends(get_current_user)):
             data_source = preferences.data_source
             species = preferences.species
         else:
-            data_source = ['GWAS']
+            data_source = ['all']
             species = 'human'
-        
+
         if species == 'fly':
             data_source = ['flyall']
 
         response_data = {
             'species': species,
-            'source': data_source
+            'source': data_source if isinstance(data_source, list) else [data_source]
         }
         
         logger.info(json.dumps({"status": "success", "method": "GET",
