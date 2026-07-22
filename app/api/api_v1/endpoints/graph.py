@@ -160,10 +160,9 @@ def get_schema_by_source_logic(schema_manager, species, query_string):
                 response['schema']['nodes'].append({
                     'data': {
                         'name': schema[source]['nodes'][node]['label'],
-                        'properties': [property for property in schema[source]['nodes'][node]['properties'].keys()]
+                        'properites': [p for p in schema[source]['nodes'][node]['properties'].keys()]
                     }
                 })
-                response['schema']['nodes'].append(schema[source]['nodes'][node])
 
     return response
 
