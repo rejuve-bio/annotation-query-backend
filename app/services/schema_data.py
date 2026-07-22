@@ -112,17 +112,18 @@ class SchemaManager:
 
             # Process edges
             for key, value in edges.items():
-                edge_key = value.get('output_label') or value.get('input_label')
+                unique_key = value.get('input_label')
+                edge_label = value.get('output_label') or value.get('input_label')
                 source = value.get("source", "").replace('_', ' ').lower()
                 target = value.get("target", "").replace('_', ' ').lower()
                 if source in to_remove_nodes or target in to_remove_nodes:
                     continue
 
-                if key not in schema_representation["edges"]:
-                    schema_representation["edges"][edge_key] = {
+                if unique_key not in schema_representation["edges"]:
+                    schema_representation["edges"][unique_key] = {
                         "source": value.get("source", ''),
                         "target": value.get("target", ''),
-                        "label": value.get("output_label") or value.get("input_label", ''),
+                        "label": edge_label,
                         "properties": value.get("properties", {})
                     }
 
@@ -133,6 +134,7 @@ class SchemaManager:
         whole_schema = self.get_schema_representation(schema_list)
         schema_dir = Path(self.human_datasources_config_path)
         to_remove_node = ['ontology term', 'biological process', 'molecular function', 'cellular component']
+
         for schema in schema_list:
             schema_abs_path = str((schema_dir / f"{schema['file_name']}.yaml").resolve())
             with open(schema_abs_path, 'r') as file:
@@ -142,23 +144,23 @@ class SchemaManager:
 
                 if name:
                     if name not in schema_representation:
-                        schema_representation[name]= {'nodes': {}, 'edges': {}}
+                        schema_representation[name] = {'nodes': {}, 'edges': {}}
 
                     for key, value in edges.items():
-                        edge_key = value.get('output_label') or value.get('input_label')
-                        source = value.get('source').replace('_', ' ')
-                        target = value.get('target').replace('_', ' ')
+                        unique_key = value.get('input_label')
+                        edge_label = value.get('output_label') or value.get('input_label')
+                        source = value.get('source', '').replace('_', ' ')
+                        target = value.get('target', '').replace('_', ' ')
                         if source in to_remove_node or target in to_remove_node:
                             continue
 
-                        # Schema-specific edge definition (per schema name)
-                        if edge_key not in schema_representation[name]['edges']:
-                            schema_representation[name]['edges'][edge_key] = {'source': '', 'target': ''}
+                        if unique_key not in schema_representation[name]['edges']:
+                            schema_representation[name]['edges'][unique_key] = {'source': '', 'target': ''}
 
-                        schema_representation[name]['edges'][edge_key].update(value)
-                        schema_representation[name]['edges'][edge_key]['source'] = value.get('source', '')
-                        schema_representation[name]['edges'][edge_key]['target'] = value.get('target', '')
-                        schema_representation[name]['edges'][edge_key]['label'] = value.get('output_label') or value.get('input_label', '')
+                        schema_representation[name]['edges'][unique_key].update(value)
+                        schema_representation[name]['edges'][unique_key]['source'] = value.get('source', '')
+                        schema_representation[name]['edges'][unique_key]['target'] = value.get('target', '')
+                        schema_representation[name]['edges'][unique_key]['label'] = edge_label
 
                     for key in schema_representation[name]['edges'].keys():
                         raw_src = schema_representation[name]['edges'][key]['source']
@@ -167,17 +169,19 @@ class SchemaManager:
                         trgt_nodes = raw_trgt if isinstance(raw_trgt, list) else [raw_trgt]
 
                         for src in src_nodes:
-                            node = whole_schema['nodes'][src]
-                            schema_representation[name]['nodes'][node['label']] = {
-                                'label': node['label'],
-                                'properties': node['properties']
-                            }
+                            node = whole_schema['nodes'].get(src)
+                            if node:
+                                schema_representation[name]['nodes'][node['label']] = {
+                                    'label': node['label'],
+                                    'properties': node['properties']
+                                }
                         for trgt in trgt_nodes:
-                            node = whole_schema['nodes'][trgt]
-                            schema_representation[name]['nodes'][node['label']] = {
-                                'label': node['label'],
-                                'properties': node['properties']
-                            }
+                            node = whole_schema['nodes'].get(trgt)
+                            if node:
+                                schema_representation[name]['nodes'][node['label']] = {
+                                    'label': node['label'],
+                                    'properties': node['properties']
+                                }
 
         return schema_representation
 
