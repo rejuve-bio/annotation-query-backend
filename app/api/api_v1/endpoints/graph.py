@@ -89,8 +89,8 @@ def get_schema_by_source_logic(schema_manager, species, query_string):
         for key, value in schema.get('nodes', {}).items():
             response['schema']['nodes'].append({
                 'data': {
-                'name': value['label'],
-                'properites':[property for property in value['properties'].keys()]
+                    'name': value['label'],
+                    'properites': [property for property in value['properties'].keys()]
                 }
             })
 
@@ -99,7 +99,7 @@ def get_schema_by_source_logic(schema_manager, species, query_string):
             for ed in response['schema']['edges']:
                 if value['source'] == ed['data']['source'] and value['target'] == ed['data']['target']:
                     is_new = False
-                    ed['data']['possible_connection'].append( value.get('output_lable') or value.get('input_label') or 'unknown')
+                    ed['data']['possible_connection'].append(value.get('output_label') or value.get('input_label') or 'unknown')
             if is_new:
                 response['schema']['edges'].extend(flatten_edges(value))
         return response
@@ -110,57 +110,59 @@ def get_schema_by_source_logic(schema_manager, species, query_string):
     else:
         query_list = query_string
 
+    sub_schema = None
+    source = None
+
     for schema_type in query_list:
-        if schema_type == 'all': 
+        if schema_type == 'all':
             continue
-        
         source = schema_type.upper()
         sub_schema = schema.get(source, None)
 
         if sub_schema is None:
             continue
 
-        for _, values in sub_schema['edges'].items():
-            edge_key = values.get('output_label') or values.get('input_label')
-            edge = sub_schema['edges'][edge_key]
-            edge_data = { 'data': {
-                "possible_connection": [edge.get('output_label') or edge.get('input_label')],
-                "source": edge.get('source'),
-                "target": edge.get('target')
-            }}
+        for _, edge in sub_schema['edges'].items():
+            edge_data = {
+                'data': {
+                    "possible_connection": [edge.get('label') or edge.get('output_label') or edge.get('input_label')],
+                    "source": edge.get('source'),
+                    "target": edge.get('target')
+                }
+            }
             response['schema']['edges'].append(edge_data)
-            
+
             if 'nodes' in schema[source] and edge['source'] in schema[source]['nodes']:
-                 node_to_add_src = schema[source]['nodes'][edge['source']]
-                 node_label_src = node_to_add_src['label']
-                 if not node_exists(response, node_label_src):
+                node_to_add_src = schema[source]['nodes'][edge['source']]
+                node_label_src = node_to_add_src['label']
+                if not node_exists(response, node_label_src):
                     response['schema']['nodes'].append({
                         'data': {
                             'name': node_to_add_src['label'],
-                            'properites':[property for property in node_to_add_src['properties'].keys()]
+                            'properites': [property for property in node_to_add_src['properties'].keys()]
                         }
                     })
+
             if 'nodes' in schema[source] and edge['target'] in schema[source]['nodes']:
                 node_to_add_trgt = schema[source]['nodes'][edge['target']]
                 node_label_trgt = node_to_add_trgt['label']
                 if not node_exists(response, node_label_trgt):
                     response['schema']['nodes'].append({
-                                    'data': {
-                                        'name': node_to_add_trgt['label'],
-                                        'properites':[property for property in node_to_add_trgt['properties'].keys()]
-                                    }
-                                })
-
-        if len(response['schema']['edges']) == 0:
-            for node in sub_schema['nodes']:
-                if node in schema[source]['nodes']:
-                    response['schema']['nodes'].append({
                         'data': {
-                            'name': schema[source]['nodes'][node]['label'],
-                            'properties': [property for property in schema[source]['nodes'][node]['properties'].keys()]
+                            'name': node_to_add_trgt['label'],
+                            'properites': [property for property in node_to_add_trgt['properties'].keys()]
                         }
                     })
-                    response['schema']['nodes'].append(schema[source]['nodes'][node])
+
+    if len(response['schema']['edges']) == 0 and sub_schema is not None and source is not None:
+        for node in sub_schema['nodes']:
+            if node in schema[source]['nodes']:
+                response['schema']['nodes'].append({
+                    'data': {
+                        'name': schema[source]['nodes'][node]['label'],
+                        'properites': [p for p in schema[source]['nodes'][node]['properties'].keys()]
+                    }
+                })
 
     return response
 

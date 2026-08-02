@@ -21,7 +21,6 @@ class Species(Enum):
         'id': 'fly',
         'name': 'Fly'
     }
-
 # Define locationInputs equivalent in Python
 location_inputs = [
     {
@@ -48,9 +47,33 @@ form_fields = {
     "efo": [{"label": "Name", "name": "term_name", "inputType": "input"}],
     "bto": [{"label": "Name", "name": "term_name", "inputType": "input"}],
     "motif": [{"label": "Name", "name": "tf_name", "inputType": "input"}],
-    "pathway": [{"label": "Name", "name": "pathway_name", "inputType": "input"}],
+    "anatomy": [{"label": "Name", "name": "term_name", "inputType": "input"}],
+    "tissue": [
+    {"label": "Name", "name": "term_name", "inputType": "input"},
+    ],
+    "cell_type": [
+        {"label": "Name", "name": "term_name", "inputType": "input"},
+    ],
+    "cell_line": [
+        {"label": "Name", "name": "term_name", "inputType": "input"},
+    ],
+    "phenotype": [
+        {"label": "Name", "name": "term_name", "inputType": "input"},
+    ],
+    "small_molecule": [
+        {"label": "Name", "name": "term_name", "inputType": "input"},
+    ],
+    "reaction": [
+        {"label": "Name", "name": "reaction_name", "inputType": "input"},
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
+    ],
+    "pathway": [
+        {"label": "Name", "name": "pathway_name", "inputType": "input"},
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
+    ],
     "gene": [
         {"label": "Name", "name": "gene_name", "inputType": "input"},
+        {"label": "Synonym", "name": "synonym", "inputType": "input"},
         {
             "label": "Type",
             "name": "gene_type",
@@ -68,7 +91,23 @@ form_fields = {
         },
         *location_inputs
     ],
-    "protein": [{"label": "Name", "name": "protein_name", "inputType": "input"}],
+    "protein": [
+        {"label": "Name", "name": "protein_name", "inputType": "input"},
+        {"label": "Canonical accession", "name": "canonical_accession", "inputType": "input"},
+        {"label": "Isoform name", "name": "isoform_name", "inputType": "input"},
+        {
+            "label": "Is canonical",
+            "name": "is_canonical",
+            "inputType": "combobox",
+            "options": [{"value": "true"}, {"value": "false"}]
+        },
+        {
+            "label": "Is isoform",
+            "name": "is_isoform",
+            "inputType": "combobox",
+            "options": [{"value": "true"}, {"value": "false"}]
+        },
+    ],
     "transcript": [
         {"label": "Gene name", "name": "gene_name", "inputType": "input"},
         {"label": "Transcript name", "name": "transcript_name", "inputType": "input"},
@@ -100,6 +139,8 @@ form_fields = {
         {"label": "Alt", "name": "alt", "inputType": "input"},
         {"label": "Caf_ref", "name": "caf_ref", "inputType": "input"},
         {"label": "Caf_alt", "name": "caf_alt", "inputType": "input"},
+        {"label": "Raw CADD score", "name": "raw_cadd_score", "inputType": "input", "type": "number"},
+        {"label": "Phred score", "name": "phred_score", "inputType": "input", "type": "number"},
         *location_inputs
     ],
     "sv": [
@@ -130,6 +171,9 @@ form_fields = {
             ]]
         },
         *location_inputs
+    ],
+    "disease": [
+        {"label": "Name", "name": "term_name", "inputType": "input"},
     ],
     "go": [
         {"label": "Term name", "name": "term_name", "inputType": "input"},

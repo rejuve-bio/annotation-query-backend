@@ -30,70 +30,80 @@ nodes:
     input_label: anatomy
     output_label: anatomy
     properties:
-      synonym: str[]
+      id: str
       term_name: str
+      synonym: str[]
       description: str
   cell line:
     url: http://www.obofoundry.org/
     input_label: cell_line
     output_label: cell_line
     properties:
-      synonym: str[]
+      id: str
       term_name: str
+      synonym: str[]
       description: str
   cell type:
     url: http://www.obofoundry.org/
     input_label: cell_type
     output_label: cell_type
     properties:
-      synonym: str[]
+      id: str
       term_name: str
+      synonym: str[]
       description: str
   experimental factor:
     url: http://www.obofoundry.org/
     input_label: experimental_factor
     output_label: experimental_factor
     properties:
-      synonym: str[]
+      id: str
       term_name: str
+      synonym: str[]
       description: str
   tissue:
     url: http://www.obofoundry.org/
     input_label: tissue
     output_label: tissue
     properties:
-      synonym: str[]
+      id: str
       term_name: str
+      synonym: str[]
       description: str
   small molecule:
     url: http://www.obofoundry.org/
     input_label: small_molecule
     output_label: small_molecule
     properties:
-      synonym: str[]
+      id: str
       term_name: str
+      synonym: str[]
       description: str
   phenotype:
     url: http://www.obofoundry.org/
     input_label: phenotype
     output_label: phenotype
     properties:
+      id: str
+      term_name: str
       description: str
   disease:
     url: http://www.obofoundry.org/
     input_label: disease
     output_label: disease
     properties:
-      synonym: str[]
+      id: str
       term_name: str
+      synonym: str[]
       description: str
   developmental_stage:
     url: http://www.obofoundry.org/
     input_label: developmental_stage
     output_label: developmental_stage
     properties:
-      synonym: str[]
+      id: str
       term_name: str
+      synonym: str[]
       description: str
 relationships:
   biological process subclass:
@@ -152,13 +162,28 @@ relationships:
       be involved in a specific biological process.
     source: cell_type
     target: biological_process
-  cl part of:
+  cl part of anatomy:
     url: http://www.obofoundry.org/
     input_label: cl_part_of
     output_label: part_of
     description: Represents a part-whole relationship between a CL term and an UBERON
-      term.
+      anatomy term.
     source: cell_type
+    target: anatomy
+  cell type part of tissue:
+    url: http://www.obofoundry.org/
+    input_label: cell_type_part_of_tissue
+    output_label: part_of
+    description: Cross-ontology relation linking a CL cell type to a BTO tissue term.
+    source: cell_type
+    target: tissue
+  tissue part of anatomy:
+    url: http://www.obofoundry.org/
+    input_label: tissue_part_of_anatomy
+    output_label: part_of
+    description: Cross-ontology relation linking a BRENDA Tissue Ontology (BTO) term
+      to an UBERON anatomy term.
+    source: tissue
     target: anatomy
   efo subclass of:
     url: http://www.obofoundry.org/

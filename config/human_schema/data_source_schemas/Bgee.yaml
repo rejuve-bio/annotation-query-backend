@@ -11,13 +11,3 @@ relationships:
     properties:
       p_value: float
       score: float
-  gene expressed in developmental stage:
-    url: https://www.bgee.org/download/gene-expression-calls?id=
-    input_label: gene_expressed_in_developmental_stage
-    output_label: expressed_in
-    description: holds between a gene and a developmental stage in which it is expressed
-    source: gene
-    target: developmental_stage
-    properties:
-      p_value: float
-      score: float
