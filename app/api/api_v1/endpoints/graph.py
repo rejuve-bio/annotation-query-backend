@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from typing import List, Optional, Dict, Any
@@ -447,11 +448,25 @@ async def download_tsv(id: str, current_user_id: str = Depends(get_current_user)
         )
 @router.get("/public/vcf/{filename}")
 def download_vcf_file(filename: str):
-    file_path = f"/app/public/vcf/{filename}"
-    if not os.path.exists(file_path):
+    # Sanitize — strip any path components, only allow the bare filename
+    safe_filename = Path(filename).name
+    
+    # Only allow .vcf.gz and .vcf.gz.tbi extensions
+    if not (safe_filename.endswith('.vcf.gz') or safe_filename.endswith('.vcf.gz.tbi')):
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    
+    # Resolve the full path and verify it stays within the allowed directory
+    base_dir = Path("/app/public/vcf").resolve()
+    file_path = (base_dir / safe_filename).resolve()
+    
+    if not str(file_path).startswith(str(base_dir)):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    
+    if not file_path.exists():
         raise HTTPException(status_code=404, detail="VCF file not found")
+    
     return FileResponse(
-        path=file_path,
-        filename=filename,
+        path=str(file_path),
+        filename=safe_filename,
         media_type="application/octet-stream"
     )
