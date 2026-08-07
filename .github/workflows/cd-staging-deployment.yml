@@ -4,6 +4,9 @@ on:
   repository_dispatch:
     types: [deploy-staging]
 
+env:
+  DOCKER_HUB_ORG: rejuvebio
+
 jobs:
   deploy:
     runs-on: self-hosted
@@ -26,21 +29,28 @@ jobs:
       - name: Deploy to Kubernetes
         run: |
           kubectl set image deployment/annotation-service-staging \
-            annotation-service-staging=abdum1964/annotation:staging \
+            annotation-service-staging=${{ env.DOCKER_HUB_ORG }}/annotation:staging \
             -n annotation-staging || true
 
-          kubectl set image deployment/celery-worker-staging \
-            celery-worker-staging=abdum1964/annotation:staging \
+          kubectl set image deployment/celery-worker-slow-staging \
+            celery-worker-slow-staging=${{ env.DOCKER_HUB_ORG }}/annotation:staging \
+            -n annotation-staging || true
+
+          kubectl set image deployment/celery-worker-fast-staging \
+            celery-worker-fast-staging=${{ env.DOCKER_HUB_ORG }}/annotation:staging \
             -n annotation-staging || true
 
           kubectl rollout restart deployment/annotation-service-staging -n annotation-staging
-          kubectl rollout restart deployment/celery-worker-staging -n annotation-staging
+          kubectl rollout restart deployment/celery-worker-slow-staging -n annotation-staging
+          kubectl rollout restart deployment/celery-worker-fast-staging -n annotation-staging
 
       - name: Wait for rollout
         run: |
           kubectl rollout status deployment/annotation-service-staging \
             -n annotation-staging --timeout=120s
-          kubectl rollout status deployment/celery-worker-staging \
+          kubectl rollout status deployment/celery-worker-slow-staging \
+            -n annotation-staging --timeout=120s
+          kubectl rollout status deployment/celery-worker-fast-staging \
             -n annotation-staging --timeout=120s
 
       - name: Verify pods
@@ -62,7 +72,7 @@ jobs:
             Annotation Service deployed to Kubernetes successfully!
             Repository: ${{ github.repository }}
             Triggered by: ${{ github.actor }}
-            Image: abdum1964/annotation:staging
+            Image: ${{ env.DOCKER_HUB_ORG }}/annotation:staging
             Pods running in annotation-staging namespace.
 
       - name: Send failure email
