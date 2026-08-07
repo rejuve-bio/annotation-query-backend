@@ -394,8 +394,8 @@ FBdv subclass of:
   input_label: FBdv_subclass_of
   output_label: is_a
   biolink_predicate: biolink:subclass_of
-  source: developmental stage
-  target: developmental stage
+  source: developmental_stage
+  target: developmental_stage
   kgx_properties:
     subject_category: biolink:LifeStage
     object_category: biolink:LifeStage
@@ -439,7 +439,7 @@ gene to group association:
   input_label: grouped_into
   biolink_predicate: biolink:member_of
   source: gene
-  target: gene group
+  target: gene_group
   properties:
     taxon_id:
       type: int
@@ -460,7 +460,7 @@ gene to metabolic pathway group association:
   input_label: metabolic_pathway_grouped_into
   biolink_predicate: biolink:member_of
   source: gene
-  target: metabolic pathway gene group
+  target: metabolic_pathway_gene_group
   properties:
     taxon_id:
       type: int
@@ -480,7 +480,7 @@ gene to sequence type:
   output_label: classified_as
   biolink_predicate: biolink:classified_as
   source: gene
-  target: sequence type
+  target: sequence_type
   properties:
     taxon_id:
       type: str
@@ -501,7 +501,7 @@ gene to signaling pathway group association:
   input_label: signaling_pathway_grouped_into
   biolink_predicate: biolink:member_of
   source: gene
-  target: signaling pathway gene group
+  target: signaling_pathway_gene_group
   properties:
     taxon_id:
       type: int
@@ -718,6 +718,701 @@ ptt physically interacts with:
       biolink: comment
   kgx_properties:
     subject_category: biolink:GeneOrGeneProduct
+    object_category: biolink:Transcript
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+gene to gene group association:
+  is_a: annotation
+  biolink_predicate: biolink:part_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: grouped_into
+  output_label: grouped_into
+  source: gene
+  target: gene_group
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:GeneFamily
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+gene to signaling pathway group association:
+  is_a: annotation
+  biolink_predicate: biolink:part_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: signaling_pathway_grouped_into
+  output_label: signaling_pathway_grouped_into
+  source: gene
+  target: signaling_pathway_gene_group
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:GeneFamily
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+gene to metabolic pathway group association:
+  is_a: annotation
+  biolink_predicate: biolink:part_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: metabolic_pathway_grouped_into
+  output_label: metabolic_pathway_grouped_into
+  source: gene
+  target: metabolic_pathway_gene_group
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:GeneFamily
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    source:
+      type: str
+      biolink: knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
+
+gene expression value:
+  is_a: expression
+  biolink_predicate: biolink:has_quantified_expression_level
+  represented_as: edge
+  input_label: gene_expression_value
+  output_label: expression_value
+  source: gene
+  target: rnaseq library
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:DataSet
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    value_and_description:
+      type: list
+      biolink: has_quantitative_value
+    taxon_id:
+      type: int
+      biolink: taxon
+
+transcript expression value:
+  is_a: expression
+  biolink_predicate: biolink:has_quantified_expression_level
+  represented_as: edge
+  input_label: transcript_expression_value
+  output_label: expression_value
+  source: transcript
+  target: rnaseq library
+  kgx_properties:
+    subject_category: biolink:Transcript
+    object_category: biolink:DataSet
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    value_and_description:
+      type: list
+      biolink: has_quantitative_value
+    taxon_id:
+      type: int
+      biolink: taxon
+
+phenotype_set characterized by anatomy:
+  is_a: annotation
+  biolink_predicate: biolink:related_to
+  inherit_properties: true
+  represented_as: edge
+  input_label: characterized_by_anatomy
+  output_label: characterized_by
+  source: phenotype_set
+  target: anatomy
+  kgx_properties:
+    subject_category: biolink:PhenotypicFeature
+    object_category: biolink:AnatomicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+phenotype_set characterized by developmental stage:
+  is_a: annotation
+  biolink_predicate: biolink:related_to
+  inherit_properties: true
+  represented_as: edge
+  input_label: characterized_by_developmental_stage
+  output_label: characterized_by
+  source: phenotype_set
+  target: developmental_stage
+  kgx_properties:
+    subject_category: biolink:PhenotypicFeature
+    object_category: biolink:LifeStage
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+phenotype_set characterized by phenotype:
+  is_a: annotation
+  biolink_predicate: biolink:related_to
+  inherit_properties: true
+  represented_as: edge
+  input_label: characterized_by_phenotype
+  output_label: characterized_by
+  source: phenotype_set
+  target: phenotype
+  kgx_properties:
+    subject_category: biolink:PhenotypicFeature
+    object_category: biolink:PhenotypicFeature
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+phenotype_set characterized by biological process:
+  is_a: annotation
+  biolink_predicate: biolink:related_to
+  inherit_properties: true
+  represented_as: edge
+  input_label: characterized_by_biological_process
+  output_label: characterized_by
+  source: phenotype_set
+  target: biological process
+  kgx_properties:
+    subject_category: biolink:PhenotypicFeature
+    object_category: biolink:BiologicalProcess
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+phenotype_set characterized by sequence type:
+  is_a: annotation
+  biolink_predicate: biolink:related_to
+  inherit_properties: true
+  represented_as: edge
+  input_label: characterized_by_sequence_type
+  output_label: characterized_by
+  source: phenotype_set
+  target: sequence_type
+  kgx_properties:
+    subject_category: biolink:PhenotypicFeature
+    object_category: biolink:OntologyClass
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+gene expressed in anatomy:
+  is_a: expression
+  mixins:
+  - biolink:GeneToExpressionSiteAssociation
+  biolink_predicate: biolink:expressed_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: gene_expressed_in_anatomy
+  output_label: expressed_in
+  source: gene
+  target: anatomy
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:AnatomicalEntity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    score:
+      type: float
+      biolink: has_quantitative_value
+    p_value:
+      type: float
+      biolink: has_quantitative_value
+
+gene expressed in developmental stage:
+  is_a: expression
+  mixins:
+  - biolink:GeneToExpressionSiteAssociation
+  biolink_predicate: biolink:expressed_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: gene_expressed_in_developmental_stage
+  output_label: expressed_in
+  source: gene
+  target: developmental_stage
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:LifeStage
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    score:
+      type: float
+      biolink: has_quantitative_value
+    p_value:
+      type: float
+      biolink: has_quantitative_value
+
+gene expressed in biological process:
+  is_a: expression
+  biolink_predicate: biolink:expressed_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: gene_expressed_in_biological_process
+  output_label: expressed_in
+  source: gene
+  target: biological process
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:BiologicalProcess
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+
+gene expressed in cellular component:
+  is_a: expression
+  biolink_predicate: biolink:expressed_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: gene_expressed_in_cellular_component
+  output_label: expressed_in
+  source: gene
+  target: cellular component
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:CellularComponent
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+
+gene expressed in molecular function:
+  is_a: expression
+  biolink_predicate: biolink:expressed_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: gene_expressed_in_molecular_function
+  output_label: expressed_in
+  source: gene
+  target: molecular function
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+
+gene expressed in phenotype:
+  is_a: expression
+  biolink_predicate: biolink:expressed_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: gene_expressed_in_phenotype
+  output_label: expressed_in
+  source: gene
+  target: phenotype
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:PhenotypicFeature
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+
+protein to protein coexpression association:
+  description: Indicates that two proteins are co-expressed.
+  is_a: expression
+  biolink_predicate: biolink:coexpressed_with
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_coexpressed_with
+  output_label: coexpressed_with
+  source: protein
+  target: protein
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Protein
+    knowledge_level: knowledge_assertion
+    agent_type: automated_agent
+  properties:
+    coexpression_score:
+      type: float
+      biolink: has_quantitative_value
+
+protein to pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:participates_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_pathways
+  output_label: participates_in
+  source: protein
+  target: pathway
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+transcript to pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:participates_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: transcript_pathways
+  output_label: participates_in
+  source: transcript
+  target: pathway
+  kgx_properties:
+    subject_category: biolink:Transcript
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+protein to reaction association:
+  is_a: annotation
+  biolink_predicate: biolink:participates_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_reaction
+  output_label: involved_in
+  source: protein
+  target: reaction
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+transcript to reaction association:
+  is_a: annotation
+  biolink_predicate: biolink:participates_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: transcript_reaction
+  output_label: involved_in
+  source: transcript
+  target: reaction
+  kgx_properties:
+    subject_category: biolink:Transcript
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+input role protein to pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:is_input_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_enables_pathway
+  output_label: enables
+  source: protein
+  target: pathway
+  properties:
+    relation_ontology_term:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+input role protein to reaction association:
+  is_a: annotation
+  biolink_predicate: biolink:is_input_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_enables_reaction
+  output_label: enables
+  source: protein
+  target: reaction
+  properties:
+    relation_ontology_term:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+output role protein to pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:produced_by
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_produced_by_pathway
+  output_label: produced_by
+  source: protein
+  target: pathway
+  properties:
+    relation_ontology_term:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+output role protein to reaction association:
+  is_a: annotation
+  biolink_predicate: biolink:produced_by
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_produced_by_reaction
+  output_label: produced_by
+  source: protein
+  target: reaction
+  properties:
+    relation_ontology_term:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+catalyst protein to pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:regulates
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_regulates_pathway
+  output_label: regulates
+  source: protein
+  target: pathway
+  properties:
+    relation_ontology_term:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+catalyst protein to reaction association:
+  is_a: annotation
+  biolink_predicate: biolink:regulates
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_regulates_reaction
+  output_label: regulates
+  source: protein
+  target: reaction
+  properties:
+    relation_ontology_term:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+negative role protein to pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:regulates
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_negatively_regulates_pathway
+  output_label: negatively_regulates
+  source: protein
+  target: pathway
+  properties:
+    relation_ontology_term:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+negative role protein to reaction association:
+  is_a: annotation
+  biolink_predicate: biolink:regulates
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_negatively_regulates_reaction
+  output_label: negatively_regulates
+  source: protein
+  target: reaction
+  properties:
+    relation_ontology_term:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+positive role protein to pathway association:
+  is_a: annotation
+  biolink_predicate: biolink:regulates
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_positively_regulates_pathway
+  output_label: positively_regulates
+  source: protein
+  target: pathway
+  properties:
+    relation_ontology_term:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Pathway
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+positive role protein to reaction association:
+  is_a: annotation
+  biolink_predicate: biolink:regulates
+  inherit_properties: true
+  represented_as: edge
+  input_label: protein_positively_regulates_reaction
+  output_label: positively_regulates
+  source: protein
+  target: reaction
+  properties:
+    relation_ontology_term:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:MolecularActivity
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+snp to phenotype_set:
+  is_a: annotation
+  biolink_predicate: biolink:has_phenotype
+  inherit_properties: true
+  represented_as: edge
+  input_label: snp_involved_in
+  output_label: involved_in
+  source: snp
+  target: phenotype_set
+  kgx_properties:
+    subject_category: biolink:Snv
+    object_category: biolink:PhenotypicFeature
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+snp to gene association:
+  is_a: annotation
+  biolink_predicate: biolink:variant_of
+  inherit_properties: true
+  represented_as: edge
+  input_label: snp_variant_of
+  output_label: variant_of
+  source: snp
+  target: gene
+  kgx_properties:
+    subject_category: biolink:Snv
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+in gene to variant association:
+  is_a: annotation
+  biolink_predicate: biolink:located_in
+  inherit_properties: true
+  represented_as: edge
+  input_label: snp_in_gene
+  output_label: located_in
+  source: snp
+  target: gene
+  kgx_properties:
+    subject_category: biolink:Snv
+    object_category: biolink:Gene
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+protein to protein physical interaction:
+  is_a: expression
+  inherit_properties: true
+  represented_as: edge
+  input_label: ptp_physically_interacts_with
+  biolink_predicate: biolink:physically_interacts_with
+  source: protein
+  target: protein
+  properties:
+    detection_method:
+      type: str
+    pubmed_ids:
+      type: str[]
+    interaction_type:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Protein
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+transcript to protein physical interaction:
+  is_a: expression
+  inherit_properties: true
+  represented_as: edge
+  input_label: ptp_physically_interacts_with
+  biolink_predicate: biolink:physically_interacts_with
+  source: transcript
+  target: protein
+  properties:
+    detection_method:
+      type: str
+    pubmed_ids:
+      type: str[]
+    interaction_type:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Transcript
+    object_category: biolink:Protein
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+protein to transcript physical interaction:
+  is_a: expression
+  inherit_properties: true
+  represented_as: edge
+  input_label: ptt_physically_interacts_with
+  biolink_predicate: biolink:physically_interacts_with
+  source: protein
+  target: transcript
+  properties:
+    detection_method:
+      type: str
+    pubmed_ids:
+      type: str[]
+    interaction_type:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Protein
+    object_category: biolink:Transcript
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+
+transcript to transcript physical interaction:
+  is_a: expression
+  inherit_properties: true
+  represented_as: edge
+  input_label: ptt_physically_interacts_with
+  biolink_predicate: biolink:physically_interacts_with
+  source: transcript
+  target: transcript
+  properties:
+    detection_method:
+      type: str
+    pubmed_ids:
+      type: str[]
+    interaction_type:
+      type: str
+  kgx_properties:
+    subject_category: biolink:Transcript
     object_category: biolink:Transcript
     knowledge_level: knowledge_assertion
     agent_type: manual_agent
