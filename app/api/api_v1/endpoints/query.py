@@ -656,9 +656,12 @@ def get_annotation_by_id(
         "species": species,
         "status": status,
     }
-    
-    if summary: response_data["summary"] = summary
-    if node_count: response_data["node_count"] = node_count; response_data["edge_count"] = edge_count
+
+    if summary:
+        response_data["summary"] = summary
+    if node_count:
+        response_data["node_count"] = node_count
+        response_data["edge_count"] = edge_count
     if node_count_by_label:
         response_data["node_count_by_label"] = node_count_by_label
         response_data["edge_count_by_label"] = edge_count_by_label
@@ -692,9 +695,10 @@ def get_annotation_by_id(
                 response_data["nodes"] = graph.get("nodes")
                 response_data["edges"] = graph.get("edges")
             else:
-                 response_data['status'] = TaskStatus.PENDING.value
-                 from app.annotation_controller import requery
-                 requery(annotation_id, query, json_request, species)
+                response_data["status"] = TaskStatus.PENDING.value
+                from app.annotation_controller import requery
+
+                requery(annotation_id, query, json_request, species)
         elif status == TaskStatus.PENDING.value:
             # Recovery: graph was computed (e.g. before a worker restart) but
             # summary_task never ran to flip the status to COMPLETE.

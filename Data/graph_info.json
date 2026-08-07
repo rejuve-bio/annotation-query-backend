@@ -1,10 +1,9 @@
 {
-  "node_count": 60574473,
-  "edge_count": 638002294,
-  "dataset_count": 36,
-  "last_updated_at": "2026-05-08",
-  "kg_format": "metta",
-  "data_size": "130.48 GB",
+  "node_count": 54573341,
+  "edge_count": 592423423,
+  "last_updated_at": "2026-04-27T07:17:26.276699Z",
+  "dataset_count": 24,
+  "data_size": "132.29 GB",
   "top_entities": [
     {
       "name": "snp",
