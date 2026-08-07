@@ -89,26 +89,54 @@ def get_schema_by_source_logic(schema_manager, species, query_string):
                  getattr(schema_manager, 'fly_schema_represetnation', {})
 
     if query_string == 'all' and species == 'fly':
-        for source_name, source_data in schema.items():
-            for node_key, node_val in source_data.get('nodes', {}).items():
-                if not node_exists(response, node_val['label']):
-                    response['schema']['nodes'].append({
-                        'data': {
-                            'name': node_val['label'],
-                            'properites': [property for property in node_val['properties'].keys()]
-                        }
-                    })
-            for edge_key, edge_val in source_data.get('edges', {}).items():
+        # Detect if schema is per-source format {SOURCE: {nodes, edges}}
+        # or flat format {nodes: {}, edges: {}} from BioCypher fallback
+        is_per_source = all(
+            isinstance(v, dict) and 'nodes' in v and 'edges' in v
+            for v in schema.values()
+        ) if schema else False
+
+        if is_per_source:
+            for source_name, source_data in schema.items():
+                for node_key, node_val in source_data.get('nodes', {}).items():
+                    if not node_exists(response, node_val['label']):
+                        response['schema']['nodes'].append({
+                            'data': {
+                                'name': node_val['label'],
+                                'properites': [property for property in node_val['properties'].keys()]
+                            }
+                        })
+                for edge_key, edge_val in source_data.get('edges', {}).items():
+                    is_new = True
+                    for ed in response['schema']['edges']:
+                        if edge_val.get('source') == ed['data']['source'] and \
+                           edge_val.get('target') == ed['data']['target']:
+                            is_new = False
+                            ed['data']['possible_connection'].append(
+                                edge_val.get('label') or edge_val.get('output_label') or edge_val.get('input_label') or 'unknown'
+                            )
+                    if is_new:
+                        response['schema']['edges'].extend(flatten_edges(edge_val))
+        else:
+            # Flat format — fly_schema_represetnation from BioCypher
+            for key, value in schema.get('nodes', {}).items():
+                response['schema']['nodes'].append({
+                    'data': {
+                        'name': value['label'],
+                        'properites': [property for property in value['properties'].keys()]
+                    }
+                })
+            for key, value in schema.get('edges', {}).items():
                 is_new = True
                 for ed in response['schema']['edges']:
-                    if edge_val.get('source') == ed['data']['source'] and \
-                       edge_val.get('target') == ed['data']['target']:
+                    if value['source'] == ed['data']['source'] and \
+                       value['target'] == ed['data']['target']:
                         is_new = False
                         ed['data']['possible_connection'].append(
-                            edge_val.get('label') or edge_val.get('output_label') or edge_val.get('input_label') or 'unknown'
+                            value.get('label') or value.get('output_label') or value.get('input_label') or 'unknown'
                         )
                 if is_new:
-                    response['schema']['edges'].extend(flatten_edges(edge_val))
+                    response['schema']['edges'].extend(flatten_edges(value))
         return response
 
     # Handle list of sources
@@ -183,18 +211,17 @@ def get_preference_option(
     schema_manager: SchemaManager = Depends(get_schema_manager)
 ):
     response = {
-        'species': [specie.value for specie in Species ],
+        'species': [specie.value for specie in Species],
         'sources': {
             'human': [],
             'fly': []
         }
     }
-    
+
     schema_list = schema_manager.schema_list
 
     for source in schema_list:
         if source['id'] not in ['polyphen-2', 'bgee']:
-            # Call helper logic
             sch = get_schema_by_source_logic(schema_manager, 'human', [source['name']])
             data = {
                 'id': source['id'],
@@ -203,18 +230,29 @@ def get_preference_option(
                 'schema': sch['schema']
             }
             response['sources']['human'].append(data)
-            
+
     fly_schema_list = getattr(schema_manager, 'fly_schema_list', [])
-    for source in fly_schema_list:
-        sch = get_schema_by_source_logic(schema_manager, 'fly', [source['name']])
-        data = {
-            'id': source['id'],
-            'name': source['name'],
-            'url': source['url'],
+
+    if fly_schema_list:
+        for source in fly_schema_list:
+            sch = get_schema_by_source_logic(schema_manager, 'fly', [source['name']])
+            data = {
+                'id': source['id'],
+                'name': source['name'],
+                'url': source['url'],
+                'schema': sch['schema']
+            }
+            response['sources']['fly'].append(data)
+    else:
+        # Fallback — no per-source YAML files configured, expose single flyall option
+        sch = get_schema_by_source_logic(schema_manager, 'fly', 'all')
+        response['sources']['fly'].append({
+            'id': 'flyall',
+            'name': 'flyall',
+            'url': None,
             'schema': sch['schema']
-        }
-        response['sources']['fly'].append(data)
-    
+        })
+
     return response
 
 @router.get("/schema")

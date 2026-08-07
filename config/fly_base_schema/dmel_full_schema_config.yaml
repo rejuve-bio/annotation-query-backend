@@ -904,7 +904,7 @@ exon part_of transcript:
     agent_type: manual_agent
 
 expressed in:
-  description: holds between a gene and an ontology term in which it is expressed
+  description: holds between a gene and an anatomy in which it is expressed
   is_a: expression
   mixins:
   - biolink:GeneToExpressionSiteAssociation

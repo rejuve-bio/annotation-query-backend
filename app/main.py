@@ -16,7 +16,10 @@ import app.events.socket_event
 from fastapi.staticfiles import StaticFiles
 import mimetypes
 
-_WS_DOCS = (Path(__file__).parent.parent / "WEBSOCKET_DOCS.md").read_text()
+try:
+    _WS_DOCS = (Path(__file__).parent.parent / "WEBSOCKET_DOCS.md").read_text(encoding="utf-8")
+except OSError:
+    _WS_DOCS = "WebSocket documentation is unavailable in this deployment."
 
 # Add always on listen for socket events
 @asynccontextmanager
