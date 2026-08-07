@@ -100,6 +100,38 @@ curl -s -X POST "http://localhost:5000/query" \
 | `metta` | MeTTa files |
 | `mork_cli` | MORK binary via Docker (recommended) |
 
+## Performance & Resource Limits
+
+**Celery concurrency** (`docker-compose.yml`):
+- `--concurrency 4` — limits Celery child processes to 4; actual peak MORK
+  containers scale with worker count × active dataset paths (plus any web
+  workers that execute MORK queries directly on request paths that bypass
+  Celery). Reduces container overhead and resource contention at typical load.
+  Trade-off: lower parallel throughput at very high arrival rates.
+- `--max-tasks-per-child 50` — forces worker process restart every 50 tasks,
+  flushing accumulated Python/MeTTa heap objects. Keeps Celery memory bounded
+  regardless of run duration.
+
+**Container lifecycle**:
+- Containers are labelled `mork.worker=1` for monitoring. **Note:** filtering on
+  this label alone is host-wide and matches every MORK container on the Docker
+  host, including other deployments. When `COMPOSE_PROJECT_NAME` is set in the
+  environment, `_start()` also adds `mork.project=<project>` so you can scope
+  recovery to one deployment without using Docker Compose's reserved labels:
+  ```bash
+  docker ps -f label=mork.worker=1
+  # Scoped stop (COMPOSE_PROJECT_NAME is set via docker-compose.yml, default: annotation-query-backend):
+  docker ps -q -f label=mork.worker=1 -f label=mork.project=<project> | xargs -r docker stop
+  ```
+- SIGTERM and SIGINT handlers call `_cleanup_sessions()` on worker shutdown,
+  stopping all owned containers cleanly. Without this, containers are orphaned
+  when Celery is restarted via `docker restart`.
+- `_alive()` uses a 5-second TTL cache per dataset session to skip redundant
+  `docker inspect` calls. The cache is shared across requests handled by the
+  same worker process — any call within the window reuses the cached liveness
+  result. A failed `docker exec` invalidates the cache and retries once with
+  a fresh container check to preserve self-healing behaviour.
+
 ## Troubleshooting
 
 - **`Missing ACT file`**: run `python scripts/build_act.py`.
