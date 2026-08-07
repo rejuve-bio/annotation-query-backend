@@ -9,10 +9,10 @@ logger = logging.getLogger(__name__)
 
 class SchemaManager:
     def __init__(self, human_schema_config_path: str,
-                 biocypher_config_path: str,
-                 human_datasources_config_path: str,
-                 fly_schema_config_path: str,
-                 fly_datasources_config_path: str = None):
+                biocypher_config_path: str,
+                human_datasources_config_path: str,
+                fly_schema_config_path: str,
+                fly_datasources_config_path: str = None):
         self.human_bcy = BioCypher(schema_config_path=human_schema_config_path, biocypher_config_path=biocypher_config_path)
         self.fly_bcy = BioCypher(schema_config_path=fly_schema_config_path, biocypher_config_path=biocypher_config_path)
         self.human_schema = self.process_schema(self.human_bcy._get_ontology_mapping()._extend_schema())
@@ -25,31 +25,45 @@ class SchemaManager:
         self.filter_schema = self.filter_schema(self.schema)
         self.human_datasources_config_path = human_datasources_config_path
         self.fly_datasources_config_path = fly_datasources_config_path
-        self.schema_list = self.get_schema_list()
         self.biocypher_config_path = biocypher_config_path
+        self.schema_list = self.get_schema_list()
+        self.fly_schema_list = self.get_fly_schema_list()
         self.schmea_representation = self.get_schema_represnetion_per_source(self.schema_list)
-        self.full_schema_representation = self.get_merged_schema_represntation(self.schmea_representation, self.fly_schema_represetnation)
-
-    def get_merged_schema_represntation(self, human_schema_representation, fly_schema_representation):
+        self.fly_schmea_representation = self.get_fly_schema_represnetion_per_source(self.fly_schema_list)
+        self.full_schema_representation = self.get_merged_schema_represntation(
+            self.schmea_representation,
+            self.fly_schema_represetnation,
+            self.fly_schmea_representation
+        )
+    def get_merged_schema_represntation(self, human_schema_representation, fly_schema_representation, fly_per_source_representation=None):
         full_schema_representation = {"human": {"nodes": {}, "edges": {}}, "fly": {"nodes": {}, "edges": {}}}
-        
+
+        # human side — same as before
         for data_source, _ in human_schema_representation.items():
             for node_type, node_properties in human_schema_representation[data_source]["nodes"].items():
                 if node_type not in full_schema_representation["human"]['nodes']:
                     full_schema_representation["human"]["nodes"][node_type] = node_properties
-            
             for edge_type, edge_properties in human_schema_representation[data_source]["edges"].items():
                 if edge_type not in full_schema_representation["human"]['edges']:
                     full_schema_representation["human"]["edges"][edge_type] = edge_properties
-                
-        for node_type, node_properties in fly_schema_representation["nodes"].items():
-            if node_type not in full_schema_representation["fly"]["nodes"]:
-                full_schema_representation["fly"]["nodes"][node_type] = node_properties
-                
-        for edge_type, edge_properties in fly_schema_representation["edges"].items():
-            if edge_type not in full_schema_representation["fly"]["edges"]:
-                full_schema_representation["fly"]["edges"][edge_type] = edge_properties
-            
+
+        # fly side — prefer per-source if available, fall back to BioCypher-derived
+        if fly_per_source_representation:
+            for data_source, _ in fly_per_source_representation.items():
+                for node_type, node_properties in fly_per_source_representation[data_source]["nodes"].items():
+                    if node_type not in full_schema_representation["fly"]["nodes"]:
+                        full_schema_representation["fly"]["nodes"][node_type] = node_properties
+                for edge_type, edge_properties in fly_per_source_representation[data_source]["edges"].items():
+                    if edge_type not in full_schema_representation["fly"]["edges"]:
+                        full_schema_representation["fly"]["edges"][edge_type] = edge_properties
+        else:
+            for node_type, node_properties in fly_schema_representation["nodes"].items():
+                if node_type not in full_schema_representation["fly"]["nodes"]:
+                    full_schema_representation["fly"]["nodes"][node_type] = node_properties
+            for edge_type, edge_properties in fly_schema_representation["edges"].items():
+                if edge_type not in full_schema_representation["fly"]["edges"]:
+                    full_schema_representation["fly"]["edges"][edge_type] = edge_properties
+
         return full_schema_representation
 
     def merge_schema(self, human_schema, fly_schema):
@@ -64,6 +78,28 @@ class SchemaManager:
             if not file.endswith('.yaml'):
                 continue
             schema_dir = Path(self.human_datasources_config_path) / file
+            with open(schema_dir, 'r') as f:
+                file_output = yaml.safe_load(f)
+            url = file_output.get('website', None)
+            name = file_output.get('name', None)
+            file_name = os.path.splitext(file)[0]
+            data = {
+                'id': name,
+                'url': url,
+                'name': name,
+                'file_name': file_name
+            }
+            schema_list.append(data)
+        return schema_list
+    
+    def get_fly_schema_list(self):
+        if not self.fly_datasources_config_path:
+            return []
+        schema_list = []
+        for file in os.listdir(self.fly_datasources_config_path):
+            if not file.endswith('.yaml'):
+                continue
+            schema_dir = Path(self.fly_datasources_config_path) / file
             with open(schema_dir, 'r') as f:
                 file_output = yaml.safe_load(f)
             url = file_output.get('website', None)
@@ -128,6 +164,48 @@ class SchemaManager:
                     }
 
         return schema_representation
+    
+    def get_fly_schema_representation_from_sources(self, fly_schema_list: list):
+        schema_representation = {"nodes": {}, "edges": {}}
+        schema_dir = Path(self.fly_datasources_config_path)
+        to_remove_nodes = {'ontology term', 'biological process', 'molecular function', 'cellular component'}
+
+        for schema in fly_schema_list:
+            schema_file = schema.get("file_name")
+            if not schema_file:
+                continue
+            schema_path = schema_dir / f"{schema_file}.yaml"
+            if not schema_path.exists():
+                continue
+            with open(schema_path, 'r') as file:
+                file_output = yaml.safe_load(file)
+
+            for key, value in (file_output.get('nodes') or {}).items():
+                if key.lower() in to_remove_nodes:
+                    continue
+                node_key = value.get('output_label') or value.get('input_label')
+                if node_key not in schema_representation["nodes"]:
+                    schema_representation["nodes"][node_key] = {
+                        "label": node_key,
+                        "properties": value.get("properties", {})
+                    }
+
+            for key, value in (file_output.get('relationships') or {}).items():
+                unique_key = value.get('input_label')
+                edge_label = value.get('output_label') or value.get('input_label')
+                source = value.get("source", "").replace('_', ' ').lower()
+                target = value.get("target", "").replace('_', ' ').lower()
+                if source in to_remove_nodes or target in to_remove_nodes:
+                    continue
+                if unique_key not in schema_representation["edges"]:
+                    schema_representation["edges"][unique_key] = {
+                        "source": value.get("source", ''),
+                        "target": value.get("target", ''),
+                        "label": edge_label,
+                        "properties": value.get("properties", {})
+                    }
+
+        return schema_representation
 
     def get_schema_represnetion_per_source(self, schema_list: list):
         schema_representation = {}
@@ -153,6 +231,8 @@ class SchemaManager:
                         target = value.get('target', '').replace('_', ' ')
                         if source in to_remove_node or target in to_remove_node:
                             continue
+                        if source.startswith('biolink:') or target.startswith('biolink:'):
+                            continue
 
                         if unique_key not in schema_representation[name]['edges']:
                             schema_representation[name]['edges'][unique_key] = {'source': '', 'target': ''}
@@ -169,14 +249,77 @@ class SchemaManager:
                         trgt_nodes = raw_trgt if isinstance(raw_trgt, list) else [raw_trgt]
 
                         for src in src_nodes:
-                            node = whole_schema['nodes'].get(src)
+                            normalized_src = src.replace(' ', '_')
+                            node = whole_schema['nodes'].get(src) or whole_schema['nodes'].get(normalized_src)
                             if node:
                                 schema_representation[name]['nodes'][node['label']] = {
                                     'label': node['label'],
                                     'properties': node['properties']
                                 }
                         for trgt in trgt_nodes:
-                            node = whole_schema['nodes'].get(trgt)
+                            normalized_trgt = trgt.replace(' ', '_')
+                            node = whole_schema['nodes'].get(trgt) or whole_schema['nodes'].get(normalized_trgt)
+                            if node:
+                                schema_representation[name]['nodes'][node['label']] = {
+                                    'label': node['label'],
+                                    'properties': node['properties']
+                                }
+
+        return schema_representation
+
+    
+    def get_fly_schema_represnetion_per_source(self, fly_schema_list: list):
+        schema_representation = {}
+        whole_schema = self.get_fly_schema_representation_from_sources(fly_schema_list)
+        schema_dir = Path(self.fly_datasources_config_path)
+        to_remove_node = ['ontology term', 'biological process', 'molecular function', 'cellular component']
+
+        for schema in fly_schema_list:
+            schema_abs_path = str((schema_dir / f"{schema['file_name']}.yaml").resolve())
+            with open(schema_abs_path, 'r') as file:
+                file_output = yaml.safe_load(file)
+                edges = file_output.get('relationships', {})
+                name = file_output.get('name', None).upper()
+
+                if name:
+                    if name not in schema_representation:
+                        schema_representation[name] = {'nodes': {}, 'edges': {}}
+
+                    for key, value in edges.items():
+                        unique_key = value.get('input_label')
+                        edge_label = value.get('output_label') or value.get('input_label')
+                        source = value.get('source', '').replace('_', ' ')
+                        target = value.get('target', '').replace('_', ' ')
+                        if source in to_remove_node or target in to_remove_node:
+                            continue
+                        if source.startswith('biolink:') or target.startswith('biolink:'):
+                            continue
+
+                        if unique_key not in schema_representation[name]['edges']:
+                            schema_representation[name]['edges'][unique_key] = {'source': '', 'target': ''}
+
+                        schema_representation[name]['edges'][unique_key].update(value)
+                        schema_representation[name]['edges'][unique_key]['source'] = value.get('source', '')
+                        schema_representation[name]['edges'][unique_key]['target'] = value.get('target', '')
+                        schema_representation[name]['edges'][unique_key]['label'] = edge_label
+
+                    for key in schema_representation[name]['edges'].keys():
+                        raw_src = schema_representation[name]['edges'][key]['source']
+                        raw_trgt = schema_representation[name]['edges'][key]['target']
+                        src_nodes = raw_src if isinstance(raw_src, list) else [raw_src]
+                        trgt_nodes = raw_trgt if isinstance(raw_trgt, list) else [raw_trgt]
+
+                        for src in src_nodes:
+                            normalized_src = src.replace(' ', '_')
+                            node = whole_schema['nodes'].get(src) or whole_schema['nodes'].get(normalized_src)
+                            if node:
+                                schema_representation[name]['nodes'][node['label']] = {
+                                    'label': node['label'],
+                                    'properties': node['properties']
+                                }
+                        for trgt in trgt_nodes:
+                            normalized_trgt = trgt.replace(' ', '_')
+                            node = whole_schema['nodes'].get(trgt) or whole_schema['nodes'].get(normalized_trgt)
                             if node:
                                 schema_representation[name]['nodes'][node['label']] = {
                                     'label': node['label'],

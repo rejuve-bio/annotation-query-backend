@@ -21,6 +21,7 @@ class Species(Enum):
         'id': 'fly',
         'name': 'Fly'
     }
+
 # Define locationInputs equivalent in Python
 location_inputs = [
     {
@@ -38,7 +39,10 @@ form_fields = {
     "c": location_inputs,
     "super_enhancer": location_inputs,
     "enhancer": location_inputs,
-    "promoter": location_inputs,
+    "promoter": [
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
+        *location_inputs
+    ],
     "tad": location_inputs,
     "tfbs": location_inputs,
     "unberon": [{"label": "Name", "name": "term_name", "inputType": "input"}],
@@ -47,9 +51,11 @@ form_fields = {
     "efo": [{"label": "Name", "name": "term_name", "inputType": "input"}],
     "bto": [{"label": "Name", "name": "term_name", "inputType": "input"}],
     "motif": [{"label": "Name", "name": "tf_name", "inputType": "input"}],
-    "anatomy": [{"label": "Name", "name": "term_name", "inputType": "input"}],
+    "anatomy": [
+        {"label": "Name", "name": "term_name", "inputType": "input"},
+    ],
     "tissue": [
-    {"label": "Name", "name": "term_name", "inputType": "input"},
+        {"label": "Name", "name": "term_name", "inputType": "input"},
     ],
     "cell_type": [
         {"label": "Name", "name": "term_name", "inputType": "input"},
@@ -69,6 +75,56 @@ form_fields = {
     ],
     "pathway": [
         {"label": "Name", "name": "pathway_name", "inputType": "input"},
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
+    ],
+    "disease": [
+        {"label": "Name", "name": "term_name", "inputType": "input"},
+    ],
+    "developmental_stage": [
+        {"label": "Name", "name": "term_name", "inputType": "input"},
+    ],
+    "sequence_type": [
+        {"label": "Name", "name": "term_name", "inputType": "input"},
+    ],
+    "allele": [
+        {"label": "Symbol", "name": "allele_symbol", "inputType": "input"},
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
+    ],
+    "genotype": [
+        {"label": "Genotype symbols", "name": "genotype_symbols", "inputType": "input"},
+        {"label": "Genotype IDs", "name": "genotype_ids", "inputType": "input"},
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
+    ],
+    "gene_group": [
+        {"label": "Name", "name": "group_name", "inputType": "input"},
+        {"label": "Symbol", "name": "group_symbol", "inputType": "input"},
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
+    ],
+    "signaling_pathway_gene_group": [
+        {"label": "Name", "name": "group_name", "inputType": "input"},
+        {"label": "Symbol", "name": "group_symbol", "inputType": "input"},
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
+    ],
+    "metabolic_pathway_gene_group": [
+        {"label": "Name", "name": "group_name", "inputType": "input"},
+        {"label": "Symbol", "name": "group_symbol", "inputType": "input"},
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
+    ],
+    "rnaseq_library": [
+        {"label": "Name", "name": "name", "inputType": "input"},
+        {"label": "Cell type ID", "name": "cell_type_id", "inputType": "input"},
+        {"label": "Tissue info", "name": "tissue_info", "inputType": "input"},
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
+    ],
+    "phenotype_set": [
+        {"label": "Phenotype ontology ID", "name": "phenotype_ontology_id", "inputType": "input"},
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
+    ],
+    "dmel_disease_model": [
+        {"label": "Gene", "name": "gene", "inputType": "input"},
+        {"label": "DO term name", "name": "do_term_name", "inputType": "input"},
+        {"label": "DO term ID", "name": "do_term_id", "inputType": "input"},
+        {"label": "Evidence code", "name": "evidence_code", "inputType": "input"},
         {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
     ],
     "gene": [
@@ -111,6 +167,7 @@ form_fields = {
     "transcript": [
         {"label": "Gene name", "name": "gene_name", "inputType": "input"},
         {"label": "Transcript name", "name": "transcript_name", "inputType": "input"},
+        {"label": "Transcript ID", "name": "transcript_id", "inputType": "input"},
         {
             "label": "Type",
             "name": "transcript_type",
@@ -131,6 +188,7 @@ form_fields = {
     "exon": [
         {"label": "Gene ID", "name": "gene_id", "inputType": "input"},
         {"label": "Transcript ID", "name": "transcript_id", "inputType": "input"},
+        {"label": "Exon ID", "name": "exon_id", "inputType": "input"},
         {"label": "Exon number", "name": "exon_number", "inputType": "input"},
         *location_inputs
     ],
@@ -170,10 +228,8 @@ form_fields = {
                 "vault_RNA", "RNase_MRP_RNA", "hammerhead_ribozyme", "telomerase_RNA"
             ]]
         },
+        {"label": "Taxon ID", "name": "taxon_id", "inputType": "input"},
         *location_inputs
-    ],
-    "disease": [
-        {"label": "Name", "name": "term_name", "inputType": "input"},
     ],
     "go": [
         {"label": "Term name", "name": "term_name", "inputType": "input"},

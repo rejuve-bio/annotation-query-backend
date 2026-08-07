@@ -2,6 +2,7 @@ import os
 import asyncio
 import json
 import socketio
+from pathlib import Path
 import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,9 @@ from app.api.api_v1.api import api_router
 import app.events.socket_event
 from fastapi.staticfiles import StaticFiles
 import mimetypes
+
+_WS_DOCS = (Path(__file__).parent.parent / "WEBSOCKET_DOCS.md").read_text()
+
 # Add always on listen for socket events
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -74,6 +78,7 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI with Lifespan
 app = FastAPI(
     title=settings.PROJECT_NAME,
+    description=_WS_DOCS,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     lifespan=lifespan
 )

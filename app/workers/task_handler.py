@@ -362,7 +362,7 @@ def graph_task(
         del response_data
         gc.collect()
 
-        snp_nodes = [n for n in response["nodes"] if n["data"].get("label") == "snp"]
+        snp_nodes = [n for n in response["nodes"] if n["data"].get("type") == "snp"]
 
         if snp_nodes:
             snp_nodes.sort(
