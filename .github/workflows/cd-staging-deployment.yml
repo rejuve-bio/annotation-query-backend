@@ -8,8 +8,8 @@ env:
   DOCKER_HUB_ORG: rejuvebio
 
 jobs:
-  deploy:
-    runs-on: self-hosted
+  deploy-dev:
+    runs-on: [self-hosted, dev-runner]
     steps:
       - name: Debug workflow info
         run: |
@@ -65,11 +65,98 @@ jobs:
           server_port: 587
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "CD SUCCESS - Annotation Service Deployed to K8s"
+          subject: "CD SUCCESS - Annotation Service Deployed to Dev"
           to: ${{ secrets.RECIEVER_EMAIL }}
           from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
           body: |
-            Annotation Service deployed to Kubernetes successfully!
+            Annotation Service deployed to the dev server successfully!
+            Repository: ${{ github.repository }}
+            Triggered by: ${{ github.actor }}
+            Image: ${{ env.DOCKER_HUB_ORG }}/annotation:staging
+            Pods running in annotation-staging namespace.
+            Approve the deploy-staging job in this run to promote.
+
+      - name: Send failure email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "CD FAILED - Annotation Service Dev Deploy"
+          to: ${{ secrets.RECIEVER_EMAIL }}
+          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+          body: |
+            Annotation Service dev deployment failed!
+            Repository: ${{ github.repository }}
+            Triggered by: ${{ github.actor }}
+            Check logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  deploy-staging:
+    needs: deploy-dev
+    environment: production
+    runs-on: [self-hosted, prod-runner]
+    steps:
+      - name: Debug workflow info
+        run: |
+          echo "Event Type: ${{ github.event.action }}"
+          echo "Image Tag: ${{ github.event.client_payload.image_tag }}"
+          echo "Triggered by: ${{ github.actor }}"
+
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_STAGING }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl set image deployment/annotation-service-staging \
+            annotation-service-staging=${{ env.DOCKER_HUB_ORG }}/annotation:staging \
+            -n annotation-staging || true
+
+          kubectl set image deployment/celery-worker-slow-staging \
+            celery-worker-slow-staging=${{ env.DOCKER_HUB_ORG }}/annotation:staging \
+            -n annotation-staging || true
+
+          kubectl set image deployment/celery-worker-fast-staging \
+            celery-worker-fast-staging=${{ env.DOCKER_HUB_ORG }}/annotation:staging \
+            -n annotation-staging || true
+
+          kubectl rollout restart deployment/annotation-service-staging -n annotation-staging
+          kubectl rollout restart deployment/celery-worker-slow-staging -n annotation-staging
+          kubectl rollout restart deployment/celery-worker-fast-staging -n annotation-staging
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/annotation-service-staging \
+            -n annotation-staging --timeout=120s
+          kubectl rollout status deployment/celery-worker-slow-staging \
+            -n annotation-staging --timeout=120s
+          kubectl rollout status deployment/celery-worker-fast-staging \
+            -n annotation-staging --timeout=120s
+
+      - name: Verify pods
+        run: |
+          kubectl get pods -n annotation-staging
+
+      - name: Send success email
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "CD SUCCESS - Annotation Service Deployed to Production"
+          to: ${{ secrets.RECIEVER_EMAIL }}
+          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+          body: |
+            Annotation Service deployed to production successfully!
             Repository: ${{ github.repository }}
             Triggered by: ${{ github.actor }}
             Image: ${{ env.DOCKER_HUB_ORG }}/annotation:staging
@@ -83,11 +170,11 @@ jobs:
           server_port: 587
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "CD FAILED - Annotation Service K8s Deploy"
+          subject: "CD FAILED - Annotation Service Production Deploy"
           to: ${{ secrets.RECIEVER_EMAIL }}
           from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
           body: |
-            Annotation Service Kubernetes deployment failed!
+            Annotation Service production deployment failed!
             Repository: ${{ github.repository }}
             Triggered by: ${{ github.actor }}
             Check logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
