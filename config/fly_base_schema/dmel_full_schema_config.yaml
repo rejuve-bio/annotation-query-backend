@@ -2432,26 +2432,25 @@ gene to group association:
     agent_type: manual_agent
 
 gene to metabolic pathway group association:
-  is_a: annotation
-  biolink_predicate: biolink:part_of
-  inherit_properties: true
+  description: 'An association between a gene and a group of genes: genes are grouped
+    into gene groups based on shared characteristics, such as sequence, biological
+    function, or participation in a biological process'
+  is_a: related to at instance level
   represented_as: edge
   input_label: metabolic_pathway_grouped_into
-  output_label: metabolic_pathway_grouped_into
+  biolink_predicate: biolink:member_of
   source: gene
   target: metabolic_pathway_gene_group
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
   kgx_properties:
     subject_category: biolink:Gene
-    object_category: biolink:GeneFamily
+    object_category: biolink:Pathway
     knowledge_level: knowledge_assertion
     agent_type: manual_agent
-  properties:
-    source:
-      type: str
-      biolink: knowledge_source
-    source_url:
-      type: str
-      biolink: source_web_page
 
 gene to sequence type:
   is_a: annotation
@@ -2474,26 +2473,25 @@ gene to sequence type:
     agent_type: manual_agent
 
 gene to signaling pathway group association:
-  is_a: annotation
-  biolink_predicate: biolink:part_of
-  inherit_properties: true
+  description: 'An association between a gene and a group of genes: genes are grouped
+    into gene groups based on shared characteristics, such as sequence, biological
+    function, or participation in a biological process'
+  is_a: related to at instance level
   represented_as: edge
   input_label: signaling_pathway_grouped_into
-  output_label: signaling_pathway_grouped_into
+  biolink_predicate: biolink:member_of
   source: gene
   target: signaling_pathway_gene_group
+  properties:
+    taxon_id:
+      type: int
+      biolink: taxon
+      range: biolink:OrganismTaxon
   kgx_properties:
     subject_category: biolink:Gene
-    object_category: biolink:GeneFamily
+    object_category: biolink:Pathway
     knowledge_level: knowledge_assertion
     agent_type: manual_agent
-  properties:
-    source:
-      type: str
-      biolink: knowledge_source
-    source_url:
-      type: str
-      biolink: source_web_page
 
 modelled to do term:
   represented_as: edge

@@ -743,48 +743,7 @@ gene to gene group association:
       type: str
       biolink: source_web_page
 
-gene to signaling pathway group association:
-  is_a: annotation
-  biolink_predicate: biolink:part_of
-  inherit_properties: true
-  represented_as: edge
-  input_label: signaling_pathway_grouped_into
-  output_label: signaling_pathway_grouped_into
-  source: gene
-  target: signaling_pathway_gene_group
-  kgx_properties:
-    subject_category: biolink:Gene
-    object_category: biolink:GeneFamily
-    knowledge_level: knowledge_assertion
-    agent_type: manual_agent
-  properties:
-    source:
-      type: str
-      biolink: knowledge_source
-    source_url:
-      type: str
-      biolink: source_web_page
 
-gene to metabolic pathway group association:
-  is_a: annotation
-  biolink_predicate: biolink:part_of
-  inherit_properties: true
-  represented_as: edge
-  input_label: metabolic_pathway_grouped_into
-  output_label: metabolic_pathway_grouped_into
-  source: gene
-  target: metabolic_pathway_gene_group
-  kgx_properties:
-    subject_category: biolink:Gene
-    object_category: biolink:GeneFamily
-    knowledge_level: knowledge_assertion
-    agent_type: manual_agent
-  properties:
-    source:
-      type: str
-      biolink: knowledge_source
-    source_url:
-      type: str
       biolink: source_web_page
 
 gene expression value:
