@@ -10,6 +10,7 @@ on:
 env:
   DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
   DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+  DOCKER_HUB_ORG: rejuvebio
   # Use different ports to avoid port conflicts on Bizon server
   APP_PORT: 5006
   MONGODB_DOCKER_PORT: 27021
@@ -242,7 +243,7 @@ jobs:
     - name: Set image tag
       id: set-image-tag
       run: |
-        IMAGE_TAG="abdum1964/annotation:staging"
+        IMAGE_TAG="${{ env.DOCKER_HUB_ORG }}/annotation:staging"
         echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
         echo "Using image tag: $IMAGE_TAG"
 
@@ -296,7 +297,7 @@ jobs:
         AXIOM_DATASET: application-logs
         AXIOM_PERFORMANCE_LOGS: performance-metrics
         MORK_URL: ${{ secrets.MORK_URL }}
-        DOCKER_HUB_REPO: abdum1964/annotation
+        DOCKER_HUB_REPO: ${{ env.DOCKER_HUB_ORG }}/annotation
       run: |
         echo "=== Full Docker Compose Validation for Annotation Backend ==="
         
@@ -693,8 +694,8 @@ jobs:
         SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
         
         # Tag with multiple tags
-        SHA_TAG="abdum1964/annotation:staging-${SHORT_SHA}"
-        LATEST_TAG="abdum1964/annotation:staging-latest"
+        SHA_TAG="${{ env.DOCKER_HUB_ORG }}/annotation:staging-${SHORT_SHA}"
+        LATEST_TAG="${{ env.DOCKER_HUB_ORG }}/annotation:staging-latest"
         
         docker tag $IMAGE_TAG $SHA_TAG
         docker tag $IMAGE_TAG $LATEST_TAG
