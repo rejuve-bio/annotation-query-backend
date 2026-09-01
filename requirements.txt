@@ -20,7 +20,7 @@ nanoid==2.0.0
 elasticsearch==9.0.1
 axiom-py==0.9.1
 sentry-sdk==2.43.0
-APScheduler==3.11.1
+APScheduler==3.11.3
 neo4j==6.0.3
 celery
 accelerate
