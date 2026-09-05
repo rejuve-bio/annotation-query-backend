@@ -1,5 +1,7 @@
+import os
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from typing import List, Optional, Dict, Any
 import json
 import logging
@@ -83,25 +85,58 @@ def get_schema_by_source_logic(schema_manager, species, query_string):
     if species == 'human':
         schema = schema_manager.schmea_representation
     else:
-        schema = getattr(schema_manager, 'fly_schema_represetnation', {})
+        schema = getattr(schema_manager, 'fly_schmea_representation', None) or \
+                 getattr(schema_manager, 'fly_schema_represetnation', {})
 
     if query_string == 'all' and species == 'fly':
-        for key, value in schema.get('nodes', {}).items():
-            response['schema']['nodes'].append({
-                'data': {
-                'name': value['label'],
-                'properites':[property for property in value['properties'].keys()]
-                }
-            })
+        # Detect if schema is per-source format {SOURCE: {nodes, edges}}
+        # or flat format {nodes: {}, edges: {}} from BioCypher fallback
+        is_per_source = all(
+            isinstance(v, dict) and 'nodes' in v and 'edges' in v
+            for v in schema.values()
+        ) if schema else False
 
-        for key, value in schema.get('edges', {}).items():
-            is_new = True
-            for ed in response['schema']['edges']:
-                if value['source'] == ed['data']['source'] and value['target'] == ed['data']['target']:
-                    is_new = False
-                    ed['data']['possible_connection'].append( value.get('output_lable') or value.get('input_label') or 'unknown')
-            if is_new:
-                response['schema']['edges'].extend(flatten_edges(value))
+        if is_per_source:
+            for source_name, source_data in schema.items():
+                for node_key, node_val in source_data.get('nodes', {}).items():
+                    if not node_exists(response, node_val['label']):
+                        response['schema']['nodes'].append({
+                            'data': {
+                                'name': node_val['label'],
+                                'properites': [property for property in node_val['properties'].keys()]
+                            }
+                        })
+                for edge_key, edge_val in source_data.get('edges', {}).items():
+                    is_new = True
+                    for ed in response['schema']['edges']:
+                        if edge_val.get('source') == ed['data']['source'] and \
+                           edge_val.get('target') == ed['data']['target']:
+                            is_new = False
+                            ed['data']['possible_connection'].append(
+                                edge_val.get('label') or edge_val.get('output_label') or edge_val.get('input_label') or 'unknown'
+                            )
+                    if is_new:
+                        response['schema']['edges'].extend(flatten_edges(edge_val))
+        else:
+            # Flat format — fly_schema_represetnation from BioCypher
+            for key, value in schema.get('nodes', {}).items():
+                response['schema']['nodes'].append({
+                    'data': {
+                        'name': value['label'],
+                        'properites': [property for property in value['properties'].keys()]
+                    }
+                })
+            for key, value in schema.get('edges', {}).items():
+                is_new = True
+                for ed in response['schema']['edges']:
+                    if value['source'] == ed['data']['source'] and \
+                       value['target'] == ed['data']['target']:
+                        is_new = False
+                        ed['data']['possible_connection'].append(
+                            value.get('label') or value.get('output_label') or value.get('input_label') or 'unknown'
+                        )
+                if is_new:
+                    response['schema']['edges'].extend(flatten_edges(value))
         return response
 
     # Handle list of sources
@@ -110,57 +145,63 @@ def get_schema_by_source_logic(schema_manager, species, query_string):
     else:
         query_list = query_string
 
+    sub_schema = None
+    source = None
+
     for schema_type in query_list:
-        if schema_type == 'all': 
+        if schema_type == 'all':
             continue
-        
         source = schema_type.upper()
         sub_schema = schema.get(source, None)
 
         if sub_schema is None:
             continue
 
-        for _, values in sub_schema['edges'].items():
-            edge_key = values.get('output_label') or values.get('input_label')
-            edge = sub_schema['edges'][edge_key]
-            edge_data = { 'data': {
-                "possible_connection": [edge.get('output_label') or edge.get('input_label')],
-                "source": edge.get('source'),
-                "target": edge.get('target')
-            }}
+        for _, edge in sub_schema['edges'].items():
+            edge_data = {
+                'data': {
+                    "possible_connection": [edge.get('label') or edge.get('output_label') or edge.get('input_label')],
+                    "source": edge.get('source'),
+                    "target": edge.get('target')
+                }
+            }
             response['schema']['edges'].append(edge_data)
-            
-            if 'nodes' in schema[source] and edge['source'] in schema[source]['nodes']:
-                 node_to_add_src = schema[source]['nodes'][edge['source']]
-                 node_label_src = node_to_add_src['label']
-                 if not node_exists(response, node_label_src):
-                    response['schema']['nodes'].append({
-                        'data': {
-                            'name': node_to_add_src['label'],
-                            'properites':[property for property in node_to_add_src['properties'].keys()]
-                        }
-                    })
-            if 'nodes' in schema[source] and edge['target'] in schema[source]['nodes']:
-                node_to_add_trgt = schema[source]['nodes'][edge['target']]
-                node_label_trgt = node_to_add_trgt['label']
-                if not node_exists(response, node_label_trgt):
-                    response['schema']['nodes'].append({
-                                    'data': {
-                                        'name': node_to_add_trgt['label'],
-                                        'properites':[property for property in node_to_add_trgt['properties'].keys()]
-                                    }
-                                })
 
-        if len(response['schema']['edges']) == 0:
-            for node in sub_schema['nodes']:
-                if node in schema[source]['nodes']:
-                    response['schema']['nodes'].append({
-                        'data': {
-                            'name': schema[source]['nodes'][node]['label'],
-                            'properties': [property for property in schema[source]['nodes'][node]['properties'].keys()]
-                        }
-                    })
-                    response['schema']['nodes'].append(schema[source]['nodes'][node])
+            if 'nodes' in schema[source]:
+                src_key = edge.get('source', '')
+                src_node = schema[source]['nodes'].get(src_key) or \
+                           schema[source]['nodes'].get(src_key.replace(' ', '_'))
+                if src_node:
+                    if not node_exists(response, src_node['label']):
+                        response['schema']['nodes'].append({
+                            'data': {
+                                'name': src_node['label'],
+                                'properites': [property for property in src_node['properties'].keys()]
+                            }
+                        })
+
+            if 'nodes' in schema[source]:
+                tgt_key = edge.get('target', '')
+                tgt_node = schema[source]['nodes'].get(tgt_key) or \
+                           schema[source]['nodes'].get(tgt_key.replace(' ', '_'))
+                if tgt_node:
+                    if not node_exists(response, tgt_node['label']):
+                        response['schema']['nodes'].append({
+                            'data': {
+                                'name': tgt_node['label'],
+                                'properites': [property for property in tgt_node['properties'].keys()]
+                            }
+                        })
+
+    if len(response['schema']['edges']) == 0 and sub_schema is not None and source is not None:
+        for node in sub_schema['nodes']:
+            if node in schema[source]['nodes']:
+                response['schema']['nodes'].append({
+                    'data': {
+                        'name': schema[source]['nodes'][node]['label'],
+                        'properites': [p for p in schema[source]['nodes'][node]['properties'].keys()]
+                    }
+                })
 
     return response
 
@@ -170,18 +211,17 @@ def get_preference_option(
     schema_manager: SchemaManager = Depends(get_schema_manager)
 ):
     response = {
-        'species': [specie.value for specie in Species ],
+        'species': [specie.value for specie in Species],
         'sources': {
             'human': [],
             'fly': []
         }
     }
-    
+
     schema_list = schema_manager.schema_list
 
     for source in schema_list:
         if source['id'] not in ['polyphen-2', 'bgee']:
-            # Call helper logic
             sch = get_schema_by_source_logic(schema_manager, 'human', [source['name']])
             data = {
                 'id': source['id'],
@@ -190,15 +230,29 @@ def get_preference_option(
                 'schema': sch['schema']
             }
             response['sources']['human'].append(data)
-            
-    schema_fly = get_schema_by_source_logic(schema_manager, 'fly', 'all')
-    data = {
-        'id': 'flyall',
-        'name': 'all',
-        'schema': schema_fly
-    }
-    response['sources']['fly'].append(data)
-    
+
+    fly_schema_list = getattr(schema_manager, 'fly_schema_list', [])
+
+    if fly_schema_list:
+        for source in fly_schema_list:
+            sch = get_schema_by_source_logic(schema_manager, 'fly', [source['name']])
+            data = {
+                'id': source['id'],
+                'name': source['name'],
+                'url': source['url'],
+                'schema': sch['schema']
+            }
+            response['sources']['fly'].append(data)
+    else:
+        # Fallback — no per-source YAML files configured, expose single flyall option
+        sch = get_schema_by_source_logic(schema_manager, 'fly', 'all')
+        response['sources']['fly'].append({
+            'id': 'flyall',
+            'name': 'flyall',
+            'url': None,
+            'schema': sch['schema']
+        })
+
     return response
 
 @router.get("/schema")
@@ -254,7 +308,8 @@ def get_schema_list():
 @router.post('/save-preference')
 async def update_settings(
     data: Dict[str, Any] = Body(...),
-    current_user_id: str = Depends(get_current_user)
+    current_user_id: str = Depends(get_current_user),
+    schema_manager: SchemaManager = Depends(get_schema_manager)
 ):
     data_source = data.get('sources')
     species = data.get('species', 'human')
@@ -262,55 +317,34 @@ async def update_settings(
     if data_source is None:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "status": "error",
-                "error": "Missing data source",
-                "timestamp": datetime.datetime.now().isoformat()
-            }
+            content={"status": "error", "error": "Missing data source",
+                     "timestamp": datetime.datetime.now().isoformat()}
         )
-    
-    # Logic for species override
-    if species == "fly":
-        data_source = 'all'
 
-    # Case 1: String-based data source ('all' or 'flyall')
+    # Case 1: String-based — 'all' or 'flyall'
     if isinstance(data_source, str):
         if data_source.lower() in ['all', 'flyall']:
             UserStorageService.upsert_by_user_id(
                 current_user_id,
                 {'data_source': 'all', 'species': species}
             )
-
             display_source = ['flyall'] if species == 'fly' else ['all']
-            return {
-                'message': 'Data source updated successfully',
-                'data_source': display_source
-            }
+            return {'message': 'Data source updated successfully', 'data_source': display_source}
         else:
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={
-                    "status": "error",
-                    "error": "Invalid data source format",
-                    "timestamp": datetime.datetime.now().isoformat()
-                }
+                content={"status": "error", "error": "Invalid data source format",
+                         "timestamp": datetime.datetime.now().isoformat()}
             )
 
-    # Case 2: List-based data source validation
-    if species == "fly" and data_source != "flyall":
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "status": "error",
-                "error": "Invalid data source for species fly",
-                "timestamp": datetime.datetime.now().isoformat()
-            }
-        )
+    # Case 2: List-based — validate against the correct species schema list
+    if species == 'fly':
+        schema_list = getattr(schema_manager, 'fly_schema_list', [])
+    else:
+        schema_list = schema_manager.schema_list
 
-    schema_list = get_schema_list()
-    valid_ids = {schema['id'].lower() for schema in schema_list}
+    valid_ids = {schema['id'].lower() for schema in schema_list if schema.get('id')}
 
-    # Validate each source in the list
     for ds in data_source:
         if str(ds).lower() not in valid_ids:
             raise HTTPException(status_code=400, detail=f"Invalid data source: {ds}")
@@ -320,36 +354,24 @@ async def update_settings(
             current_user_id,
             {'data_source': data_source, 'species': species}
         )
-
         logger.info(json.dumps({
-            "status": "success", 
-            "method": "POST",
+            "status": "success", "method": "POST",
             "timestamp": datetime.datetime.now().isoformat(),
             "endpoint": "/save-preference"
         }))
-
-        return {
-            'message': 'Data source updated successfully',
-            'data_source': data_source
-        }
+        return {'message': 'Data source updated successfully', 'data_source': data_source}
 
     except Exception as e:
         logger.error(json.dumps({
-            "status": "error", 
-            "method": "POST",
+            "status": "error", "method": "POST",
             "timestamp": datetime.datetime.now().isoformat(),
-            "endpoint": "/save-preference",
-            "exception": str(e)
+            "endpoint": "/save-preference", "exception": str(e)
         }), exc_info=True)
-        
-        # Consistent error response matching your preference route
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "status": "error",
-                "error": "An internal server error occurred. Please try again later.",
-                "timestamp": datetime.datetime.now().isoformat()
-            }
+            content={"status": "error",
+                     "error": "An internal server error occurred. Please try again later.",
+                     "timestamp": datetime.datetime.now().isoformat()}
         )
 
 @router.get('/saved-preference')
@@ -360,33 +382,33 @@ def get_saved_preferences(current_user_id: str = Depends(get_current_user)):
             data_source = preferences.data_source
             species = preferences.species
         else:
-            data_source = ['GWAS']
+            data_source = ['all']
             species = 'human'
-        
-        if species == 'fly':
-            data_source = ['flyall']
 
+        # Normalize to list
+        if isinstance(data_source, str):
+            data_source = ['flyall'] if species == 'fly' and data_source == 'all' else [data_source]
+        
         response_data = {
             'species': species,
             'source': data_source
         }
-        
-        logger.info(json.dumps({"status": "success", "method": "GET",
-                                  "timestamp":  datetime.datetime.now().isoformat(),
-                                  "endpoint": "/saved-preference"}))
+
+        logger.info(json.dumps({
+            "status": "success", "method": "GET",
+            "timestamp": datetime.datetime.now().isoformat(),
+            "endpoint": "/saved-preference"
+        }))
 
         return response_data
-    except Exception as e:
-        logger.error(json.dumps({"status": "error", "method": "GET",
-                                  "timestamp":  datetime.datetime.now().isoformat(),
-                                  "endpoint": "/saved-preference",
-                                  "exception": str(e)}), exc_info=True)
-        error_response = {
-        "status": "error",
-        "message": "An internal server error occurred. Please try again later.",
-        "timestamp": datetime.datetime.now().isoformat()
-        }
 
+    except Exception as e:
+        logger.error(json.dumps({
+            "status": "error", "method": "GET",
+            "timestamp": datetime.datetime.now().isoformat(),
+            "endpoint": "/saved-preference",
+            "exception": str(e)
+        }), exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -462,3 +484,27 @@ async def download_tsv(id: str, current_user_id: str = Depends(get_current_user)
                 "timestamp": datetime.datetime.now().isoformat()
             }
         )
+@router.get("/public/vcf/{filename}")
+def download_vcf_file(filename: str):
+    # Sanitize — strip any path components, only allow the bare filename
+    safe_filename = Path(filename).name
+    
+    # Only allow .vcf.gz and .vcf.gz.tbi extensions
+    if not (safe_filename.endswith('.vcf.gz') or safe_filename.endswith('.vcf.gz.tbi')):
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    
+    # Resolve the full path and verify it stays within the allowed directory
+    base_dir = Path("/app/public/vcf").resolve()
+    file_path = (base_dir / safe_filename).resolve()
+    
+    if not str(file_path).startswith(str(base_dir)):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="VCF file not found")
+    
+    return FileResponse(
+        path=str(file_path),
+        filename=safe_filename,
+        media_type="application/octet-stream"
+    )

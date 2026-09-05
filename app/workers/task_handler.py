@@ -79,6 +79,7 @@ def _drop_stale(annotation_id: str, task_name: str) -> bool:
     If the task is stale, mark the annotation FAILED, emit a socket event, and
     return True so the caller can exit immediately. Returns False if still fresh.
     """
+    annotation_id = str(annotation_id)
     if not _task_is_stale(annotation_id):
         return False
     logger.warning("[%s] Dropping stale task for annotation %s (> %ds old)",
@@ -361,7 +362,7 @@ def graph_task(
         del response_data
         gc.collect()
 
-        snp_nodes = [n for n in response["nodes"] if n["data"].get("label") == "snp"]
+        snp_nodes = [n for n in response["nodes"] if n["data"].get("type") == "snp"]
 
         if snp_nodes:
             snp_nodes.sort(

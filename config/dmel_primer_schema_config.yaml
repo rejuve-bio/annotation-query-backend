@@ -907,7 +907,7 @@ exon part_of transcript:
     agent_type: manual_agent
 
 expressed in:
-  description: holds between a gene and an ontology term in which it is expressed
+  description: holds between a gene and an anatomy in which it is expressed
   is_a: expression
   mixins:
   - biolink:GeneToExpressionSiteAssociation
@@ -916,7 +916,7 @@ expressed in:
   represented_as: edge
   input_label: expressed_in
   source: gene
-  target: ontology term
+  target: anatomy
   kgx_properties:
     subject_category: biolink:Gene
     object_category: biolink:OntologyClass
@@ -1233,7 +1233,7 @@ gene to reaction association:
   represented_as: edge
   input_label: gene_or_gene_product_reaction
   output_label: involved_in
-  source: biolink:GeneOrGeneProduct
+  source: gene
   target: reaction
   kgx_properties:
     subject_category: biolink:GeneOrGeneProduct
@@ -1294,7 +1294,7 @@ has part:
   represented_as: edge
   input_label: has_part
   source: ontology term
-  target: ontology term
+  target: anatomy
   kgx_properties:
     subject_category: biolink:OntologyClass
     object_category: biolink:OntologyClass
@@ -1548,7 +1548,7 @@ part of:
   represented_as: edge
   input_label: part_of
   source: ontology term
-  target: ontology term
+  target: anatomy
   kgx_properties:
     subject_category: biolink:OntologyClass
     object_category: biolink:OntologyClass
@@ -1881,8 +1881,8 @@ so subclass of:
   input_label: so_subclass_of
   output_label: is_a
   biolink_predicate: biolink:subclass_of
-  source: sequence type
-  target: sequence type
+  source: sequence_type
+  target: sequence_type
   kgx_properties:
     subject_category: biolink:OntologyClass
     object_category: biolink:OntologyClass
@@ -1898,7 +1898,7 @@ subclass of:
   represented_as: edge
   input_label: subclass_of
   source: ontology term
-  target: ontology term
+  target: anatomy
   kgx_properties:
     subject_category: biolink:OntologyClass
     object_category: biolink:OntologyClass

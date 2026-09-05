@@ -1178,7 +1178,7 @@ exon part_of transcript:
     agent_type: manual_agent
 
 expressed in:
-  description: holds between a gene and an ontology term in which it is expressed
+  description: holds between a gene and an anatomy ontology term in which it is expressed
   is_a: expression
   mixins:
   - biolink:GeneToExpressionSiteAssociation
@@ -1187,10 +1187,10 @@ expressed in:
   represented_as: edge
   input_label: expressed_in
   source: gene
-  target: ontology term
+  target: anatomy
   kgx_properties:
     subject_category: biolink:Gene
-    object_category: biolink:OntologyClass
+    object_category: biolink:AnatomicalEntity
     knowledge_level: knowledge_assertion
     agent_type: manual_agent
   properties:
@@ -2448,6 +2448,37 @@ uberon subclass of:
     object_category: biolink:AnatomicalEntity
     knowledge_level: knowledge_assertion
     agent_type: manual_agent
+
+gene tf snp association:
+  description: An association between a gene (acting as a transcription factor) and
+    a SNP that alters its binding affinity at a motif site.
+  is_a: regulatory association
+  biolink_predicate: biolink:affects
+  inherit_properties: true
+  represented_as: edge
+  input_label: tf_snp
+  output_label: tf_snp
+  source: gene
+  target: snp
+  kgx_properties:
+    subject_category: biolink:Gene
+    object_category: biolink:Snv
+    knowledge_level: knowledge_assertion
+    agent_type: manual_agent
+  properties:
+    score:
+      type: float
+      biolink: has_quantitative_value
+    effect:
+      type: str
+    motif_id:
+      type: str
+    source:
+      type: str
+      biolink: primary_knowledge_source
+    source_url:
+      type: str
+      biolink: source_web_page
 
 chromosome:
   represented_as: node
