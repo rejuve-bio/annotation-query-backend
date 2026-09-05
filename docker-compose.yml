@@ -1,5 +1,6 @@
 services:
   annotation_service:
+    image: "${DOCKER_HUB_REPO}"
     build:
       context: .
       dockerfile: Dockerfile
