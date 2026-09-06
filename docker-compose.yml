@@ -10,7 +10,7 @@ services:
       - /dev/shm:/dev/shm
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "${APP_PORT}:${APP_PORT}"
+      - "127.0.0.1:${APP_PORT}:${APP_PORT}"
     command: gunicorn app.main:socket_app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${APP_PORT}
     restart: always
     depends_on:
