@@ -1,8 +1,7 @@
-version: '3.8'
-
+name: annotation-query-backend-dev
 services:
   annotation_service:
-    image: "${DOCKER_HUB_REPO}"
+    # image: "${DOCKER_HUB_REPO}"
     build:
       context: .
       dockerfile: Dockerfile
@@ -78,14 +77,14 @@ services:
     volumes:
       - mongo_data:/data/db
     ports:
-      - "${MONGODB_DOCKER_PORT}:27017"
+      - "127.0.0.1:${MONGODB_DOCKER_PORT}:27017"
     restart: always
 
   redis:
     container_name: annotation_redis
     image: redis:latest
     ports:
-      - "${REDIS_DOCKER_PORT:-6380}:6379"
+      - "127.0.0.1:${REDIS_DOCKER_PORT:-6380}:6379"
     restart: always
     volumes:
       - redis_data:/data

@@ -737,7 +737,7 @@ def get_annotation_by_id(
 @router.get("/localized-graph")
 def cell_component(
     id: str = FQuery(..., description="The annotation ID"),
-    locations: str = FQuery(..., description="Comma-separated GO term IDs"),
+    locations: str = FQuery(..., description="Comma-separated cellular component IDs"),
     current_user_id: str = Depends(get_current_user),
     db_instance=Depends(get_db_instance),
 ):
@@ -759,13 +759,11 @@ def cell_component(
         )
 
     # parse the location
-    locations = locations.split(",")
+    location_list = locations.split(",")
 
     proteins = []
-    
-    
+
     # get the graph and filter out the protein
-        
     file_name = f"{safe_annotation_id}.json"
     base_dir = (
         Path(__file__).parent
@@ -900,69 +898,80 @@ def cell_component(
                 }
             )
 
-        go_ids = []
         protein_node_map = {}
 
         for node in nodes:
             if node["data"]["type"] == "protein":
                 for single_node in node["data"]["nodes"]:
-                    id = single_node["id"].split(" ")[1]
-                    proteins.append(id)
-                    if id not in protein_node_map:
-                        protein_node_map[id] = {}
-                    protein_node_map[id]["data"] = {**single_node, "location": ""}
+                    protein_raw_id = single_node["id"].split(" ")[1]
+                    proteins.append(protein_raw_id)
+                    if protein_raw_id not in protein_node_map:
+                        protein_node_map[protein_raw_id] = {}
+                    protein_node_map[protein_raw_id]["data"] = {**single_node, "location": ""}
 
-        go_subcomponents = {
-            "type": "go",
-            "id": "",
-            "properties": {"subontology": "cellular_component"},
-        }
+        # --- protein -[:located_in|part_of]-> cellular_component ---
+        protein_ids = [pid for pid in proteins if pid]
+        location_ids = [loc.strip().upper() for loc in location_list if loc.strip()]
 
-        go_parent = {"type": "go", "id": "", "properties": {}}
-
-        for location in locations:
-            go_id = location.lower()
-            go_id = go_id.replace(":", "_")
-            go_ids.append(go_id)
-
-        query = db_instance.list_query_generator_source_target(
-            go_subcomponents, go_parent, go_ids, "subclass_of"
+        # Use parameterized query to prevent Cypher injection
+        query = """
+MATCH (p:protein)-[r:located_in|part_of]->(cc:cellular_component)
+WHERE p.id IN $protein_ids
+  AND cc.id IN $location_ids
+RETURN p AS protein, r AS relationship, cc AS component
+"""
+        result = db_instance.run_query(
+            query,
+            parameters={"protein_ids": protein_ids, "location_ids": location_ids},
         )
 
-        result = db_instance.run_query(query)
-        parsed_result_go = db_instance.parse_list_query(result)
+        component_nodes = {}
+        component_edges = []
 
-        go_ids = []
+        for record in result:
+            protein = record["protein"]
+            relationship = record["relationship"]
+            component = record["component"]
+            protein_id = protein["id"]
+            component_id = component["id"]
+            protein_graph_id = f"protein {protein_id}"
+            component_graph_id = f"cellular_component {component_id}"
 
-        for key in parsed_result_go.keys():
-            go_ids.append(key)
-            go_ids.extend(parsed_result_go[key]["node_ids"])
+            # Keep the existing "location" string on the protein node for
+            # backward compatibility with any client already reading it.
+            if protein_id in protein_node_map:
+                current_location = protein_node_map[protein_id]["data"].get("location", "")
+                locations_for_protein = [v for v in current_location.split(",") if v]
+                if component_id not in locations_for_protein:
+                    locations_for_protein.append(component_id)
+                protein_node_map[protein_id]["data"]["location"] = ",".join(locations_for_protein)
 
-        source = {"type": "go", "id": "", "properties": {}}
+            # NOTE: explicit id/type set AFTER the spread, so the component's
+            # own raw "id" property can't silently overwrite the graph-scoped id
+            # that the edge below references.
+            component_nodes[component_graph_id] = {
+                "data": {
+                    **dict(component),
+                    "id": component_graph_id,
+                    "type": "cellular_component",
+                }
+            }
 
-        target = {"type": "protein", "id": "", "properties": {}}
-
-        query = db_instance.list_query_generator_both(
-            source, target, go_ids, proteins, "go_gene_product"
-        )
-
-        result = db_instance.run_query(query)
-        parsed_result = db_instance.parse_list_query(result)
-
-        for key in parsed_result.keys():
-            normalized_id = []
-            location = parsed_result[key]["node_ids"]
-            for i, _ in enumerate(location):
-                for parent_id in parsed_result_go.keys():
-                    if (
-                        location[i] == parent_id
-                        or location[i] in parsed_result_go[parent_id]["node_ids"]
-                    ):
-                        normalized_id.append(parent_id.replace("_", ":").upper())
-            protein_node_map[key]["data"]["location"] = ",".join(normalized_id)
+            edge_data = {
+                "id": generate(),
+                "source": protein_graph_id,
+                "target": component_graph_id,
+                "label": relationship.type,
+                "edge_id": f"protein_{relationship.type}_cellular_component",
+            }
+            for key, value in relationship.items():
+                edge_data["source_data" if key == "source" else key] = value
+            component_edges.append({"data": edge_data})
 
         for values in protein_node_map.values():
             response["nodes"].append(values)
+        response["nodes"].extend(component_nodes.values())
+        response["edges"].extend(component_edges)
 
         logger.info(
             json.dumps(
@@ -989,11 +998,6 @@ def cell_component(
             ),
             exc_info=True,
         )
-        error_response = {
-            "status": "error",
-            "message": "An internal server error occurred. Please try again later.",
-            "timestamp": datetime.datetime.now().isoformat(),
-        }
 
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1003,6 +1007,7 @@ def cell_component(
                 "timestamp": datetime.datetime.now().isoformat(),
             },
         )
+
 
 @router.delete("/annotation/{id}")
 def delete_by_id(id: str, current_user_id: str = Depends(get_current_user)):
