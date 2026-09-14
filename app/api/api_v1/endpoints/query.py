@@ -730,11 +730,11 @@ def get_annotation_by_id(
 @router.get("/localized-graph")
 def cell_component(
     id: str = FQuery(..., description="The annotation ID"),
-    locations: str = FQuery(..., description="Comma-separated cellular component IDs"),
+    locations: str = FQuery(..., description="Comma-separated GO term IDs"),
     current_user_id: str = Depends(get_current_user),
     db_instance=Depends(get_db_instance),
 ):
-
+    
     # get annotation id and get go term id
     annotation_id = id
     if not re.fullmatch(r"[A-Za-z0-9_-]+", annotation_id):
@@ -838,7 +838,6 @@ def cell_component(
                 )
 
         node_to_edge_relationship = {}
-
         inital_node_map = {}
 
         for node in nodes:
@@ -902,69 +901,56 @@ def cell_component(
                         protein_node_map[protein_raw_id] = {}
                     protein_node_map[protein_raw_id]["data"] = {**single_node, "location": ""}
 
-        # --- protein -[:located_in|part_of]-> cellular_component ---
-        protein_ids = [pid for pid in proteins if pid]
-        location_ids = [loc.strip().upper() for loc in location_list if loc.strip()]
+        # Sanitize protein IDs
+        protein_ids = [
+            pid for pid in proteins
+            if pid and re.fullmatch(r"[A-Za-z0-9._-]+", pid)
+        ]
 
-        # Use parameterized query to prevent Cypher injection
-        query = """
-MATCH (p:protein)-[r:located_in|part_of]->(cc:cellular_component)
-WHERE p.id IN $protein_ids
-  AND cc.id IN $location_ids
-RETURN p AS protein, r AS relationship, cc AS component
-"""
-        result = db_instance.run_query(
-            query,
-            parameters={"protein_ids": protein_ids, "location_ids": location_ids},
-        )
+        # Sanitize location IDs — validate GO:XXXXXXX format then convert to GO_XXXXXXX for Neo4j
+        location_ids = [
+            loc.strip().upper().replace(':', '_')
+            for loc in location_list
+            if loc.strip() and re.fullmatch(r"GO:[0-9]+", loc.strip().upper())
+        ]
 
-        component_nodes = {}
-        component_edges = []
+        # Keep a mapping from GO_XXXXXXX back to GO:XXXXXXX for the response
+        neo4j_to_display = {
+            loc.strip().upper().replace(':', '_'): loc.strip().upper()
+            for loc in location_list
+            if loc.strip() and re.fullmatch(r"GO:[0-9]+", loc.strip().upper())
+        }
 
+        protein_ids_str = ", ".join(f"'{pid}'" for pid in protein_ids)
+        location_ids_str = ", ".join(f"'{lid}'" for lid in location_ids)
+
+        query = f"""
+        MATCH (p:protein)-[r:located_in|part_of]->(cc:cellular_component)
+        WHERE p.id IN [{protein_ids_str}]
+        AND cc.id IN [{location_ids_str}]
+        RETURN p.id AS protein_id, cc.id AS component_id
+        """
+        result = db_instance.run_query(query)
+
+        # Build protein → locations mapping
+        protein_locations = {}
         for record in result:
-            protein = record["protein"]
-            relationship = record["relationship"]
-            component = record["component"]
-            protein_id = protein["id"]
-            component_id = component["id"]
-            protein_graph_id = f"protein {protein_id}"
-            component_graph_id = f"cellular_component {component_id}"
+            protein_id = record["protein_id"]
+            component_id = record["component_id"]
+            # Convert GO_0005634 → GO:0005634
+            display_id = neo4j_to_display.get(component_id, component_id.replace('_', ':', 1))
+            if protein_id not in protein_locations:
+                protein_locations[protein_id] = []
+            if display_id not in protein_locations[protein_id]:
+                protein_locations[protein_id].append(display_id)
 
-            # Keep the existing "location" string on the protein node for
-            # backward compatibility with any client already reading it.
+        # Set location on each protein node — same format as old implementation
+        for protein_id, loc_list in protein_locations.items():
             if protein_id in protein_node_map:
-                current_location = protein_node_map[protein_id]["data"].get("location", "")
-                locations_for_protein = [v for v in current_location.split(",") if v]
-                if component_id not in locations_for_protein:
-                    locations_for_protein.append(component_id)
-                protein_node_map[protein_id]["data"]["location"] = ",".join(locations_for_protein)
-
-            # NOTE: explicit id/type set AFTER the spread, so the component's
-            # own raw "id" property can't silently overwrite the graph-scoped id
-            # that the edge below references.
-            component_nodes[component_graph_id] = {
-                "data": {
-                    **dict(component),
-                    "id": component_graph_id,
-                    "type": "cellular_component",
-                }
-            }
-
-            edge_data = {
-                "id": generate(),
-                "source": protein_graph_id,
-                "target": component_graph_id,
-                "label": relationship.type,
-                "edge_id": f"protein_{relationship.type}_cellular_component",
-            }
-            for key, value in relationship.items():
-                edge_data["source_data" if key == "source" else key] = value
-            component_edges.append({"data": edge_data})
+                protein_node_map[protein_id]["data"]["location"] = ",".join(loc_list)
 
         for values in protein_node_map.values():
             response["nodes"].append(values)
-        response["nodes"].extend(component_nodes.values())
-        response["edges"].extend(component_edges)
 
         logger.info(
             json.dumps(
@@ -978,6 +964,7 @@ RETURN p AS protein, r AS relationship, cc AS component
         )
 
         return response
+
     except Exception as e:
         logger.error(
             json.dumps(
@@ -1000,7 +987,6 @@ RETURN p AS protein, r AS relationship, cc AS component
                 "timestamp": datetime.datetime.now().isoformat(),
             },
         )
-
 
 @router.delete("/annotation/{id}")
 def delete_by_id(id: str, current_user_id: str = Depends(get_current_user)):
