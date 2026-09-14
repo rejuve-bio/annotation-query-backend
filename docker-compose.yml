@@ -1,7 +1,6 @@
-name: annotation-query-backend-dev
 services:
   annotation_service:
-    # image: "${DOCKER_HUB_REPO}"
+    image: "${DOCKER_HUB_REPO}"
     build:
       context: .
       dockerfile: Dockerfile
@@ -11,8 +10,7 @@ services:
       - /dev/shm:/dev/shm
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "${APP_PORT}:${APP_PORT}"
-    # Web server command
+      - "127.0.0.1:${APP_PORT}:${APP_PORT}"
     command: gunicorn app.main:socket_app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${APP_PORT}
     restart: always
     depends_on:
@@ -107,12 +105,12 @@ services:
     image: getmeili/meilisearch:latest
     container_name: annotation_meilisearch
     ports:
-      - "${MEILI_PORT:-7700}:7700"
+      - "127.0.0.1:${MEILI_PORT:-7700}:7700"
     volumes:
       - meilisearch_data:/meili_data
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-your_master_key_here}
-      MEILI_ENV: ${MEILI_ENV:-development}   # use 'production' in prod
+      MEILI_ENV: ${MEILI_ENV:-development}
       MEILI_DB_PATH: /meili_data
       MEILI_HTTP_ADDR: 0.0.0.0:7700
     restart: always
@@ -123,3 +121,8 @@ volumes:
   caddy_data:
   caddy_config:
   meilisearch_data:
+
+networks:
+  default:
+    name: annotation-query-backend
+  
