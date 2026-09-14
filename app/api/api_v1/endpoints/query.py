@@ -14,13 +14,6 @@ from app.api.deps import (
     get_redis_client,
     get_schema_manager,
 )
-from app.api.deps import (
-    get_current_user,
-    get_db_instance,
-    get_llm_handler,
-    get_redis_client,
-    get_schema_manager,
-)
 from app.api.deps import LLMHandler
 from app.services.schema_data import SchemaManager
 from app.persistence import (

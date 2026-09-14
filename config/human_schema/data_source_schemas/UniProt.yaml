@@ -6,7 +6,15 @@ nodes:
     input_label: protein
     output_label: protein
     properties:
+      id: str
       protein_name: str
+      accessions: str[]
+      is_canonical: bool
+      is_isoform: bool
+      canonical_accession: str
+      isoform_name: str
+      source: str
+      source_url: str
 relationships:
   translates to:
     url: https://www.uniprot.org/
@@ -30,27 +38,11 @@ relationships:
     output_label: has_xref
     source: protein
     target: transcript
-  protein has_xref protein:
+  protein has_xref small molecule:
     url: https://www.uniprot.org/
-    input_label: protein_has_xref_protein
+    input_label: protein_has_xref_small_molecule
     output_label: has_xref
+    description: Cross-reference between a protein and a small molecule (e.g. binding
+      site ligand, cofactor, or catalytic activity substrate).
     source: protein
-    target: protein
-  protein has_xref biological_process:
-    url: https://www.uniprot.org/
-    input_label: protein_has_xref_biological_process
-    output_label: has_xref
-    source: protein
-    target: biological_process
-  protein has_xref cellular_component:
-    url: https://www.uniprot.org/
-    input_label: protein_has_xref_cellular_component
-    output_label: has_xref
-    source: protein
-    target: cellular_component
-  protein has_xref molecular_function:
-    url: https://www.uniprot.org/
-    input_label: protein_has_xref_molecular_function
-    output_label: has_xref
-    source: protein
-    target: molecular_function
+    target: small_molecule

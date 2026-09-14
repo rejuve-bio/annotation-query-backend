@@ -1,6 +1,6 @@
 ### Annotaion Service
 
-backend API.
+backend API
 
 _Supported OS:_ **Linux & Mac**
 
