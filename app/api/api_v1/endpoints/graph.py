@@ -422,8 +422,14 @@ def get_saved_preferences(current_user_id: str = Depends(get_current_user)):
 async def download_tsv(id: str, current_user_id: str = Depends(get_current_user)):
     # Fetch annotation metadata
     cursor = AnnotationStorageService.get_by_id(id)
-    
+
     if cursor is None:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+
+    owner_id = cursor.user_id
+    participants = cursor.participant_user_ids or []
+
+    if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
         raise HTTPException(status_code=404, detail="Annotation not found")
 
     file_path = cursor.path_url
