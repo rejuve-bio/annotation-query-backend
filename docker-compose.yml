@@ -2,7 +2,7 @@ name: annotation-query-backend-dev
 
 services:
   annotation_service:
-    # image: "${DOCKER_HUB_REPO}"
+    image: "${DOCKER_HUB_REPO}"
     build:
       context: .
       dockerfile: Dockerfile
