@@ -754,6 +754,13 @@ def cell_component(
     # parse the location
     location_list = locations.split(",")
 
+    for loc in location_list:
+        if not re.fullmatch(r"GO:[0-9]+", loc.strip().upper()):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid location id: {loc!r}",
+            )
+
     proteins = []
 
     # get the graph and filter out the protein
