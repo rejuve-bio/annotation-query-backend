@@ -6,6 +6,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     volumes:
       - .:/app
       - /mnt/hdd_1:/mnt/hdd_1:rw
@@ -22,8 +25,8 @@ services:
       APP_PORT: ${APP_PORT}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_URL: redis://redis:6379/0
-      REDIS_URL_BROKER: redis://redis:6379/1
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      REDIS_URL_BROKER: redis://:${REDIS_PASSWORD}@redis:6379/1
       REDIS_EXPIRATION: 3600
       MEILI_URL: http://meilisearch:7700
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
@@ -38,6 +41,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     volumes:
       - .:/app
       - /mnt/hdd_1:/mnt/hdd_1:rw
@@ -50,13 +56,15 @@ services:
       - mongodb
     environment:
       <<: *app_env
-      C_FORCE_ROOT: "1"
 
   celery_worker_slow:
     image: "${DOCKER_HUB_REPO}"
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     volumes:
       - .:/app
       - /mnt/hdd_1:/mnt/hdd_1:rw
@@ -69,7 +77,6 @@ services:
       - mongodb
     environment:
       <<: *app_env
-      C_FORCE_ROOT: "1"
 
   mongodb:
     image: mongo:latest
@@ -82,6 +89,7 @@ services:
   redis:
     container_name: annotation_redis
     image: redis:latest
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     ports:
       - "127.0.0.1:${REDIS_DOCKER_PORT:-6380}:6379"
     restart: always
@@ -89,7 +97,7 @@ services:
       - redis_data:/data
 
   caddy:
-    image: caddy:latest
+    image: caddy:2.8
     ports:
       - "127.0.0.1:${CADDY_PORT}:${CADDY_PORT_FORWARD}"
     volumes:
@@ -101,14 +109,14 @@ services:
       - annotation_service
 
   meilisearch:
-    image: getmeili/meilisearch:latest
+    image: getmeili/meilisearch:v1.10
     container_name: annotation_meilisearch
     ports:
       - "127.0.0.1:${MEILI_PORT:-7700}:7700"
     volumes:
       - meilisearch_data:/meili_data
     environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-your_master_key_here}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY must be set}
       MEILI_ENV: ${MEILI_ENV:-development}
       MEILI_DB_PATH: /meili_data
       MEILI_HTTP_ADDR: 0.0.0.0:7700
