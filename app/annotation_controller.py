@@ -11,6 +11,7 @@ from app.constants import TaskStatus
 from app.persistence import AnnotationStorageService
 from .workers.celery_app import init_request_state
 from app.api.deps import get_llm_handler
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 schema_manager = get_schema_manager()
@@ -147,7 +148,7 @@ def process_full_data(current_user_id, annotation_id):
 
         if exists:
             file_path = adjust_file_path(file_path)
-            link = f'{request.host_url}{file_path}'
+            link = f'{settings.APP_BASE_URL.rstrip("/")}/{file_path.lstrip("/")}'
             return link
 
         db_instance = get_db_instance()
@@ -159,7 +160,7 @@ def process_full_data(current_user_id, annotation_id):
             parsed_result, user_id=current_user_id, file_name=title)
         file_path = adjust_file_path(file_path)
 
-        link = f'{request.host_url}{file_path}'
+        link = f'{settings.APP_BASE_URL.rstrip("/")}/{file_path.lstrip("/")}'
         return link
 
     except Exception as e:
