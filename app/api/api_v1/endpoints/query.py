@@ -946,6 +946,11 @@ def cell_component(
         # get_cellular_component_locations — this endpoint stays backend-agnostic,
         # so changing one backend's query never requires touching this route.
         annotation = AnnotationStorageService.get_by_id(annotation_id)
+        if annotation is not None:
+            owner_id = annotation.user_id
+            participants = annotation.participant_user_ids or []
+            if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
+                raise HTTPException(status_code=404, detail="Annotation not found")
         species = (getattr(annotation, "species", None) or "human") if annotation else "human"
         db_instance = get_db_instance(species)
 
