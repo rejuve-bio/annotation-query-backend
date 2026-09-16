@@ -619,8 +619,11 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                     subst_tmpl = tmpl
                     # Sort longest var name first to prevent $n1 clobbering $n10
                     for var, val in sorted(zip(input_var_list, combo), key=lambda x: -len(x[0])):
-                        subst_pat  = re.sub(r'\$' + re.escape(var) + r'(?!\w)', val, subst_pat)
-                        subst_tmpl = re.sub(r'\$' + re.escape(var) + r'(?!\w)', val, subst_tmpl)
+                        if any(ch in "()\"'\\" for ch in str(val)):
+                            raise ValueError(f"Invalid MeTTa atom value for ${var}: {val!r}")
+                        safe_val = str(val).replace('\\', '\\\\')
+                        subst_pat  = re.sub(r'\$' + re.escape(var) + r'(?!\w)', lambda m: safe_val, subst_pat)
+                        subst_tmpl = re.sub(r'\$' + re.escape(var) + r'(?!\w)', lambda m: safe_val, subst_tmpl)
 
                     atoms = self._run_single_pattern(subst_pat, subst_tmpl)
                     all_atoms.extend(atoms)

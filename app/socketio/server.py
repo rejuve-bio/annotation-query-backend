@@ -1,6 +1,7 @@
 import socketio
 import os
 
+from app.core.config import settings
 
 redis_url = os.getenv('REDIS_URL_BROKER', 'redis://redis:6379/1')
 
@@ -9,8 +10,8 @@ client_manager = socketio.AsyncRedisManager(redis_url)
 
 # 3. Create SocketIO server (Async) and pass the manager in
 sio = socketio.AsyncServer(
-    async_mode='asgi', 
-    cors_allowed_origins='*',
+    async_mode='asgi',
+    cors_allowed_origins=settings.BACKEND_CORS_ORIGINS,
     client_manager=client_manager,
     transports=['websocket']
 )
