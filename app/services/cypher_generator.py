@@ -116,6 +116,31 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             driver = self.human_driver
         return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type)
 
+    def get_cellular_component_locations(
+        self, protein_ids, location_ids, species="human",
+        predicates=("located_in", "part_of"),
+    ):
+        """
+        Returns (protein_id, cellular_component_id) pairs for proteins located
+        in any of the given cellular components. Backend-specific so callers
+        (e.g. /localized-graph) don't need to know Cypher is involved.
+        """
+        if not protein_ids or not location_ids:
+            return []
+
+        protein_ids_str = ", ".join(f"'{pid}'" for pid in protein_ids)
+        location_ids_str = ", ".join(f"'{lid}'" for lid in location_ids)
+        relationship_pattern = "|".join(predicates)
+
+        query = f"""
+        MATCH (p:protein)-[r:{relationship_pattern}]->(cc:cellular_component)
+        WHERE p.id IN [{protein_ids_str}]
+        AND cc.id IN [{location_ids_str}]
+        RETURN p.id AS protein_id, cc.id AS component_id
+        """
+        result = self.run_query(query, species=species)
+        return [(record["protein_id"], record["component_id"]) for record in result]
+
     def _escape_regex(self, value) -> str:
         """Escape regex special characters in a property value, strip stray quotes."""
         cleaned = str(value).replace("'", "").replace('"', '')

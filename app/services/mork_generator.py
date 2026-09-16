@@ -54,6 +54,60 @@ class MorkQueryGenerator:
     def generate_id(self):
         return str(uuid.uuid4())[:8]
 
+    def _run_single_pattern(self, pattern_str, template_str):
+        """
+        Run one single-pattern query against the MORK HTTP server and return raw
+        MeTTa atoms. Used by callers (e.g. the localized-graph endpoint) that just
+        need to check whether a specific fact/relation exists.
+        """
+        try:
+            with self.server.work_at("annotation") as annotation:
+                result = annotation.download(pattern_str, template_str)
+        except Exception as e:
+            logger.error(f"MORK single-pattern error: {e}")
+            raise RuntimeError(f"MORK query failed: {e}") from e
+
+        data = result.data or ""
+        if not data.strip():
+            return []
+        try:
+            return self.metta.parse_all(data)
+        except Exception as e:
+            logger.warning(f"Failed to parse MORK output: {e}\nRaw: {data}")
+            return []
+
+    def get_cellular_component_locations(
+        self, protein_ids, location_ids, species="human",
+        predicates=("located_in", "part_of"),
+    ):
+        """
+        Returns (protein_id, cellular_component_id) pairs for proteins located
+        in any of the given cellular components. Backend-specific so callers
+        (e.g. /localized-graph) don't need to know MORK is involved. `species`
+        is accepted for a uniform call signature across backends — this
+        instance is already scoped to one species by the caller.
+        """
+        located_pairs = []
+        for protein_id in protein_ids:
+            for location_id in location_ids:
+                source = f"protein {protein_id}"
+                target = f"cellular_component {location_id}"
+                for predicate in predicates:
+                    try:
+                        atoms = self._run_single_pattern(
+                            f"({predicate} ({source}) ({target}))",
+                            f"(tmp (edge {predicate} ({source}) ({target})))",
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"MORK localization query failed for {source} {predicate} {target}: {e}"
+                        )
+                        continue
+                    if atoms:
+                        located_pairs.append((protein_id, location_id))
+                        break
+        return located_pairs
+
     def _normalize_atom_label(self, value):
         if value is None:
             return ""
@@ -178,17 +232,19 @@ class MorkQueryGenerator:
                     )
 
             query = (tuple(pattern), tuple(template), "query", self.current_id)
+            total_count_id = f"{self.current_id}_total"
             total_count_query = (
                 tuple(pattern),
-                tuple(template),
+                tuple(t.replace(self.current_id, total_count_id) for t in template),
                 "total_count",
-                self.current_id,
+                total_count_id,
             )
+            label_count_id = f"{self.current_id}_label"
             label_count_query = (
                 tuple(pattern),
-                tuple(template),
+                tuple(t.replace(self.current_id, label_count_id) for t in template),
                 "label_count",
-                self.current_id,
+                label_count_id,
             )
 
             return [query, total_count_query, label_count_query]
@@ -243,17 +299,19 @@ class MorkQueryGenerator:
                 template.append(f"({self.current_id} {base_relation})")
 
         query = (tuple(pattern), tuple(template), "query", self.current_id)
+        total_count_id = f"{self.current_id}_total"
         total_count_query = (
             tuple(pattern),
-            tuple(template),
+            tuple(t.replace(self.current_id, total_count_id) for t in template),
             "total_count",
-            self.current_id,
+            total_count_id,
         )
+        label_count_id = f"{self.current_id}_label"
         label_count_query = (
             tuple(pattern),
-            tuple(template),
+            tuple(t.replace(self.current_id, label_count_id) for t in template),
             "label_count",
-            self.current_id,
+            label_count_id,
         )
         return [query, total_count_query, label_count_query]
 
@@ -292,7 +350,7 @@ class MorkQueryGenerator:
         pattern = []
         template = []
         nodes = set()
-        to_be_removed = ["synonyms", "accessions"]
+        to_be_removed = ["synonym", "synonyms", "accessions"]
 
         self.current_id = self.generate_id()
 
@@ -308,7 +366,7 @@ class MorkQueryGenerator:
                         continue
                     id = self.generate_id()
                     pattern.append(f"({property} ({source}) ${id})")
-                    template.append(f"(tmp (node {property} ({source}) ${id}))")
+                    template.append(f"({self.current_id} (node {property} ({source}) ${id}))")
                 nodes.add(source)
 
             if "target" in result and "predicate" in result:
@@ -321,13 +379,24 @@ class MorkQueryGenerator:
                     ]:
                         id = self.generate_id()
                         pattern.append(f"({property} ({target}) ${id})")
-                        template.append(f"(tmp (node {property} ({target}) ${id}))")
+                        template.append(f"({self.current_id} (node {property} ({target}) ${id}))")
                     nodes.add(target)
 
                 predicate = result["predicate"]
                 edge_props = (
                     schema[species]["edges"].get(predicate, {}).get("properties", {})
                 )
+
+                # Always record that the edge itself exists, regardless of
+                # whether it has any declared properties to fetch — otherwise
+                # edges with no properties (e.g. transcribes_to) never make it
+                # into the graph even though they connected the nodes in the
+                # first place.
+                pattern.append(f"({predicate} ({source}) ({target}))")
+                template.append(
+                    f"({self.current_id} (edge _exists ({predicate} ({source}) ({target})) true))"
+                )
+
                 for property in edge_props:
                     random = self.generate_id()
                     pattern.append(
@@ -497,11 +566,11 @@ class MorkQueryGenerator:
                         "type": src_type,
                     }
 
-                if graph_components["properties"]:
+                if graph_components["properties"] and predicate not in ("id", "type"):
                     nodes[(src_type, src_value)][predicate] = tgt
-                else:
-                    if predicate in named_types:
-                        nodes[(src_type, src_value)]["name"] = tgt
+
+                if predicate in named_types:
+                    nodes[(src_type, src_value)]["name"] = tgt
 
                 if "synonyms" in nodes[(src_type, src_value)]:
                     del nodes[(src_type, src_value)]["synonyms"]
@@ -527,7 +596,12 @@ class MorkQueryGenerator:
                         "target": f"{target} {target_id}",
                     }
 
-                if property_name == "source":
+                if property_name == "_exists":
+                    # Internal marker used to record that an edge exists even
+                    # when it has no declared properties to fetch — not a
+                    # real edge property, don't expose it to callers.
+                    pass
+                elif property_name == "source":
                     relationships_dict[key]["source_data"] = value
                 else:
                     relationships_dict[key][property_name] = value
@@ -538,6 +612,9 @@ class MorkQueryGenerator:
                 edge_data = {}
                 edge_data["data"] = relationships_dict[key]
                 edge_to_dict[predicate].append(edge_data)
+        for node in nodes.values():
+            node.setdefault("name", node["id"])
+
         node_list = [{"data": node} for node in nodes.values()]
         relationship_list = [
             {"data": relationship} for relationship in relationships_dict.values()

@@ -732,9 +732,8 @@ def cell_component(
     id: str = FQuery(..., description="The annotation ID"),
     locations: str = FQuery(..., description="Comma-separated GO term IDs"),
     current_user_id: str = Depends(get_current_user),
-    db_instance=Depends(get_db_instance),
 ):
-
+    
     # get annotation id and get go term id
     annotation_id = id
     if not re.fullmatch(r"[A-Za-z0-9_-]+", annotation_id):
@@ -752,13 +751,18 @@ def cell_component(
         )
 
     # parse the location
-    locations = locations.split(",")
+    location_list = locations.split(",")
+
+    for loc in location_list:
+        if not re.fullmatch(r"GO:[0-9]+", loc.strip().upper()):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid location id: {loc!r}",
+            )
 
     proteins = []
-    
-    
+
     # get the graph and filter out the protein
-        
     file_name = f"{safe_annotation_id}.json"
     base_dir = (
         Path(__file__).parent
@@ -840,7 +844,6 @@ def cell_component(
                 )
 
         node_to_edge_relationship = {}
-
         inital_node_map = {}
 
         for node in nodes:
@@ -893,66 +896,66 @@ def cell_component(
                 }
             )
 
-        go_ids = []
         protein_node_map = {}
 
         for node in nodes:
             if node["data"]["type"] == "protein":
                 for single_node in node["data"]["nodes"]:
-                    id = single_node["id"].split(" ")[1]
-                    proteins.append(id)
-                    if id not in protein_node_map:
-                        protein_node_map[id] = {}
-                    protein_node_map[id]["data"] = {**single_node, "location": ""}
+                    protein_raw_id = single_node["id"].split(" ")[1]
+                    proteins.append(protein_raw_id)
+                    if protein_raw_id not in protein_node_map:
+                        protein_node_map[protein_raw_id] = {}
+                    protein_node_map[protein_raw_id]["data"] = {**single_node, "location": ""}
 
-        go_subcomponents = {
-            "type": "go",
-            "id": "",
-            "properties": {"subontology": "cellular_component"},
+        # Sanitize protein IDs
+        protein_ids = [
+            pid for pid in proteins
+            if pid and re.fullmatch(r"[A-Za-z0-9._-]+", pid)
+        ]
+
+        # Sanitize location IDs — validate GO:XXXXXXX format then convert to
+        # GO_XXXXXXX, the form both Neo4j and MORK store them in.
+        location_ids = [
+            loc.strip().upper().replace(':', '_')
+            for loc in location_list
+            if loc.strip() and re.fullmatch(r"GO:[0-9]+", loc.strip().upper())
+        ]
+
+        # Keep a mapping from GO_XXXXXXX back to GO:XXXXXXX for the response
+        display_form = {
+            loc.strip().upper().replace(':', '_'): loc.strip().upper()
+            for loc in location_list
+            if loc.strip() and re.fullmatch(r"GO:[0-9]+", loc.strip().upper())
         }
 
-        go_parent = {"type": "go", "id": "", "properties": {}}
+        def _to_colon_form(component_id):
+            return display_form.get(component_id, component_id.replace('_', ':', 1))
 
-        for location in locations:
-            go_id = location.lower()
-            go_id = go_id.replace(":", "_")
-            go_ids.append(go_id)
+        # (protein_id, component_id) pairs with a localization relationship.
+        # Each backend (Cypher/MORK/MORK CLI) implements its own
+        # get_cellular_component_locations — this endpoint stays backend-agnostic,
+        # so changing one backend's query never requires touching this route.
+        annotation = AnnotationStorageService.get_by_id(annotation_id)
+        species = (getattr(annotation, "species", None) or "human") if annotation else "human"
+        db_instance = get_db_instance(species)
 
-        query = db_instance.list_query_generator_source_target(
-            go_subcomponents, go_parent, go_ids, "subclass_of"
+        located_pairs = db_instance.get_cellular_component_locations(
+            protein_ids, location_ids, species=species,
         )
 
-        result = db_instance.run_query(query)
-        parsed_result_go = db_instance.parse_list_query(result)
+        # Build protein → locations mapping
+        protein_locations = {}
+        for protein_id, component_id in located_pairs:
+            display_id = _to_colon_form(component_id)
+            if protein_id not in protein_locations:
+                protein_locations[protein_id] = []
+            if display_id not in protein_locations[protein_id]:
+                protein_locations[protein_id].append(display_id)
 
-        go_ids = []
-
-        for key in parsed_result_go.keys():
-            go_ids.append(key)
-            go_ids.extend(parsed_result_go[key]["node_ids"])
-
-        source = {"type": "go", "id": "", "properties": {}}
-
-        target = {"type": "protein", "id": "", "properties": {}}
-
-        query = db_instance.list_query_generator_both(
-            source, target, go_ids, proteins, "go_gene_product"
-        )
-
-        result = db_instance.run_query(query)
-        parsed_result = db_instance.parse_list_query(result)
-
-        for key in parsed_result.keys():
-            normalized_id = []
-            location = parsed_result[key]["node_ids"]
-            for i, _ in enumerate(location):
-                for parent_id in parsed_result_go.keys():
-                    if (
-                        location[i] == parent_id
-                        or location[i] in parsed_result_go[parent_id]["node_ids"]
-                    ):
-                        normalized_id.append(parent_id.replace("_", ":").upper())
-            protein_node_map[key]["data"]["location"] = ",".join(normalized_id)
+        # Set location on each protein node — same format as old implementation
+        for protein_id, loc_list in protein_locations.items():
+            if protein_id in protein_node_map:
+                protein_node_map[protein_id]["data"]["location"] = ",".join(loc_list)
 
         for values in protein_node_map.values():
             response["nodes"].append(values)
@@ -969,6 +972,7 @@ def cell_component(
         )
 
         return response
+
     except Exception as e:
         logger.error(
             json.dumps(
@@ -982,11 +986,6 @@ def cell_component(
             ),
             exc_info=True,
         )
-        error_response = {
-            "status": "error",
-            "message": "An internal server error occurred. Please try again later.",
-            "timestamp": datetime.datetime.now().isoformat(),
-        }
 
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
