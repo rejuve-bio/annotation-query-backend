@@ -37,6 +37,55 @@ def set_keep_containers_on_exit(value: bool = True) -> None:
     _keep_containers_on_exit = value
 
 
+def _repair_mork_sexpr(line: str) -> str:
+    """
+    Repair truncated string literals in MORK S-expression output.
+
+    MORK without interning limits symbols to 63 bytes. String literals longer than
+    63 bytes get truncated before the closing quotation mark, producing malformed
+    MeTTa syntax like `(node description (...) "A long text...))` without the closing `"`.
+    This detects an unclosed string literal and inserts the closing quote before
+    the outer closing parentheses.
+    """
+    stripped = line.strip()
+    if not stripped:
+        return line
+
+    in_quote = False
+    open_parens_outside_quotes = 0
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if ch == "\\" and in_quote and i + 1 < len(line):
+            i += 2
+            continue
+        if ch == '"':
+            in_quote = not in_quote
+        elif not in_quote:
+            if ch == "(":
+                open_parens_outside_quotes += 1
+            elif ch == ")":
+                open_parens_outside_quotes = max(0, open_parens_outside_quotes - 1)
+        i += 1
+
+    if in_quote:
+        idx = len(line)
+        parens_found = 0
+        while idx > 0 and parens_found < open_parens_outside_quotes:
+            idx -= 1
+            if line[idx] == ")":
+                parens_found += 1
+            elif line[idx] not in (" ", "\t", "\r", "\n"):
+                idx += 1
+                break
+        return line[:idx] + '"' + line[idx:]
+    return line
+
+
+def _repair_mork_output(raw: str) -> str:
+    return "\n".join(_repair_mork_sexpr(line) for line in raw.splitlines())
+
+
 class _MorkSession:
     """Manages one long-running mork:latest container for a dataset path."""
 
@@ -245,7 +294,14 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
             result = session.exec_query(str(query_file))
             raw = result.stdout
             actual = raw.split("result:", 1)[1].strip() if "result:" in raw else raw.strip()
-            return self.metta.parse_all(actual)
+            if not actual:
+                return []
+            repaired = _repair_mork_output(actual)
+            try:
+                return self.metta.parse_all(repaired)
+            except Exception as e:
+                logger.warning(f"Failed to parse MORK output: {e}\nRaw: {actual}")
+                return []
         except subprocess.CalledProcessError as e:
             logger.error(f"MORK single-pattern error: {e.stderr}")
             raise RuntimeError(f"MORK query failed: {e.stderr.strip()}") from e

@@ -732,7 +732,6 @@ def cell_component(
     id: str = FQuery(..., description="The annotation ID"),
     locations: str = FQuery(..., description="Comma-separated GO term IDs"),
     current_user_id: str = Depends(get_current_user),
-    db_instance=Depends(get_db_instance),
 ):
     
     # get annotation id and get go term id
@@ -914,7 +913,8 @@ def cell_component(
             if pid and re.fullmatch(r"[A-Za-z0-9._-]+", pid)
         ]
 
-        # Sanitize location IDs — validate GO:XXXXXXX format then convert to GO_XXXXXXX for Neo4j
+        # Sanitize location IDs — validate GO:XXXXXXX format then convert to
+        # GO_XXXXXXX, the form both Neo4j and MORK store them in.
         location_ids = [
             loc.strip().upper().replace(':', '_')
             for loc in location_list
@@ -922,30 +922,31 @@ def cell_component(
         ]
 
         # Keep a mapping from GO_XXXXXXX back to GO:XXXXXXX for the response
-        neo4j_to_display = {
+        display_form = {
             loc.strip().upper().replace(':', '_'): loc.strip().upper()
             for loc in location_list
             if loc.strip() and re.fullmatch(r"GO:[0-9]+", loc.strip().upper())
         }
 
-        protein_ids_str = ", ".join(f"'{pid}'" for pid in protein_ids)
-        location_ids_str = ", ".join(f"'{lid}'" for lid in location_ids)
+        def _to_colon_form(component_id):
+            return display_form.get(component_id, component_id.replace('_', ':', 1))
 
-        query = f"""
-        MATCH (p:protein)-[r:located_in|part_of]->(cc:cellular_component)
-        WHERE p.id IN [{protein_ids_str}]
-        AND cc.id IN [{location_ids_str}]
-        RETURN p.id AS protein_id, cc.id AS component_id
-        """
-        result = db_instance.run_query(query)
+        # (protein_id, component_id) pairs with a localization relationship.
+        # Each backend (Cypher/MORK/MORK CLI) implements its own
+        # get_cellular_component_locations — this endpoint stays backend-agnostic,
+        # so changing one backend's query never requires touching this route.
+        annotation = AnnotationStorageService.get_by_id(annotation_id)
+        species = (getattr(annotation, "species", None) or "human") if annotation else "human"
+        db_instance = get_db_instance(species)
+
+        located_pairs = db_instance.get_cellular_component_locations(
+            protein_ids, location_ids, species=species,
+        )
 
         # Build protein → locations mapping
         protein_locations = {}
-        for record in result:
-            protein_id = record["protein_id"]
-            component_id = record["component_id"]
-            # Convert GO_0005634 → GO:0005634
-            display_id = neo4j_to_display.get(component_id, component_id.replace('_', ':', 1))
+        for protein_id, component_id in located_pairs:
+            display_id = _to_colon_form(component_id)
             if protein_id not in protein_locations:
                 protein_locations[protein_id] = []
             if display_id not in protein_locations[protein_id]:
