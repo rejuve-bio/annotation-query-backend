@@ -596,7 +596,12 @@ class MorkQueryGenerator:
                         "target": f"{target} {target_id}",
                     }
 
-                if property_name == "source":
+                if property_name == "_exists":
+                    # Internal marker used to record that an edge exists even
+                    # when it has no declared properties to fetch — not a
+                    # real edge property, don't expose it to callers.
+                    pass
+                elif property_name == "source":
                     relationships_dict[key]["source_data"] = value
                 else:
                     relationships_dict[key][property_name] = value
