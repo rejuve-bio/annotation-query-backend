@@ -38,7 +38,7 @@ COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /app .
 
-# Run as a non-root user. UID/GID are configurable (default 1000) so they can
+# Run as a non-root user. UID/GID are configurable (default 1001) so they can
 # be matched to the host user in dev setups that bind-mount the repo into
 # /app (docker-compose.yml's ".:/app") — otherwise the container user can't
 # write to host-owned paths like biocypher-log/ under the bind mount.
@@ -46,8 +46,8 @@ COPY --from=builder /app .
 # talk to a mounted /var/run/docker.sock (used by
 # app/services/mork_cli_generator.py when that socket is present) without
 # needing to run the whole app as root.
-ARG APP_UID=1000
-ARG APP_GID=1000
+ARG APP_UID=1001
+ARG APP_GID=1001
 RUN groupadd -f docker \
     && groupadd -r -g ${APP_GID} appuser && useradd -r -u ${APP_UID} -g appuser -G docker -m appuser \
     && chown -R appuser:appuser /app
