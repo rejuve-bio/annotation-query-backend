@@ -67,7 +67,7 @@ services:
       resources:
         limits:
           cpus: "4"
-          memory: 4g
+          memory: 8g
     depends_on:
       - annotation_service
       - redis
@@ -97,7 +97,7 @@ services:
       resources:
         limits:
           cpus: "4"
-          memory: 4g
+          memory: 8g
     depends_on:
       - annotation_service
       - redis
