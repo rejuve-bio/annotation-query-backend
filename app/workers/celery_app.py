@@ -16,9 +16,9 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
-    task_serializer='pickle',
-    result_serializer='pickle',
-    accept_content=['pickle', 'json'],
+    task_serializer='json',
+    result_serializer='json',
+    accept_content=['json'],
     result_expires=3600,
 )
 

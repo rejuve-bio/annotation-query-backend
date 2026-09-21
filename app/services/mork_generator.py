@@ -54,6 +54,20 @@ class MorkQueryGenerator:
     def generate_id(self):
         return str(uuid.uuid4())[:8]
 
+    _UNSAFE_ATOM_CHARS = set("()\"'\\ \t\n\r")
+
+    def _safe_atom(self, value) -> str:
+        """
+        Validate a value before it is interpolated into a raw MeTTa
+        s-expression. Parentheses/quotes/whitespace could alter the
+        structure of the query sent to the MORK engine, so reject them
+        outright rather than trying to escape s-expression syntax.
+        """
+        value = str(value)
+        if not value or any(ch in self._UNSAFE_ATOM_CHARS for ch in value):
+            raise ValueError(f"Invalid MeTTa atom value: {value!r}")
+        return value
+
     def _run_single_pattern(self, pattern_str, template_str):
         """
         Run one single-pattern query against the MORK HTTP server and return raw
@@ -88,11 +102,12 @@ class MorkQueryGenerator:
         instance is already scoped to one species by the caller.
         """
         located_pairs = []
+        safe_predicates = [self._safe_atom(p) for p in predicates]
         for protein_id in protein_ids:
             for location_id in location_ids:
-                source = f"protein {protein_id}"
-                target = f"cellular_component {location_id}"
-                for predicate in predicates:
+                source = f"protein {self._safe_atom(protein_id)}"
+                target = f"cellular_component {self._safe_atom(location_id)}"
+                for predicate in safe_predicates:
                     try:
                         atoms = self._run_single_pattern(
                             f"({predicate} ({source}) ({target}))",

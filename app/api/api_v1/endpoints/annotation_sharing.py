@@ -34,6 +34,10 @@ def share_annotation(data: Dict[str, Any] = Body(...), current_user_id: str = De
         if not annotation:
             raise HTTPException(status_code=404, detail="Annotation not found")
 
+        # Only the owner can share their own annotation
+        if str(annotation.user_id) != str(current_user_id):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
         # If private, recipient_user_id must be given
         if share_type == "private" and not recipient_user_id:
             raise HTTPException(status_code=400, detail="Missing recipient user ID for private share")
@@ -115,7 +119,7 @@ def revoke_shared_annotation(id: str, current_user_id: str = Depends(get_current
             raise HTTPException(status_code=404, detail="Annotation not found")
 
         # Only owner can revoke
-        if annotation.user_id != current_user_id:
+        if str(annotation.user_id) != str(current_user_id):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
         # Get the shared record

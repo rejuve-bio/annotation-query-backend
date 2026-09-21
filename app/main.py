@@ -88,10 +88,14 @@ app = FastAPI(
 
 # Middleware & Database
 mongo_init()
+_cors_origins = settings.BACKEND_CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    # Wildcard origins + credentials is an invalid/unsafe combination (the
+    # browser spec forbids it); only allow credentialed CORS when an
+    # explicit origin allow-list is configured.
+    allow_credentials=_cors_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
