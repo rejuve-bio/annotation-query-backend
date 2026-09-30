@@ -107,14 +107,16 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         logger.info(
             f"Finished loading {len(nodes_paths)} nodes and {len(edges_paths)} edges datasets.")
 
-    def run_query(self, query_code, stop_event=None, species="human", query_type: QueryType = QueryType.DEFAULT):
+    def run_query(self, query_code, stop_event=None, species="human", query_type: QueryType = QueryType.DEFAULT,
+                  parameters=None):
         if species != "human":
             if self.fly_driver is None:
                 raise RuntimeError("Fly Neo4j driver is not configured. Set FLY_NEO4J_URI.")
             driver = self.fly_driver
         else:
             driver = self.human_driver
-        return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type)
+        return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type,
+                                     parameters=parameters)
 
     def get_cellular_component_locations(
         self, protein_ids, location_ids, species="human",

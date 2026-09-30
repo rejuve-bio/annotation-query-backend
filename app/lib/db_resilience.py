@@ -303,7 +303,8 @@ class ResilientDriver:
         stop_event,
         result_holder: list,
         exc_holder: list,
-        cancel_event=None
+        cancel_event=None,
+        parameters=None,
     ) -> None:
         """
         Worker target: runs the query and stores results or exception in the
@@ -312,7 +313,7 @@ class ResilientDriver:
         try:
             results = []
             with self.session() as session:
-                result = session.run(query_code)
+                result = session.run(query_code, parameters)
                 for record in result:
                     if stop_event is not None and stop_event.is_set():
                         raise TaskCancelledException()
@@ -344,6 +345,7 @@ class ResilientDriver:
         query_code: str,
         stop_event=None,
         query_type: QueryType = QueryType.DEFAULT,
+        parameters: Optional[dict] = None,
     ):
         """
         Execute *query_code* against this driver, retrying transient failures
@@ -369,6 +371,9 @@ class ResilientDriver:
         query_type:
             Logical category of the query, used to look up the timeout and
             fallback in QueryTimeoutConfig.
+        parameters:
+            Optional Cypher parameters (``$name`` placeholders), passed
+            straight to ``session.run``.
 
         Returns
         -------
@@ -403,7 +408,7 @@ class ResilientDriver:
                     # No timeout: use lazy loading
                     results = []
                     with self.session() as session:
-                        result = session.run(query_code)
+                        result = session.run(query_code, parameters)
                         for record in result:
                             if stop_event is not None and stop_event.is_set():
                                 raise TaskCancelledException()
@@ -417,7 +422,7 @@ class ResilientDriver:
     
                     worker = threading.Thread(
                         target=self._run_query_in_thread,
-                        args=(query_code, stop_event, result_holder, exc_holder, cancel_event),
+                        args=(query_code, stop_event, result_holder, exc_holder, cancel_event, parameters),
                         daemon=True,
                     )
                     worker.start()
