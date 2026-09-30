@@ -4,7 +4,7 @@ from app.socketio.server import sio
 from app.workers.task_handler import get_annotation_redis
 from app.constants import TaskStatus
 from app.core.config import settings
-from app.persistence import AnnotationStorageService
+from app.persistence import AnnotationStorageService, NeighbourhoodStorageService
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,11 @@ async def on_join(sid, data):
         participants = annotation.participant_user_ids or []
         if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
             logger.warning(f"User {current_user_id} denied access to room {room}")
+            return
+    else:
+        job = NeighbourhoodStorageService.get_by_id(room)
+        if job is not None and str(job.user_id) != str(current_user_id):
+            logger.warning(f"User {current_user_id} denied access to neighbourhood room {room}")
             return
 
     await sio.enter_room(sid, room)
