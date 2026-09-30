@@ -145,6 +145,265 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         result = self.run_query(query, species=species)
         return [(record["protein_id"], record["component_id"]) for record in result]
 
+    # ------------------------------------------------------------------
+    # Neighbourhood expansion
+    # ------------------------------------------------------------------
+
+    # Property keys tried, in order, for a node's display name.
+    _NEIGHBOURHOOD_NAME_KEYS = (
+        "gene_name", "transcript_name", "protein_name", "pathway_name",
+        "term_name", "allele_symbol", "group_name", "reaction_name", "name",
+    )
+
+    def _neighbourhood_vocabulary(self, species):
+        """Node labels, relationship types and property keys in the species' graph (cached)."""
+        cache = self.__dict__.setdefault("_nbhd_vocab_cache", {})
+        if species not in cache:
+            labels = self.run_query("CALL db.labels() YIELD label RETURN label",
+                                    species=species, query_type=QueryType.SCHEMA)
+            rel_types = self.run_query(
+                "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType",
+                species=species, query_type=QueryType.SCHEMA)
+            # Global key list: db.schema.relTypeProperties() would give keys per
+            # edge type but takes minutes on the fly graph.
+            property_keys = self.run_query("CALL db.propertyKeys() YIELD propertyKey RETURN propertyKey",
+                                           species=species, query_type=QueryType.SCHEMA)
+            cache[species] = (
+                {r["label"] for r in labels},
+                {r["relationshipType"] for r in rel_types},
+                {r["propertyKey"] for r in property_keys},
+            )
+        return cache[species]
+
+    def validate_neighbourhood_request(self, request, species="human"):
+        labels, rel_types, property_keys = self._neighbourhood_vocabulary(species)
+        errors = []
+        seed_type = request["seed"]["type"]
+        if seed_type not in labels:
+            errors.append(f"Unknown node type for {species}: {seed_type!r}")
+        for i, hop in enumerate(request.get("hops") or []):
+            for edge_type in hop.get("edge_types") or []:
+                if edge_type not in rel_types:
+                    errors.append(f"hops[{i}]: unknown edge type for {species}: {edge_type!r}")
+            for node_type in hop.get("node_types") or []:
+                if node_type not in labels:
+                    errors.append(f"hops[{i}]: unknown node type for {species}: {node_type!r}")
+            for prop in [c["property"] for c in hop.get("where") or []] + [hop.get("order_by")]:
+                if prop and prop not in property_keys:
+                    errors.append(f"hops[{i}]: unknown edge property for {species}: {prop!r}")
+        return errors
+
+    # Comparison operators allowed in a hop's edge-property conditions.
+    _NEIGHBOURHOOD_NUMERIC_OPS = {">=": ">=", ">": ">", "<=": "<=", "<": "<"}
+
+    def _neighbourhood_hop_query(self, hop_filter):
+        """
+        One hop of the expansion, starting from the frontier's element ids.
+        Returns (cypher, params); the caller adds frontier and limit params.
+        """
+        edge_types = [self._safe_label(t) for t in hop_filter.get("edge_types") or []]
+        rel = f"[r:{'|'.join(edge_types)}]" if edge_types else "[r]"
+        direction = hop_filter.get("direction", "both")
+        if direction == "out":
+            pattern = f"(n)-{rel}->(m)"
+        elif direction == "in":
+            pattern = f"(n)<-{rel}-(m)"
+        else:
+            pattern = f"(n)-{rel}-(m)"
+
+        params = {}
+        conditions = []
+        if hop_filter.get("node_types"):
+            # Parameterised rather than written as (m:A|B) so it works on
+            # Neo4j 4.x as well as 5.x.
+            conditions.append("any(l IN labels(m) WHERE l IN $node_types)")
+            params["node_types"] = hop_filter["node_types"]
+
+        # Edge properties are read as r[$key] so property names are never
+        # interpolated. Values are stored as strings in the KG ("7.86"), so
+        # numeric comparisons cast with toFloat (non-numeric -> null -> no match).
+        for i, cond in enumerate(hop_filter.get("where") or []):
+            key, op, value = f"wk{i}", cond["op"], cond["value"]
+            params[key], params[f"wv{i}"] = cond["property"], value
+            if op in self._NEIGHBOURHOOD_NUMERIC_OPS:
+                conditions.append(f"toFloat(r[${key}]) {self._NEIGHBOURHOOD_NUMERIC_OPS[op]} $wv{i}")
+            elif op in ("=", "!="):
+                cypher_op = "=" if op == "=" else "<>"
+                if isinstance(value, (int, float)):
+                    conditions.append(f"toFloat(r[${key}]) {cypher_op} $wv{i}")
+                else:
+                    conditions.append(f"toString(r[${key}]) {cypher_op} $wv{i}")
+            elif op == "in":
+                conditions.append(f"toString(r[${key}]) IN $wv{i}")
+            elif op == "not_in":
+                conditions.append(f"NOT toString(r[${key}]) IN $wv{i}")
+            else:
+                raise ValueError(f"Unsupported operator: {op!r}")
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # Ranking: without it, truncation keeps whatever rows come back first.
+        # Edges missing the property sort last in either direction.
+        order_by = hop_filter.get("order_by")
+        if order_by:
+            params["order_key"] = order_by
+            direction_kw = "ASC" if hop_filter.get("order") == "asc" else "DESC"
+            rank = f"ORDER BY CASE WHEN rank IS NULL THEN 1 ELSE 0 END, rank {direction_kw}"
+            rank_expr = "toFloat(r[$order_key])"
+        else:
+            rank, rank_expr = "", "null"
+
+        cypher = f"""
+        MATCH (n) WHERE elementId(n) IN $frontier
+        CALL {{
+            WITH n
+            MATCH {pattern}
+            {where}
+            WITH r, m, {rank_expr} AS rank
+            {rank}
+            RETURN r, m, rank LIMIT $per_node_fetch
+        }}
+        RETURN n, r, m, rank
+        {rank}
+        LIMIT $hop_fetch
+        """
+        return cypher, params
+
+    def _neighbourhood_node(self, node, hop, properties, preferred_label=None):
+        labels = sorted(node.labels)
+        label = preferred_label if preferred_label in labels else (labels[0] if labels else "node")
+        data = {"id": f"{label} {node.get('id')}", "type": label, "hop": hop}
+        if properties:
+            for key, value in node.items():
+                if key not in ("id", "synonyms"):
+                    data[key] = value
+        data["name"] = next(
+            (node.get(k) for k in self._NEIGHBOURHOOD_NAME_KEYS if node.get(k)), data["id"])
+        return data
+
+    def expand_neighbourhood(self, request, species="human", stop_event=None, on_hop_complete=None):
+        import neo4j
+        from app.constants import NEIGHBOURHOOD_HOP_TIMEOUT_S, NEIGHBOURHOOD_MAX_TOTAL_NODES
+
+        def run(text, **params):
+            return self.run_query(neo4j.Query(text, timeout=NEIGHBOURHOOD_HOP_TIMEOUT_S),
+                                  stop_event=stop_event, species=species,
+                                  query_type=QueryType.GRAPH, parameters=params)
+
+        seed = request["seed"]
+        seed_type = self._safe_label(seed["type"])
+        properties = request.get("properties", True)
+        max_hops = request["max_hops"]
+        hop_filters = request.get("hops") or [{}]
+        per_node_limit = request["per_node_limit"]
+
+        result = {
+            "seed": {"type": seed_type, "id": seed["id"], "found": False},
+            "nodes": [], "edges": [], "hops": [], "seed_degree": [],
+            "node_count": 0, "edge_count": 0,
+            "node_count_by_label": [], "edge_count_by_label": [],
+            "truncated": False,
+        }
+
+        records = run(f"MATCH (s:{seed_type} {{id: $id}}) RETURN s LIMIT 1", id=seed["id"])
+        if not records:
+            return result
+        seed_node = records[0]["s"]
+        result["seed"].update(found=True, node_id=f"{seed_type} {seed['id']}")
+
+        # True totals around the seed, so callers can see what exists beyond
+        # the limits and pick the next hop's filters. Cheap because it is
+        # a single node's degree.
+        degree = run("""
+            MATCH (s) WHERE elementId(s) = $eid
+            MATCH (s)-[r]-(m)
+            RETURN type(r) AS edge_type, labels(m)[0] AS neighbour_type,
+                   CASE WHEN startNode(r) = s THEN 'out' ELSE 'in' END AS direction,
+                   count(*) AS count
+            ORDER BY count DESC
+        """, eid=seed_node.element_id)
+        result["seed_degree"] = [dict(r) for r in degree]
+
+        nodes = {seed_node.element_id: self._neighbourhood_node(seed_node, 0, properties, seed_type)}
+        edges = {}
+        frontier = [seed_node.element_id]
+
+        for hop in range(1, max_hops + 1):
+            if not frontier:
+                break
+            if stop_event is not None and stop_event.is_set():
+                from app.error import TaskCancelledException
+                raise TaskCancelledException()
+
+            hop_filter = hop_filters[min(hop - 1, len(hop_filters) - 1)]
+            hop_limit = hop_filter["limit"]
+            # per_node_limit spreads a hop's budget across many frontier nodes;
+            # with a single frontier node (the seed) the hop limit alone applies.
+            node_limit = per_node_limit if len(frontier) > 1 else hop_limit
+            hop_query, hop_params = self._neighbourhood_hop_query(hop_filter)
+            rows = run(hop_query,
+                       frontier=frontier,
+                       per_node_fetch=node_limit + 1,
+                       hop_fetch=hop_limit + len(frontier) + 1,
+                       **hop_params)
+
+            preferred = (hop_filter.get("node_types") or [None])[0]
+            per_node_seen = Counter()
+            new_frontier = []
+            hop_edges = 0
+            truncated = False
+            for row in rows:
+                source_eid = row["n"].element_id
+                per_node_seen[source_eid] += 1
+                if per_node_seen[source_eid] > node_limit:
+                    truncated = True    # the extra row only signals "more exist"
+                    continue
+                if hop_edges >= hop_limit or len(nodes) >= NEIGHBOURHOOD_MAX_TOTAL_NODES:
+                    truncated = True
+                    break
+                neighbour, rel = row["m"], row["r"]
+                if neighbour.element_id not in nodes:
+                    nodes[neighbour.element_id] = self._neighbourhood_node(
+                        neighbour, hop, properties, preferred)
+                    new_frontier.append(neighbour.element_id)
+                if rel.element_id in edges:
+                    continue
+                edge = {
+                    "source": nodes[rel.start_node.element_id]["id"],
+                    "target": nodes[rel.end_node.element_id]["id"],
+                    "label": rel.type,
+                    "hop": hop,
+                }
+                edge["edge_id"] = (f"{nodes[rel.start_node.element_id]['type']}_{rel.type}_"
+                                   f"{nodes[rel.end_node.element_id]['type']}")
+                if properties:
+                    for key, value in rel.items():
+                        edge["source_data" if key == "source" else key] = value
+                edges[rel.element_id] = edge
+                hop_edges += 1
+
+            # ranked_by tells the caller whether a truncated hop kept the top
+            # edges (ranked) or an arbitrary subset (None).
+            summary = {"hop": hop, "node_count": len(new_frontier),
+                       "edge_count": hop_edges, "truncated": truncated,
+                       "ranked_by": hop_filter.get("order_by")}
+            result["hops"].append(summary)
+            result["truncated"] = result["truncated"] or truncated
+            if on_hop_complete is not None:
+                on_hop_complete(summary)
+            frontier = new_frontier
+
+        node_list = list(nodes.values())
+        edge_list = list(edges.values())
+        result["nodes"] = [{"data": n} for n in node_list]
+        result["edges"] = [{"data": e} for e in edge_list]
+        result["node_count"] = len(node_list)
+        result["edge_count"] = len(edge_list)
+        result["node_count_by_label"] = [
+            {"label": k, "count": v} for k, v in Counter(n["type"] for n in node_list).items()]
+        result["edge_count_by_label"] = [
+            {"label": k, "count": v} for k, v in Counter(e["label"] for e in edge_list).items()]
+        return result
+
     def _escape_regex(self, value) -> str:
         """Escape regex special characters in a property value, strip stray quotes."""
         cleaned = str(value).replace("'", "").replace('"', '')
