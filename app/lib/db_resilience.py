@@ -60,6 +60,9 @@ _PERMANENT_STATUS_PREFIXES = (
     "Neo.ClientError.Statement.TypeError",
     "Neo.ClientError.Statement.EntityNotFound",
     "Neo.ClientError.Statement.ParameterMissing",
+    # The same query hit its time limit; running it again would just time
+    # out again, so fail immediately instead of retrying max_attempts times.
+    "Neo.ClientError.Transaction.TransactionTimedOut",
 )
 
 # Python exception types that map directly to a kind

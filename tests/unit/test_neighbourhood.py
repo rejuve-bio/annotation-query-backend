@@ -278,3 +278,42 @@ def test_request_model_defaults():
     body = NeighbourhoodRequest(seed={"type": "gene", "id": "FBGN0004647"})
     assert body.species == "human" and body.max_hops == 1
     assert body.hops[0].direction == "both" and body.hops[0].limit == 500
+
+
+def test_synonyms_not_returned():
+    node = FakeNode("e9", "gene", "G9", gene_name="nine", synonym='["a", "b"]', synonyms='["c"]', chr="X")
+    data = FakeGenerator()._neighbourhood_node(node, 1, properties=True)
+    assert "synonym" not in data and "synonyms" not in data
+    assert data["chr"] == "X" and data["name"] == "nine"
+
+
+def test_vocabulary_cache_expires(monkeypatch):
+    calls = []
+
+    class CountingGenerator(CypherQueryGenerator):
+        def __init__(self):
+            pass
+
+        def run_query(self, query_code, species="human", query_type=None, **kwargs):
+            calls.append(query_code)
+            return []
+
+    gen = CountingGenerator()
+    clock = [1000.0]
+    monkeypatch.setattr("app.services.cypher_generator.time.monotonic", lambda: clock[0])
+    gen._neighbourhood_vocabulary("fly")
+    gen._neighbourhood_vocabulary("fly")
+    assert len(calls) == 3                      # labels, rel types, property keys: read once
+    clock[0] += gen._NEIGHBOURHOOD_VOCAB_TTL_S + 1
+    gen._neighbourhood_vocabulary("fly")
+    assert len(calls) == 6                      # re-read after the TTL
+
+
+def test_transaction_timeout_is_not_retried():
+    from app.lib.db_resilience import FailureClassifier, FailureKind
+
+    class TimedOut(Exception):
+        code = "Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration"
+
+    exc = TimedOut("The transaction has not completed within the timeout specified ... timed out")
+    assert FailureClassifier.classify(exc) == FailureKind.PERMANENT

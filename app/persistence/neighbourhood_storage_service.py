@@ -98,6 +98,20 @@ class NeighbourhoodStorageService():
         NeighbourhoodJob.delete({"_id": id})
 
     @staticmethod
+    def delete_result_if_unused(result_path):
+        """Remove a result file once no job references it (results are shared across users)."""
+        if not result_path:
+            return
+        if next(iter(NeighbourhoodJob.find({"result_path": result_path}).limit(1)), None) is not None:
+            return
+        path = Path(result_path).resolve()
+        try:
+            path.relative_to(RESULT_DIR)
+            path.unlink(missing_ok=True)
+        except (ValueError, OSError):
+            pass    # outside RESULT_DIR or already gone — nothing to clean up
+
+    @staticmethod
     def write_result(job_id, result):
         RESULT_DIR.mkdir(parents=True, exist_ok=True)
         path = RESULT_DIR / f"{job_id}.json"

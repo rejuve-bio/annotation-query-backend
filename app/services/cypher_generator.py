@@ -6,6 +6,7 @@ import glob
 import os
 from collections import Counter
 import re
+import time
 from app.lib.db_resilience import ResilientDriver, RetryPolicy, QueryType, QueryTimeoutConfig
 from app.lib.result_formatter import Result_Formatter
 from collections import deque
@@ -155,10 +156,19 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         "term_name", "allele_symbol", "group_name", "reaction_name", "name",
     )
 
+    # Node properties never returned: 'synonym(s)' can be thousands of
+    # characters per node and bloats large neighbourhoods.
+    _NEIGHBOURHOOD_SKIP_PROPERTIES = frozenset({"id", "synonym", "synonyms"})
+
+    # How long the label / edge type / property key lists are trusted before
+    # being re-read, so a KG rebuild is picked up without a restart.
+    _NEIGHBOURHOOD_VOCAB_TTL_S = 600
+
     def _neighbourhood_vocabulary(self, species):
         """Node labels, relationship types and property keys in the species' graph (cached)."""
         cache = self.__dict__.setdefault("_nbhd_vocab_cache", {})
-        if species not in cache:
+        cached = cache.get(species)
+        if cached is None or time.monotonic() - cached[0] > self._NEIGHBOURHOOD_VOCAB_TTL_S:
             labels = self.run_query("CALL db.labels() YIELD label RETURN label",
                                     species=species, query_type=QueryType.SCHEMA)
             rel_types = self.run_query(
@@ -168,12 +178,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             # edge type but takes minutes on the fly graph.
             property_keys = self.run_query("CALL db.propertyKeys() YIELD propertyKey RETURN propertyKey",
                                            species=species, query_type=QueryType.SCHEMA)
-            cache[species] = (
+            cache[species] = (time.monotonic(), (
                 {r["label"] for r in labels},
                 {r["relationshipType"] for r in rel_types},
                 {r["propertyKey"] for r in property_keys},
-            )
-        return cache[species]
+            ))
+        return cache[species][1]
 
     def validate_neighbourhood_request(self, request, species="human"):
         labels, rel_types, property_keys = self._neighbourhood_vocabulary(species)
@@ -274,7 +284,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         data = {"id": f"{label} {node.get('id')}", "type": label, "hop": hop}
         if properties:
             for key, value in node.items():
-                if key not in ("id", "synonyms"):
+                if key not in self._NEIGHBOURHOOD_SKIP_PROPERTIES:
                     data[key] = value
         data["name"] = next(
             (node.get(k) for k in self._NEIGHBOURHOOD_NAME_KEYS if node.get(k)), data["id"])

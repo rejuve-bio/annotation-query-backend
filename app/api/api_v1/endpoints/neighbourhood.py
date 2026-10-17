@@ -203,4 +203,5 @@ def delete_neighbourhood_job(
     if job.status == TaskStatus.PENDING.value:
         cancel_job(job_id)   # a running task stops at its next check
     NeighbourhoodStorageService.delete(job_id)
+    NeighbourhoodStorageService.delete_result_if_unused(job.result_path)
     return {"job_id": job_id, "deleted": True}
