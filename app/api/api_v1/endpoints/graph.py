@@ -422,8 +422,14 @@ def get_saved_preferences(current_user_id: str = Depends(get_current_user)):
 async def download_tsv(id: str, current_user_id: str = Depends(get_current_user)):
     # Fetch annotation metadata
     cursor = AnnotationStorageService.get_by_id(id)
-    
+
     if cursor is None:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+
+    owner_id = cursor.user_id
+    participants = cursor.participant_user_ids or []
+
+    if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
         raise HTTPException(status_code=404, detail="Annotation not found")
 
     file_path = cursor.path_url
@@ -485,14 +491,25 @@ async def download_tsv(id: str, current_user_id: str = Depends(get_current_user)
             }
         )
 @router.get("/public/vcf/{filename}")
-def download_vcf_file(filename: str):
+def download_vcf_file(filename: str, current_user_id: str = Depends(get_current_user)):
     # Sanitize — strip any path components, only allow the bare filename
     safe_filename = Path(filename).name
-    
+
     # Only allow .vcf.gz and .vcf.gz.tbi extensions
     if not (safe_filename.endswith('.vcf.gz') or safe_filename.endswith('.vcf.gz.tbi')):
         raise HTTPException(status_code=400, detail="Invalid file type")
-    
+
+    # Files are named "<annotation_id>.vcf.gz"/".vcf.gz.tbi" — enforce the
+    # same ownership/participant check used for every other per-annotation
+    # download endpoint before serving the file.
+    annotation_id = safe_filename.split('.vcf.gz')[0]
+    annotation = AnnotationStorageService.get_by_id(annotation_id)
+    if annotation is not None:
+        owner_id = annotation.user_id
+        participants = annotation.participant_user_ids or []
+        if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
+            raise HTTPException(status_code=404, detail="VCF file not found")
+
     # Resolve the full path and verify it stays within the allowed directory
     base_dir = Path("/app/public/vcf").resolve()
     file_path = (base_dir / safe_filename).resolve()

@@ -128,9 +128,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         if not protein_ids or not location_ids:
             return []
 
-        protein_ids_str = ", ".join(f"'{pid}'" for pid in protein_ids)
-        location_ids_str = ", ".join(f"'{lid}'" for lid in location_ids)
-        relationship_pattern = "|".join(predicates)
+        protein_ids_str = ", ".join(
+            f"'{self._escape_cypher_literal(pid)}'" for pid in protein_ids)
+        location_ids_str = ", ".join(
+            f"'{self._escape_cypher_literal(lid)}'" for lid in location_ids)
+        relationship_pattern = "|".join(self._safe_label(p) for p in predicates)
 
         query = f"""
         MATCH (p:protein)-[r:{relationship_pattern}]->(cc:cellular_component)
@@ -145,6 +147,28 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         """Escape regex special characters in a property value, strip stray quotes."""
         cleaned = str(value).replace("'", "").replace('"', '')
         return re.sub(r'([\[\](){}.*+?^$|\\])', r'\\\1', cleaned)
+
+    _LABEL_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+    def _safe_label(self, type_name) -> str:
+        """
+        Validate a node/relationship type used as a Cypher label. Labels
+        cannot be parameterized in Cypher, so they must be restricted to a
+        strict identifier allow-list before being interpolated into a query.
+        """
+        type_name = str(type_name)
+        if not self._LABEL_RE.match(type_name):
+            raise ValueError(f"Invalid node/relationship type: {type_name!r}")
+        return type_name
+
+    def _escape_cypher_literal(self, value) -> str:
+        """
+        Escape a value for safe interpolation inside a single-quoted Cypher
+        string literal (backslashes and quotes), preventing Cypher injection
+        via crafted ids/property values.
+        """
+        cleaned = str(value).replace("\\", "\\\\").replace("'", "\\'")
+        return cleaned
     
     def _find_anchor_node(self, predicates, node_map):
         if not predicates or len(predicates) < 2:
@@ -827,9 +851,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             - list or property node: (var:Type)
             """
             raw_id = node.get('id', '')
+            label = self._safe_label(node['type'])
             if raw_id and ',' not in raw_id:
-                return f"({var_name}:{node['type']} {{id: '{raw_id}'}})"
-            return f"({var_name}:{node['type']})"
+                safe_id = self._escape_cypher_literal(raw_id)
+                return f"({var_name}:{label} {{id: '{safe_id}'}})"
+            return f"({var_name}:{label})"
 
         clause_list = []
         all_node_vars = set()
@@ -947,10 +973,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return f""
 
     def match_node(self, node, var_name):
+        label = self._safe_label(node['type'])
         if node['id']:
-            return f"({var_name}:{node['type']} {{id: '{node['id']}'}})"
+            safe_id = self._escape_cypher_literal(node['id'])
+            return f"({var_name}:{label} {{id: '{safe_id}'}})"
         else:
-            return f"({var_name}:{node['type']})"
+            return f"({var_name}:{label})"
 
     def construct_overlap_clause(self, source_var, target_var, predicate_type):
         """
@@ -1002,6 +1030,16 @@ class CypherQueryGenerator(QueryGeneratorInterface):
     
         # Interval logic with start and end
         if start is not None and end is not None:
+            try:
+                start = int(start)
+                end = int(end)
+                upstream_distance = int(upstream_distance)
+                downstream_distance = int(downstream_distance)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    "start/end/upstream_distance/downstream_distance must be numeric"
+                )
+
             start_int = f"toInteger({var_name}.start)"
             end_int = f"toInteger({var_name}.end)"
     

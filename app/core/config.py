@@ -35,6 +35,7 @@ class Settings(BaseSettings):
 
     # App
     APP_PORT: int = 8000
+    APP_BASE_URL: str = "http://localhost:8000/"
 
     # Auth
     JWT_SECRET: Optional[str] = None
