@@ -469,6 +469,16 @@ def process_email_query(
 
     email = data["email"]
 
+    existing_record = AnnotationStorageService.get_by_id(id)
+    if existing_record is None:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+
+    owner_id = existing_record.user_id
+    participants = existing_record.participant_user_ids or []
+
+    if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+
     def send_full_data_task():
         try:
             link = process_full_data(current_user_id=current_user_id, annotation_id=id)
@@ -936,6 +946,11 @@ def cell_component(
         # get_cellular_component_locations — this endpoint stays backend-agnostic,
         # so changing one backend's query never requires touching this route.
         annotation = AnnotationStorageService.get_by_id(annotation_id)
+        if annotation is not None:
+            owner_id = annotation.user_id
+            participants = annotation.participant_user_ids or []
+            if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
+                raise HTTPException(status_code=404, detail="Annotation not found")
         species = (getattr(annotation, "species", None) or "human") if annotation else "human"
         db_instance = get_db_instance(species)
 
@@ -1148,6 +1163,12 @@ def update_title(
         existing_record = AnnotationStorageService.get_by_id(id)
 
         if existing_record is None:
+            raise HTTPException(status_code=404, detail="Annotation not found")
+
+        owner_id = existing_record.user_id
+        participants = existing_record.participant_user_ids or []
+
+        if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
             raise HTTPException(status_code=404, detail="Annotation not found")
 
         AnnotationStorageService.update(id, {"title": title})
