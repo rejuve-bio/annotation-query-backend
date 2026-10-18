@@ -17,7 +17,7 @@ from app.api.deps import (
     get_redis_client,
     get_schema_manager,
 )
-from app.constants import TaskStatus, QUERY_MAX_NODES, TASK_STALE_SECS
+from app.constants import TaskStatus, TASK_STALE_SECS
 from app.core.config import settings
 from app.error import TaskCancelledException
 from app.events import RedisStopEvent
@@ -335,13 +335,6 @@ def graph_task(
         response_data = db_instance.run_query(query_code, stop_event, species)
         retrieval_ms = round((time.time() - t0) * 1000)
         
-        if db_type == "mork_cli":
-            all_atoms = response_data[0] if response_data else []
-            truncated = len(all_atoms) > QUERY_MAX_NODES
-            if truncated:
-                logging.info(f"[graph_task] Capping {len(all_atoms)} atoms → {QUERY_MAX_NODES} for {annotation_id}")
-                all_atoms = all_atoms[:QUERY_MAX_NODES]
-
         graph_components = {
             "nodes": requests["nodes"],
             "predicates": requests["predicates"],
@@ -358,10 +351,9 @@ def graph_task(
         processing_ms = round((time.time() - t1) * 1000)
 
         if db_type == "mork_cli":
-            response['truncated'] = truncated
-            if truncated:
-                AnnotationStorageService.update(annotation_id, {"node_count": response['node_count']})
-            del all_atoms
+            # Raw output includes property atoms; its length is not a graph
+            # size limit. The staged query returns complete matches.
+            response['truncated'] = False
         del response_data
         gc.collect()
 

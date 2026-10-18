@@ -168,6 +168,55 @@ def test_stage_locations_are_strictly_increasing_and_cleanup_is_last():
     assert all(rule[3][0] == 'O' for rule in rules[first_delete:])
 
 
+PROPERTY_SCHEMA = {
+    'nodes': {
+        'gene': {'properties': {'gene_name': {}, 'chr': {}, 'synonym': {}, 'synonyms': {}, 'accessions': {}}},
+        'transcript': {'properties': {'transcript_name': {}, 'biological_context': {}}},
+        'protein': {'properties': {}},
+    },
+    'edges': {'transcribes_to': {'properties': {'score': {}, 'source': {}}}},
+}
+
+
+def test_properties_are_restricted_to_final_nodes_and_edges():
+    gen = mod.MorkCLIQueryGenerator.__new__(mod.MorkCLIQueryGenerator)
+    program = MorkJoinCompiler(request(), 'human', 'result', gen._safe_atom).compile(
+        properties=True, schema=PROPERTY_SCHEMA)
+    facts = CHAIN + '''
+    (chr (gene G1) chr17) (chr (gene G2) chr1)
+    (synonym (gene G1) alias) (synonyms (gene G1) aliases) (accessions (gene G1) accession)
+    (transcript_name (transcript T1) wanted) (transcript_name (transcript T2) dangling)
+    (biological_context (transcript T1) (anatomy UBERON_1))
+    (score (transcribes_to (gene G1) (transcript T1)) 0.5)
+    (score (transcribes_to (gene G1) (transcript T2)) 0.8)
+    (source (transcribes_to (gene G1) (transcript T1)) evidence)
+    '''
+    atoms = evaluate(program, facts)
+    props = {atom for atom in atoms if atom[0] == 'tmp'}
+    assert props == set(sexprs('''
+    (tmp (node gene_name (gene G1) TP53))
+    (tmp (node chr (gene G1) chr17))
+    (tmp (node transcript_name (transcript T1) wanted))
+    (tmp (node biological_context (transcript T1) (anatomy UBERON_1)))
+    (tmp (edge score (transcribes_to (gene G1) (transcript T1)) 0.5))
+    (tmp (edge source (transcribes_to (gene G1) (transcript T1)) evidence))
+    '''))
+    assert all(atom[0] in ('result', 'tmp') for atom in atoms)
+    assert '($property ' not in program
+
+
+def test_single_node_queries_fetch_properties_in_the_same_program():
+    req = {'nodes': [node('n0', 'gene', {'gene_name': 'TP53'})], 'predicates': []}
+    gen = mod.MorkCLIQueryGenerator.__new__(mod.MorkCLIQueryGenerator)
+    program = MorkJoinCompiler(req, 'human', 'result', gen._safe_atom).compile(
+        properties=True, schema=PROPERTY_SCHEMA)
+    assert evaluate(program, CHAIN + '(chr (gene G1) chr17)') == set(sexprs('''
+    (result (gene G1))
+    (tmp (node gene_name (gene G1) TP53))
+    (tmp (node chr (gene G1) chr17))
+    '''))
+
+
 def test_predicate_ids_do_not_collapse_distinct_constraints():
     req = request()
     req['predicates'][1]['predicate_id'] = 'p0'
@@ -249,4 +298,9 @@ def test_queries_survive_json_transport_and_execute_once_each(tmp_path, monkeypa
     assert req == original
     for program, query in zip(programs, queries):
         assert query[3] in program
-        assert all(atom[0] == query[3] for atom in evaluate(program, CHAIN))
+        atoms = evaluate(program, CHAIN)
+        assert all(atom[0] in (query[3], 'tmp') for atom in atoms)
+        assert {atom[1] for atom in atoms if atom[0] == query[3]} == {
+            sexprs('(transcribes_to (gene G1) (transcript T1))')[0],
+            sexprs('(translates_to (transcript T1) (protein P1))')[0],
+        }

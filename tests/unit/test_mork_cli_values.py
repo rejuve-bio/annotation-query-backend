@@ -94,8 +94,9 @@ def test_multiple_properties_use_separate_conjunctive_act_sources(gen, monkeypat
     sources = program.get_children()[2].get_children()[1:]
     assert len(sources) == 2
     assert all(len(source.get_children()) == 3 for source in sources)
-    assert "(gene_type (gene $n0) protein_coding)" in str(sources[0])
-    assert "(chr (gene $n0) chr17)" in str(sources[1])
+    assert {str(source.get_children()[2]) for source in sources} == {
+        "(gene_type (gene $x) protein_coding)", "(chr (gene $x) chr17)",
+    }
     assert request == original
 
 
@@ -128,7 +129,8 @@ def test_values_are_normalized_in_node_and_predicate_queries(gen):
 def test_existing_identifier_case_is_preserved(gen):
     source = node(identifier="MixedCase_ID")
     query = gen.query_Generator({"nodes": [source], "predicates": []}, {"n0": source})[0]
-    assert query[0] == ("(gene MixedCase_ID)",)
+    assert "(ACT " in query[0][0]
+    assert "(gene MixedCase_ID)" in query[0][0]
 
 
 def test_http_value_serialization_is_unchanged():

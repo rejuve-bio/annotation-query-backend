@@ -72,7 +72,7 @@ class MorkJoinCompiler:
             sources.append(self.program.act(f"({name} {term} {normalize_mork_value(value)})"))
         return sources
 
-    def compile(self):
+    def compile(self, properties=False, schema=None):
         p = self.program
         adjacency = {node_id: [] for node_id in self.nodes}
         for index, predicate in enumerate(self.predicates):
@@ -159,4 +159,32 @@ class MorkJoinCompiler:
                         self.member(surviving[other], other, b)],
                        [f"({head} {self.node(other, b)})", f"({self.result_id} {edge})"])
                 final[other] = head
+        if not self.predicates:
+            p.emit([self.member(final[root], root)], [f"({self.result_id} {self.node(root)})"])
+        if properties:
+            self.fetch_properties(final, schema or {})
         return p.finish()
+
+    def fetch_properties(self, final, schema):
+        p = self.program
+        by_type = {}
+        for node_id, head in final.items():
+            node_type = self.nodes[node_id]['type']
+            if node_type not in by_type:
+                by_type[node_type] = p.head()
+            p.emit([self.member(head, node_id)], [f"({by_type[node_type]} {self.node(node_id)})"])
+        for node_type, head in by_type.items():
+            node = f"({self.safe_atom(node_type)} $x)"
+            for name in schema.get('nodes', {}).get(node_type, {}).get('properties', {}):
+                if name in ('synonym', 'synonyms', 'accessions'):
+                    continue
+                require_safe_property_name(name, f"schema for '{node_type}'")
+                p.emit([f"(BTM ({head} {node}))", p.act(f"({name} {node} $value)")],
+                       [f"(tmp (node {name} {node} $value))"])
+        for index in range(len(self.predicates)):
+            edge = self.edge(index)
+            label = self.predicates[index]['type'].replace(' ', '_')
+            for name in schema.get('edges', {}).get(label, {}).get('properties', {}):
+                require_safe_property_name(name, f"schema for '{label}'")
+                p.emit([f"(BTM ({self.result_id} {edge}))", p.act(f"({name} {edge} $value)")],
+                       [f"(tmp (edge {name} {edge} $value))"])
