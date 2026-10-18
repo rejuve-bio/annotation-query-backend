@@ -122,7 +122,7 @@ def test_values_are_normalized_in_node_and_predicate_queries(gen):
     ]}
     patterns = gen.query_Generator(request, {"n1": gene, "n0": source})[0][0]
     assert "DEADH_box" in patterns[0]
-    assert "apoptotic_process" in patterns[1]
+    assert "apoptotic_process" in " ".join(patterns)
 
 
 def test_existing_identifier_case_is_preserved(gen):

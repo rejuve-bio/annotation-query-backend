@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 from app.lib.mork_values import normalize_mork_value
 from app.services.mork_generator import MorkQueryGenerator
-from app.constants import QUERY_MAX_NODES, MAX_BINDING_VALS, MAX_COMBOS
+from app.services.mork_program import MorkJoinCompiler
 from hyperon import MeTTa
 import logging
 
@@ -269,6 +269,21 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
         self.species = species
         self.metta = MeTTa()
 
+    def query_Generator(self, requests, node_map, limit=None, node_only=False):
+        if not requests.get('predicates'):
+            return super().query_Generator(requests, node_map, limit, node_only)
+
+        dataset_id = hashlib.md5(str(self.dataset_path.resolve()).encode()).hexdigest()[:8]
+        result_id = self.generate_id()
+        program = MorkJoinCompiler(requests, f"mork_{dataset_id}", result_id, self._safe_atom).compile()
+        # Keep the four-part query format serializable for the Celery workers.
+        queries = []
+        for suffix, query_type in (('', 'query'), ('_total', 'total_count'), ('_label', 'label_count')):
+            current_id = result_id + suffix
+            current_program = program.replace(f"({result_id} ", f"({current_id} ")
+            queries.append(((current_program,), (), query_type, current_id))
+        return queries
+
     def _serialize_metta_value(self, value):
         return normalize_mork_value(value)
 
@@ -510,167 +525,6 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
 
         return parsed
 
-    def _resolve_chained_patterns(self, pattern_tuple, template_tuple, query_obj, start_time):
-        """
-        Resolve an arbitrary multi-predicate query against ACT (which only supports
-        single-pattern matching).
-
-        Algorithm:
-          1. Separate property-filter patterns (not in template) from predicate patterns.
-          2. Phase 1 – run each property pattern to collect concrete node IDs; keep ALL
-             matches as a list (bindings: var -> [val, ...]).
-          3. Phase 2 – topological worklist: repeatedly pick any predicate whose input
-             variables are already bound, expand all combinations of those values, run one
-             MORK query per combination, collect result atoms AND capture new output-var
-             values so downstream predicates can use them.
-          4. Return the union of all collected result atoms.
-
-        This handles linear chains (A→B→C), branching (A→B and A→C), and arbitrary DAGs.
-        """
-        import re
-        import itertools
-
-        def extract_vars(s):
-            return set(re.findall(r'\$(\w+)', s))
-
-        def capture_var_values(pat, var):
-            atoms = self._run_single_pattern(pat, f'(captured_{var} ${var})')
-            vals = []
-            for atom in atoms:
-                if hasattr(atom, 'get_children'):
-                    ch = atom.get_children()
-                    if len(ch) >= 2 and hasattr(ch[1], 'get_name'):
-                        v = ch[1].get_name()
-                        if v not in vals:
-                            vals.append(v)
-            return vals
-
-        # Map predicate-body string → full template string
-        body_to_tmpl = {}
-        for t in template_tuple:
-            m = re.match(r'^\s*\(\S+\s+(.+)\)\s*$', t.strip(), re.DOTALL)
-            if m:
-                body_to_tmpl[m.group(1).strip()] = t.strip()
-
-        property_pats  = [p for p in pattern_tuple if p.strip() not in body_to_tmpl]
-        predicate_pats = [p for p in pattern_tuple if p.strip() in body_to_tmpl]
-
-        # Phase 1: resolve property-filter variables (bindings: var -> list[str])
-        bindings = {}
-        for prop in property_pats:
-            for var in extract_vars(prop):
-                if var in bindings:
-                    continue
-                vals = capture_var_values(prop.strip(), var)
-                if vals:
-                    bindings[var] = vals
-
-        if not bindings and property_pats:
-            duration = (time.time() - start_time) * 1000
-            logger.info("Query executed", extra={"query": str(query_obj), "duration_ms": duration, "status": "no_match"})
-            return [[]]
-
-        # Pre-compute which vars appear in more than one predicate (need chaining)
-        var_pred_count = {}
-        for p in predicate_pats:
-            for v in extract_vars(p):
-                var_pred_count[v] = var_pred_count.get(v, 0) + 1
-        chained_vars = {v for v, c in var_pred_count.items() if c > 1}
-
-        # Phase 2: topological worklist
-        resolved_vars = set(bindings.keys())
-        remaining     = list(predicate_pats)
-        all_atoms     = []
-        _atom_cap     = False
-
-        for _ in range(len(predicate_pats) ** 2 + 1):
-            if not remaining or _atom_cap:
-                break
-            deferred = []
-            progress = False
-
-            for pred_pat in remaining:
-                vars_in_pat = extract_vars(pred_pat)
-                input_vars  = vars_in_pat & resolved_vars
-                output_vars = vars_in_pat - resolved_vars
-
-                if not input_vars and vars_in_pat:
-                    # Only defer if another unprocessed pattern with resolved
-                    # inputs shares our vars (meaning it will produce them for us).
-                    # Patterns whose vars are all new outputs (e.g. a predicate
-                    # starting from a concrete node ID) should run immediately.
-                    produces_our_vars = any(
-                        (extract_vars(other) & vars_in_pat)
-                        and (extract_vars(other) & resolved_vars)
-                        for other in remaining if other != pred_pat
-                    )
-                    if produces_our_vars:
-                        deferred.append(pred_pat)
-                        continue
-
-                tmpl           = body_to_tmpl[pred_pat.strip()]
-                input_var_list = sorted(input_vars)
-
-                # B4: cap each binding list before building the Cartesian product
-                for v in input_var_list:
-                    if len(bindings[v]) > MAX_BINDING_VALS:
-                        logger.warning(f"[MORK] Capping binding ${v}: {len(bindings[v])} → {MAX_BINDING_VALS}")
-                        bindings[v] = bindings[v][:MAX_BINDING_VALS]
-
-                combos = (
-                    list(itertools.product(*[bindings[v] for v in input_var_list]))
-                    if input_var_list else [()]
-                )
-                if len(combos) > MAX_COMBOS:
-                    logger.warning(f"[MORK] Combo cap: {len(combos)} → {MAX_COMBOS}")
-                    combos = combos[:MAX_COMBOS]
-
-                new_vals = {v: [] for v in output_vars}
-
-                for combo in combos:
-                    subst_pat  = pred_pat.strip()
-                    subst_tmpl = tmpl
-                    # Sort longest var name first to prevent $n1 clobbering $n10
-                    for var, val in sorted(zip(input_var_list, combo), key=lambda x: -len(x[0])):
-                        if any(ch in "()\"'\\" for ch in str(val)):
-                            raise ValueError(f"Invalid MeTTa atom value for ${var}: {val!r}")
-                        safe_val = str(val).replace('\\', '\\\\')
-                        subst_pat  = re.sub(r'\$' + re.escape(var) + r'(?!\w)', lambda m: safe_val, subst_pat)
-                        subst_tmpl = re.sub(r'\$' + re.escape(var) + r'(?!\w)', lambda m: safe_val, subst_tmpl)
-
-                    atoms = self._run_single_pattern(subst_pat, subst_tmpl)
-                    all_atoms.extend(atoms)
-
-                    # B5: early exit if atom count hits the hard cap
-                    if len(all_atoms) >= QUERY_MAX_NODES:
-                        logger.warning(f"[MORK] Early atom exit: {len(all_atoms)} atoms reached cap")
-                        _atom_cap = True
-                        break
-
-                    # Capture output vars that feed into downstream predicates
-                    for out_var in output_vars:
-                        if out_var not in chained_vars:
-                            continue
-                        for v in capture_var_values(subst_pat, out_var):
-                            if v not in new_vals[out_var]:
-                                new_vals[out_var].append(v)
-
-                for var, vals in new_vals.items():
-                    if vals:
-                        existing = bindings.get(var, [])
-                        bindings[var] = existing + [v for v in vals if v not in existing]
-                        resolved_vars.add(var)
-
-                progress = True
-
-            remaining = deferred
-            if not progress:
-                break
-
-        duration = (time.time() - start_time) * 1000
-        logger.info("Query executed", extra={"query": str(query_obj), "duration_ms": duration, "status": "capped" if _atom_cap else "success"})
-        return [all_atoms]
-
     def run_query(self, query, stop_event=None, species='human'):
         start_time = time.time()
         pattern_tuple, template_tuple, query_type, _ = query
@@ -701,13 +555,11 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 if not shm_act.exists():
                     logger.warning(f"SHM Symlink update failed: {e}")
 
-        if len(pattern_tuple) == 1:
-            act_pattern = pattern_tuple[0]
-            template_body = template_str
-            sources = self._act_sources(target_space, act_pattern)
-            metta_query = f'(exec 0 (I {sources}) (, {template_body}))'
+        if len(pattern_tuple) == 1 and pattern_tuple[0].lstrip().startswith('(exec '):
+            metta_query = pattern_tuple[0]
         else:
-            return self._resolve_chained_patterns(pattern_tuple, template_tuple, query, start_time)
+            sources = self._act_sources(target_space, pattern_str)
+            metta_query = f'(exec 0 (I {sources}) (, {template_str}))'
         
         query_id = uuid.uuid4().hex
         query_file = Path("/dev/shm") / f"query_{query_id}.metta"

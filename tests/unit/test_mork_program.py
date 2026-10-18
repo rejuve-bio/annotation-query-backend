@@ -1,0 +1,252 @@
+"""Staged MORK joins, evaluated against small in-memory fact sets."""
+
+import copy
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from hyperon import MeTTa
+
+from app.lib.logic import LogicValidationError
+from app.services import mork_cli_generator as mod
+from app.services.mork_program import MorkJoinCompiler
+
+
+def node(nid, typ, properties=None, identifier=''):
+    return {'node_id': nid, 'type': typ, 'properties': properties or {}, 'id': identifier}
+
+
+def predicate(source, target, typ, pid='p0'):
+    return {'predicate_id': pid, 'source': source, 'target': target, 'type': typ}
+
+
+def request(properties=None):
+    return {'nodes': [node('n0', 'gene', properties or {'gene_name': 'TP53'}),
+                      node('n1', 'transcript'), node('n2', 'protein')],
+            'predicates': [predicate('n0', 'n1', 'transcribes to'),
+                           predicate('n1', 'n2', 'translates to', 'p1')]}
+
+
+def sexprs(text):
+    def convert(atom):
+        if hasattr(atom, 'get_children'):
+            return tuple(convert(child) for child in atom.get_children())
+        return str(atom)
+    return [convert(atom) for atom in MeTTa().parse_all(text)]
+
+
+def match(pattern, fact, bindings):
+    if isinstance(pattern, str) and pattern.startswith('$'):
+        if pattern in bindings:
+            return bindings if bindings[pattern] == fact else None
+        return {**bindings, pattern: fact}
+    if isinstance(pattern, tuple) and isinstance(fact, tuple) and len(pattern) == len(fact):
+        for left, right in zip(pattern, fact):
+            bindings = match(left, right, bindings)
+            if bindings is None:
+                break
+        return bindings
+    return bindings if pattern == fact else None
+
+
+def substitute(pattern, bindings):
+    if isinstance(pattern, tuple):
+        return tuple(substitute(child, bindings) for child in pattern)
+    return bindings.get(pattern, pattern)
+
+
+def evaluate(program, facts):
+    """Interpret the ACT/BTM join and write/delete subset used by these programs."""
+    stored = set(sexprs(facts))
+    memory = set()
+    for _, _, sources, sink in sexprs(program):
+        snapshot = set(memory)
+        rows = [{}]
+        for source in sources[1:]:
+            pool, pattern = (stored, source[2]) if source[0] == 'ACT' else (snapshot, source[1])
+            joined = []
+            for row in rows:
+                for fact in pool:
+                    bound = match(pattern, fact, row)
+                    if bound is not None:
+                        joined.append(bound)
+            rows = joined
+        for row in rows:
+            if sink[0] == ',':
+                memory.update(substitute(out, row) for out in sink[1:])
+            else:
+                assert sink[0] == 'O' and sink[1][0] == '-'
+                memory.discard(substitute(sink[1][1], row))
+    return memory
+
+
+def compile_request(req):
+    gen = mod.MorkCLIQueryGenerator.__new__(mod.MorkCLIQueryGenerator)
+    return MorkJoinCompiler(req, 'human', 'result', gen._safe_atom).compile()
+
+
+def results(*edges):
+    return {('result', sexprs(edge)[0]) for edge in edges}
+
+
+CHAIN = '''
+(gene_name (gene G1) TP53)
+(transcribes_to (gene G1) (transcript T1))
+(transcribes_to (gene G1) (transcript T2))
+(transcribes_to (gene G2) (transcript T3))
+(translates_to (transcript T1) (protein P1))
+(translates_to (transcript T3) (protein P3))
+'''
+
+
+def test_chain_removes_dangling_upstream_edges_and_helpers():
+    assert evaluate(compile_request(request()), CHAIN) == results(
+        '(transcribes_to (gene G1) (transcript T1))',
+        '(translates_to (transcript T1) (protein P1))',
+    )
+
+
+def test_failed_downstream_filter_returns_no_partial_graph():
+    req = request()
+    req['nodes'][2]['properties'] = {'protein_name': 'missing'}
+    assert evaluate(compile_request(req), CHAIN) == set()
+
+
+def test_branch_failure_removes_edges_on_other_branch():
+    req = request({'gene_type': 'coding'})
+    req['predicates'][1] = predicate('n0', 'n2', 'has protein', 'p1')
+    facts = '''
+    (gene_type (gene G1) coding) (gene_type (gene G2) coding)
+    (transcribes_to (gene G1) (transcript T1))
+    (transcribes_to (gene G2) (transcript T2))
+    (has_protein (gene G2) (protein P2))
+    '''
+    assert evaluate(compile_request(req), facts) == results(
+        '(transcribes_to (gene G2) (transcript T2))',
+        '(has_protein (gene G2) (protein P2))',
+    )
+
+
+def test_filters_on_multiple_nodes_are_all_required():
+    req = request()
+    req['nodes'][1]['properties'] = {'kind': 'wanted'}
+    assert evaluate(compile_request(req), CHAIN + '(kind (transcript T2) wanted)') == set()
+
+
+def test_concrete_id_and_properties_are_both_required():
+    req = request()
+    req['nodes'][0]['id'] = 'G2'
+    assert evaluate(compile_request(req), CHAIN + '(gene G2)') == set()
+    req['nodes'][0]['properties'] = {}
+    assert evaluate(compile_request(req), CHAIN + '(gene G2)') == results(
+        '(transcribes_to (gene G2) (transcript T3))',
+        '(translates_to (transcript T3) (protein P3))',
+    )
+
+
+def test_reverse_traversal_scans_act_before_target_membership():
+    req = request()
+    req['nodes'][0]['properties'] = {}
+    req['nodes'][2]['properties'] = {'protein_name': 'wanted'}
+    program = compile_request(req)
+    assert evaluate(program, CHAIN + '(protein_name (protein P1) wanted)') == results(
+        '(transcribes_to (gene G1) (transcript T1))',
+        '(translates_to (transcript T1) (protein P1))',
+    )
+    expansions = [rule for rule in sexprs(program)
+                  if any(src[0] == 'ACT' and src[2][0] in ('transcribes_to', 'translates_to')
+                         for src in rule[2][1:])]
+    assert len(expansions) == 2
+    assert all(rule[2][1][0] == 'ACT' for rule in expansions)
+
+
+def test_stage_locations_are_strictly_increasing_and_cleanup_is_last():
+    rules = sexprs(compile_request(request()))
+    assert [int(rule[1]) for rule in rules] == list(range(1, len(rules) + 1))
+    first_delete = next(i for i, rule in enumerate(rules) if rule[3][0] == 'O')
+    assert all(rule[3][0] == 'O' for rule in rules[first_delete:])
+
+
+def test_predicate_ids_do_not_collapse_distinct_constraints():
+    req = request()
+    req['predicates'][1]['predicate_id'] = 'p0'
+    assert evaluate(compile_request(req), CHAIN) == results(
+        '(transcribes_to (gene G1) (transcript T1))',
+        '(translates_to (transcript T1) (protein P1))',
+    )
+
+
+def test_nodes_with_the_same_type_keep_separate_bindings():
+    req = {'nodes': [node('n0', 'gene', {'gene_name': 'A'}),
+                     node('n1', 'gene'), node('n2', 'gene')],
+           'predicates': [predicate('n0', 'n1', 'first'), predicate('n1', 'n2', 'second', 'p1')]}
+    facts = '''
+    (gene_name (gene G1) A)
+    (first (gene G1) (gene G2)) (first (gene G1) (gene G4))
+    (second (gene G2) (gene G3))
+    '''
+    assert evaluate(compile_request(req), facts) == results(
+        '(first (gene G1) (gene G2))', '(second (gene G2) (gene G3))',
+    )
+
+
+def test_empty_name_filter_does_not_override_a_positive_filter():
+    req = request({'gene_name': ''})
+    req['nodes'][2]['properties'] = {'kind': 'wanted'}
+    program = compile_request(req)
+    assert sexprs(program)[0][2][1][2] == ('kind', ('protein', '$x'), 'wanted')
+    assert evaluate(program, CHAIN + '(kind (protein P1) wanted)') == results(
+        '(transcribes_to (gene G1) (transcript T1))',
+        '(translates_to (transcript T1) (protein P1))',
+    )
+
+
+@pytest.mark.parametrize('shape', ['cycle', 'parallel', 'disconnected'])
+def test_non_tree_requests_are_rejected(shape):
+    req = request()
+    if shape == 'cycle':
+        req['predicates'].append(predicate('n2', 'n0', 'links', 'p2'))
+    elif shape == 'parallel':
+        req['predicates'].append(predicate('n0', 'n1', 'links', 'p2'))
+    else:
+        req['nodes'].append(node('n3', 'gene'))
+    with pytest.raises(LogicValidationError, match='not supported yet'):
+        compile_request(req)
+
+
+@pytest.mark.parametrize('kind', ['position', 'comma', 'edge'])
+def test_unsupported_filters_are_rejected(kind):
+    req = request()
+    if kind == 'position':
+        req['nodes'][0]['properties'] = {'start': 123}
+    elif kind == 'comma':
+        req['nodes'][0]['properties'] = {'gene_name': 'TP53,BRCA1'}
+    else:
+        req['predicates'][0]['properties'] = {'score': 1}
+    with pytest.raises(LogicValidationError, match='not supported yet'):
+        compile_request(req)
+
+
+def test_queries_survive_json_transport_and_execute_once_each(tmp_path, monkeypatch):
+    gen = mod.MorkCLIQueryGenerator(tmp_path)
+    (tmp_path / gen.act_filename).touch()
+    monkeypatch.setattr(mod, 'Path', lambda path: tmp_path if path == '/dev/shm' else Path(path))
+    programs = []
+
+    def execute(path):
+        programs.append(Path(path).read_text())
+        return SimpleNamespace(stdout='result:\n')
+
+    monkeypatch.setattr(mod, '_get_session', lambda _: SimpleNamespace(exec_query=execute))
+    monkeypatch.setattr(gen, '_run_single_pattern', lambda *args: pytest.fail('per-binding process'))
+    req = request()
+    original = copy.deepcopy(req)
+    queries = gen.query_Generator(req, {n['node_id']: n for n in req['nodes']})
+    for query in json.loads(json.dumps(queries)):
+        gen.run_query(query)
+    assert len(programs) == 3
+    assert req == original
+    for program, query in zip(programs, queries):
+        assert query[3] in program
+        assert all(atom[0] == query[3] for atom in evaluate(program, CHAIN))
