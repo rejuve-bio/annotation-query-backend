@@ -46,6 +46,9 @@ class Settings(BaseSettings):
 
     # Feature flags
     DEDUP_ENABLED: bool = True
+    # Reject requests with no positive filter (no id, property or narrowing
+    # logic condition): they would scan most of the graph.
+    REQUIRE_POSITIVE_FILTER: bool = True
 
     class Config:
         case_sensitive = True
