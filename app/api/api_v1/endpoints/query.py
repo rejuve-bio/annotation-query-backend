@@ -30,6 +30,7 @@ from app.workers.celery_app import redis_state
 from app.annotation_controller import process_full_data
 from app.lib.email import send_email
 from app.lib.query_canonical import canonicalize_graph, query_fingerprint
+from app.lib.logic import counted_nodes_and_predicates
 import threading
 from app.core.config import settings
 from app.api.deps import oauth2_scheme
@@ -390,10 +391,11 @@ def process_query(
         count_by_label = db_instance.run_query(count_by_label_query)
         count_result = [total_count[0], count_by_label[0]]
 
+        counted_nodes, counted_predicates = counted_nodes_and_predicates(requests)
         meta_data = db_instance.parse_and_serialize(
             count_result,
             schema_manager.full_schema_representation,
-            graph_components,
+            {**graph_components, "nodes": counted_nodes, "predicates": counted_predicates},
             result_type="count",
         )
 

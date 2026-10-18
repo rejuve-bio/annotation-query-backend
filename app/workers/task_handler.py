@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.error import TaskCancelledException
 from app.events import RedisStopEvent
 from app.lib import Graph
+from app.lib.logic import counted_nodes_and_predicates
 from app.persistence import AnnotationStorageService
 import datetime as dt
 from app.lib.utils import format_duration as _format_duration
@@ -160,10 +161,12 @@ def generate_empty_label_count(requests):
     node_count_by_label = {}
     edge_count_by_label = {}
 
-    for node in requests["nodes"]:
+    # Predicates under NOT and their far nodes are never returned, so they get no label count.
+    counted_nodes, counted_predicates = counted_nodes_and_predicates(requests)
+    for node in counted_nodes:
         node_count_by_label[node["type"]] = 0
 
-    for edges in requests["predicates"]:
+    for edges in counted_predicates:
         edge_count_by_label[edges["type"]] = 0
 
     for key, value in node_count_by_label.items():
@@ -668,9 +671,10 @@ def total_count_task(
             return
 
         count_result = [total_count[0], {}]
+        counted_nodes, counted_predicates = counted_nodes_and_predicates(requests)
         graph_components = {
-            "nodes": requests["nodes"],
-            "predicates": requests["predicates"],
+            "nodes": counted_nodes,
+            "predicates": counted_predicates,
             "properties": False,
         }
         response = db_instance.parse_and_serialize(
@@ -842,9 +846,10 @@ def label_count_task(
 
         label_count = db_instance.run_query(count_query, None, species)
         count_result = [{}, label_count[0]]
+        counted_nodes, counted_predicates = counted_nodes_and_predicates(requests)
         graph_components = {
-            "nodes": requests["nodes"],
-            "predicates": requests["predicates"],
+            "nodes": counted_nodes,
+            "predicates": counted_predicates,
             "properties": False,
         }
         response = db_instance.parse_and_serialize(
