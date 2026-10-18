@@ -161,6 +161,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             raise ValueError(f"Invalid node/relationship type: {type_name!r}")
         return type_name
 
+    def _cypher_string_list(self, values) -> str:
+        """Render values as a Cypher list of single-quoted, escaped string literals."""
+        return "[" + ", ".join(f"'{self._escape_cypher_literal(v)}'" for v in values) + "]"
+
     def _escape_cypher_literal(self, value) -> str:
         """
         Escape a value for safe interpolation inside a single-quoted Cypher
@@ -814,7 +818,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         
         predicates = self._topological_sort_predicates(predicates, list_vars)
         # WITH clause — only list variables
-        with_parts = [f"{id_list} AS {list_var}" for (id_list, list_var, _) in list_vars.values()]
+        with_parts = [f"{self._cypher_string_list(id_list)} AS {list_var}" for (id_list, list_var, _) in list_vars.values()]
         with_clause = f"WITH {', '.join(with_parts)}" if with_parts else ""
 
         def get_node_filter(node, var_name):
@@ -829,7 +833,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
             if var_name in list_vars:
                 _, list_var, filter_prop = list_vars[var_name]
-                conditions.append(f"{var_name}.{filter_prop} IN {list_var}")
+                conditions.append(f"{var_name}.{self._safe_label(filter_prop)} IN {list_var}")
 
             # Additional property filters (non-list, non-reserved)
             props = node.get('properties', {})
@@ -840,7 +844,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     continue
                 if isinstance(value, str) and ',' in value:
                     continue
-                conditions.append(f"{var_name}.{key} =~ '(?i){value}'")
+                conditions.append(f"{var_name}.{self._safe_label(key)} =~ '(?i){self._escape_regex(value)}'")
 
             return conditions
 
@@ -1026,7 +1030,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             if key in ['start', 'end', 'interval_type', 'upstream_distance', 'downstream_distance']:
                 continue
             escaped = self._escape_regex(value)
-            properties.append(f"{var_name}.{key} =~ '(?i){escaped}'")
+            properties.append(f"{var_name}.{self._safe_label(key)} =~ '(?i){escaped}'")
     
         # Interval logic with start and end
         if start is not None and end is not None:

@@ -37,6 +37,11 @@ def validate_request(request, schema, source):
 
         node.setdefault('properties', {})
 
+        # Property names are written into generated queries as identifiers,
+        # so anything other than a plain identifier is rejected.
+        for property_name in node['properties']:
+            require_safe_property_name(property_name, f"node '{node['node_id']}'")
+
         if 'chr' in node["properties"]:
             chr_property = node["properties"]["chr"]
             chr_property = str(chr_property)
