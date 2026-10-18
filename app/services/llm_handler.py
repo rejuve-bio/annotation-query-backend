@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from app.services.llm_models import OpenAIModel, GeminiModel
 from app.services.graph_handler import Graph_Summarizer
 import logging
-from app.lib.logic import describe_logic
+from app.lib.logic import counted_nodes_and_predicates, describe_logic
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +276,13 @@ class LLMHandler:
         return n_type, True
 
     def generate_title_no_llm(self, req, node_map):
-        title = self._title_without_logic(req, node_map)
+        # Negated predicates and their far nodes are described by the logic
+        # phrase, not by the base title (which would otherwise say the opposite).
+        nodes, predicates = counted_nodes_and_predicates(req)
+        kept = {n['node_id'] for n in nodes}
+        title = self._title_without_logic(
+            {**req, 'nodes': nodes, 'predicates': predicates},
+            {k: v for k, v in node_map.items() if k in kept})
         logic_phrases = describe_logic(req)
         return f"{title}, where " + "; ".join(logic_phrases) if logic_phrases else title
 

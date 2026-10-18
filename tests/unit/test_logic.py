@@ -350,3 +350,17 @@ def test_fallback_title_mentions_the_logic():
                                     gene_props={"gene_type": "rRNA"}, with_bp=True))
     title = handler.generate_title_no_llm(request, {n["node_id"]: n for n in request["nodes"]})
     assert title == "Selection: rRNA Gene, where Gene has no 'involved in' link to a Biological Process"
+
+
+def test_fallback_title_does_not_describe_a_negated_predicate_as_present():
+    from app.services.llm_handler import LLMHandler
+    handler = LLMHandler.__new__(LLMHandler)
+    seen = {}
+    def base_title(req, node_map):
+        seen["predicates"], seen["nodes"] = req["predicates"], sorted(node_map)
+        return "Selection: rRNA Gene"
+    handler._title_without_logic = base_title
+    request = validate(gene_request(logic={"operator": "AND", "children": [{"operator": "NOT", "predicates": ["p0"]}]},
+                                    gene_props={"gene_type": "rRNA"}, with_bp=True))
+    handler.generate_title_no_llm(request, {n["node_id"]: n for n in request["nodes"]})
+    assert seen == {"predicates": [], "nodes": ["n0"]}
