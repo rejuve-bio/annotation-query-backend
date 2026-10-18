@@ -49,6 +49,8 @@ _TIMEOUT_CONFIG = QueryTimeoutConfig(
 
 
 class CypherQueryGenerator(QueryGeneratorInterface):
+    supports_logic = True
+
     def __init__(self, dataset_path: str):
         self.human_driver = ResilientDriver(
             uri=os.getenv('HUMAN_NEO4J_URI'),
@@ -117,6 +119,30 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         else:
             driver = self.human_driver
         return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type)
+
+    def estimate_rows(self, query_code, species="human"):
+        """
+        Neo4j's estimate of the largest number of rows any step of the query
+        produces, from EXPLAIN (the query is planned, not run). None if the
+        estimate could not be obtained.
+        """
+        driver = self.human_driver if species == "human" else self.fly_driver
+        if driver is None:
+            return None
+        try:
+            with driver.session() as session:
+                plan = session.run("EXPLAIN " + query_code).consume().plan
+        except Exception as exc:
+            logger.warning("EXPLAIN failed, skipping cost check: %s", exc)
+            return None
+        if not plan:
+            return None
+        peak, stack = 0, [plan]
+        while stack:
+            step = stack.pop()
+            peak = max(peak, step.get("args", {}).get("EstimatedRows", 0) or 0)
+            stack.extend(step.get("children", []))
+        return int(peak)
 
     def get_cellular_component_locations(
         self, protein_ids, location_ids, species="human",

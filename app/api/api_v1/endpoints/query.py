@@ -30,7 +30,8 @@ from app.workers.celery_app import redis_state
 from app.annotation_controller import process_full_data
 from app.lib.email import send_email
 from app.lib.query_canonical import canonicalize_graph, query_fingerprint
-from app.lib.logic import counted_nodes_and_predicates
+from app.lib.logic import LogicValidationError, counted_nodes_and_predicates
+from app.lib.query_cost import REFUSE, SLOW, assess_query_cost, too_broad_message
 import threading
 from app.core.config import settings
 from app.api.deps import oauth2_scheme
@@ -170,6 +171,11 @@ def process_query(
 
         # schema for validation
         schema_for_species = schema_manager.schema.get(species, {})
+        if requests.get('logic') and not getattr(db_instance, 'supports_logic', False):
+            raise HTTPException(
+                status_code=400,
+                detail="boolean logic ('logic') is only supported on the Cypher backend for now",
+            )
         try:
             node_map = validate_request(requests, schema_for_species, source)
         except Exception as ve:
@@ -346,9 +352,17 @@ def process_query(
                     }
 
             # Generate Query using canonical requests for stable caching
-            query = db_instance.query_Generator(
-                canonical_req, canonical_node_map, limit, node_only
-            )
+            try:
+                query = db_instance.query_Generator(
+                    canonical_req, canonical_node_map, limit, node_only
+                )
+            except LogicValidationError as le:
+                raise HTTPException(status_code=400, detail=str(le))
+
+            # Refuse queries Neo4j estimates as huge; send big ones to the slow queue.
+            cost = assess_query_cost(db_instance, query, species, canonical_req)
+            if cost.action == REFUSE:
+                raise HTTPException(status_code=400, detail=too_broad_message(cost.estimated_rows))
             result_query = query[0]
             total_count_query = query[1]
             count_by_label_query = query[2]
@@ -367,6 +381,7 @@ def process_query(
                     data_source,
                     node_map,
                     fingerprint=fingerprint,
+                    force_slow=cost.action == SLOW,
                 )
                 return response
 

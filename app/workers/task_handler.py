@@ -931,17 +931,25 @@ def is_slow_query(request: dict) -> bool:
     """
     Route to the slow queue when any factor suggests large intermediate binding sets:
     - query uses a known high-cardinality predicate type, OR
-    - query has >= 4 predicates (combinatorial blowup risk), OR
-    - query targets a high-cardinality node type (snp/enhancer/tfbs/promoter)
+    - query has >= 3 predicates (combinatorial blowup risk), OR
+    - query targets a high-cardinality node type (snp/enhancer/tfbs/promoter), OR
+    - query ORs predicates (each OR'd predicate is matched for every anchor)
     """
     predicates = request.get('predicates', [])
     nodes = request.get('nodes', [])
-    pred_types = {p.get('type', '') for p in predicates}
+    # Request types use spaces ("expressed in"); the set above uses underscores.
+    pred_types = {p.get('type', '').replace(' ', '_').lower() for p in predicates}
     node_types = {n.get('type', '') for n in nodes}
+    logic = request.get('logic') or {}
+    ors_predicates = any(
+        'predicates' in group and group.get('operator') == 'OR' and len(group['predicates']) > 1
+        for group in logic.get('children', [])
+    )
     return (
         bool(pred_types & _SLOW_PREDICATE_TYPES)
-        or len(predicates) >= 4
+        or len(predicates) >= 3
         or bool(node_types & _SLOW_NODE_TYPES)
+        or ors_predicates
     )
 
 
@@ -956,7 +964,7 @@ def start_thread(annotation_id, args):
     meta_data = args["meta_data"]
     species = args["species"]
 
-    queue = 'slow' if is_slow_query(request) else 'fast'
+    queue = 'slow' if args.get('force_slow') or is_slow_query(request) else 'fast'
 
     # Admission control: reject slow queries when the slow queue is already saturated.
     # This prevents unbounded backlog growth and gives the user an immediate, honest

@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     # Reject requests with no positive filter (no id, property or narrowing
     # logic condition): they would scan most of the graph.
     REQUIRE_POSITIVE_FILTER: bool = True
+    # Cost check before running (EXPLAIN estimate of the peak row count).
+    # Above the soft limit the query goes to the slow queue; above the hard
+    # limit it is refused. See app/lib/query_cost.py for how these were chosen.
+    QUERY_COST_CHECK_ENABLED: bool = True
+    QUERY_COST_SOFT_LIMIT: int = 5_000_000
+    QUERY_COST_HARD_LIMIT: int = 30_000_000
 
     class Config:
         case_sensitive = True
