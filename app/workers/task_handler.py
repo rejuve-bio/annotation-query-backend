@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import pysam
 import redis as _redis
-from celery import chord
+from celery import chord, chain
 
 # Global Variables
 from app.api.deps import (
@@ -428,22 +428,28 @@ def graph_task(
 
             pysam.tabix_index(str(vcf_path), preset="vcf", force=True)
 
-        nodes_list = response.get("nodes", [])
-        edges_list = response.get("edges", [])
-        graph_node_count = len(nodes_list)
-        graph_edge_count = len(edges_list)
+        if db_type == "mork_cli":
+            graph_node_count = response["node_count"]
+            graph_edge_count = response["edge_count"]
+            graph_node_count_by_label = response["node_count_by_label"]
+            graph_edge_count_by_label = response["edge_count_by_label"]
+        else:
+            nodes_list = response.get("nodes", [])
+            edges_list = response.get("edges", [])
+            graph_node_count = len(nodes_list)
+            graph_edge_count = len(edges_list)
 
-        _node_type_counts = {}
-        for n in nodes_list:
-            t = n.get("data", {}).get("type", "unknown")
-            _node_type_counts[t] = _node_type_counts.get(t, 0) + 1
-        graph_node_count_by_label = [{"label": k, "count": v} for k, v in _node_type_counts.items()]
+            _node_type_counts = {}
+            for n in nodes_list:
+                t = n.get("data", {}).get("type", "unknown")
+                _node_type_counts[t] = _node_type_counts.get(t, 0) + 1
+            graph_node_count_by_label = [{"label": k, "count": v} for k, v in _node_type_counts.items()]
 
-        _edge_label_counts = {}
-        for e in edges_list:
-            lbl = e.get("data", {}).get("label", "unknown")
-            _edge_label_counts[lbl] = _edge_label_counts.get(lbl, 0) + 1
-        graph_edge_count_by_label = [{"label": k, "count": v} for k, v in _edge_label_counts.items()]
+            _edge_label_counts = {}
+            for e in edges_list:
+                lbl = e.get("data", {}).get("label", "unknown")
+                _edge_label_counts[lbl] = _edge_label_counts.get(lbl, 0) + 1
+            graph_edge_count_by_label = [{"label": k, "count": v} for k, v in _edge_label_counts.items()]
 
         graph = Graph()
 
@@ -584,12 +590,12 @@ def total_count_task(
         return
 
     try:
-        if db_type == "cypher":
+        if db_type in ("cypher", "mork_cli"):
             for _ in range(120):  # poll up to 60s; graph_task typically finishes in <10s
                 if get_status(annotation_id) in (TaskStatus.FAILED.value, TaskStatus.CANCELLED.value):
                     return
                 cache = get_annotation_redis(annotation_id)
-                if cache and "node_count" in cache:
+                if cache and "node_count" in cache and "edge_count" in cache:
                     node_count = cache["node_count"]
                     edge_count = cache["edge_count"]
                     update_task(annotation_id, "total_count", 1)
@@ -604,6 +610,8 @@ def total_count_task(
                     }
                     redis_client.publish("socket_event", json.dumps(socket_event))
                     return
+                if db_type == "mork_cli":
+                    raise RuntimeError("MORK graph count metadata is missing; the graph task must finish first")
                 time.sleep(0.5)
             # graph_task didn't write counts within 60s — skip rather than falling back to a
             # Neo4j count query that can hang and block the chord callback for cypher queries.
@@ -612,7 +620,7 @@ def total_count_task(
 
         total_count = db_instance.run_query(count_query, None, species)
 
-        if db_type in ["mork", "mork_cli"]:
+        if db_type == "mork":
             result = db_instance.parse_and_serialize(
                 total_count,
                 schema_manager.full_schema_representation,
@@ -772,7 +780,7 @@ def label_count_task(
             redis_client.publish("socket_event", json.dumps(socket_event))
             return
 
-        if db_type in ["mork", "mork_cli"]:
+        if db_type == "mork":
             count_result = db_instance.run_query(count_query, None, species)
             result = db_instance.parse_and_serialize(
                 count_result,
@@ -810,12 +818,12 @@ def label_count_task(
             redis_client.publish("socket_event", json.dumps(socket_event))
             return
 
-        if db_type == "cypher":
+        if db_type in ("cypher", "mork_cli"):
             for _ in range(120):  # poll up to 60s
                 if get_status(annotation_id) in (TaskStatus.FAILED.value, TaskStatus.CANCELLED.value):
                     return
                 cache = get_annotation_redis(annotation_id)
-                if cache and "node_count_by_label" in cache:
+                if cache and "node_count_by_label" in cache and "edge_count_by_label" in cache:
                     node_count_by_label = cache["node_count_by_label"]
                     edge_count_by_label = cache["edge_count_by_label"]
                     AnnotationStorageService.update(
@@ -830,6 +838,8 @@ def label_count_task(
                     }
                     redis_client.publish("socket_event", json.dumps(socket_event))
                     return
+                if db_type == "mork_cli":
+                    raise RuntimeError("MORK graph count metadata is missing; the graph task must finish first")
                 time.sleep(0.5)
             # graph_task didn't write counts within 60s — skip rather than falling back to a
             # Neo4j count query that can hang and block the chord callback for cypher queries.
@@ -990,29 +1000,23 @@ def start_thread(annotation_id, args):
             redis_client.publish("socket_event", json.dumps(socket_event))
             return
 
-    workflow = chord(
-        [
-            graph_task.s(
-                find_query, annotation_id, request, all_status["result_done"], species
-            ).set(queue=queue),
-            total_count_task.s(
-                total_count_query,
-                annotation_id,
-                request,
-                all_status["total_count_done"],
-                species,
-                meta_data,
-            ).set(queue=queue),
-            label_count_task.s(
-                label_count_query,
-                annotation_id,
-                request,
-                all_status["label_count_done"],
-                species,
-                meta_data,
-            ).set(queue=queue),
-        ],
-        summary_task.s(annotation_id, request, all_status, summary).set(queue=queue),
-    )
+    graph_signature = graph_task.s(
+        find_query, annotation_id, request, all_status["result_done"], species
+    ).set(queue=queue)
+    count_signatures = [
+        total_count_task.si(
+            total_count_query, annotation_id, request, all_status["total_count_done"], species, meta_data
+        ).set(queue=queue),
+        label_count_task.si(
+            label_count_query, annotation_id, request, all_status["label_count_done"], species, meta_data
+        ).set(queue=queue),
+    ]
+    callback = summary_task.s(annotation_id, request, all_status, summary).set(queue=queue)
+    if db_type == "mork_cli":
+        # Count tasks consume metadata saved by the graph task. Sequencing them
+        # also avoids tying up workers while the graph query is still queued.
+        workflow = chain(graph_signature, chord(count_signatures, callback))
+    else:
+        workflow = chord([graph_signature, *count_signatures], callback)
 
     workflow.apply_async()

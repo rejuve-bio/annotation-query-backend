@@ -88,7 +88,10 @@ def test_multiple_properties_use_separate_conjunctive_act_sources(gen, monkeypat
     queries = gen.query_Generator(request, {"n0": request["nodes"][0]})
     programs = capture_programs(monkeypatch)
 
-    gen.run_query(queries[query_index])
+    gen.run_query(queries[0])
+    if query_index:
+        gen.run_query(queries[query_index])
+    assert len(programs) == 1
 
     program = MeTTa().parse_all(programs[0])[0]
     sources = program.get_children()[2].get_children()[1:]

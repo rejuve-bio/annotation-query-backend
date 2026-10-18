@@ -11,6 +11,7 @@ from hyperon import MeTTa
 from app.lib.logic import LogicValidationError
 from app.services import mork_cli_generator as mod
 from app.services.mork_program import MorkJoinCompiler
+from app.services.mork_output import parse_mork_counts
 
 
 def node(nid, typ, properties=None, identifier=''):
@@ -72,6 +73,12 @@ def evaluate(program, facts):
                     if bound is not None:
                         joined.append(bound)
             rows = joined
+        if sink[0] == 'O' and sink[1][0] == 'count':
+            for _, template, count_var, projection in sink[1:]:
+                values = {substitute(projection, row) for row in rows}
+                if values:
+                    memory.add(substitute(template, {count_var: str(len(values))}))
+            continue
         for row in rows:
             if sink[0] == ',':
                 memory.update(substitute(out, row) for out in sink[1:])
@@ -217,6 +224,43 @@ def test_single_node_queries_fetch_properties_in_the_same_program():
     '''))
 
 
+def test_count_sinks_include_edge_endpoints_without_properties():
+    gen = mod.MorkCLIQueryGenerator.__new__(mod.MorkCLIQueryGenerator)
+    program = MorkJoinCompiler(request(), 'human', 'result', gen._safe_atom).compile(counts=True)
+    atoms = evaluate(program, CHAIN)
+    counts = parse_mork_counts([atoms])
+    assert (counts['node_count'], counts['edge_count']) == (3, 2)
+    assert {row['label']: row['count'] for row in counts['node_count_by_label']} == {
+        'gene': 1, 'protein': 1, 'transcript': 1,
+    }
+    assert {row['label']: row['count'] for row in counts['edge_count_by_label']} == {
+        'transcribes_to': 1, 'translates_to': 1,
+    }
+
+
+def test_counts_deduplicate_same_type_nodes_and_repeated_edge_roles():
+    req = {'nodes': [node('n0', 'gene', {'gene_name': 'A'}), node('n1', 'gene'), node('n2', 'gene')],
+           'predicates': [predicate('n0', 'n1', 'links'), predicate('n1', 'n2', 'links', 'p1')]}
+    facts = '''
+    (gene_name (gene G1) A)
+    (links (gene G1) (gene G1)) (links (gene G1) (gene G2))
+    (links (gene G2) (gene G1))
+    '''
+    gen = mod.MorkCLIQueryGenerator.__new__(mod.MorkCLIQueryGenerator)
+    program = MorkJoinCompiler(req, 'human', 'result', gen._safe_atom).compile(counts=True)
+    counts = parse_mork_counts([evaluate(program, facts)])
+    assert counts == {'node_count': 2, 'edge_count': 3,
+                      'node_count_by_label': [{'label': 'gene', 'count': 2}],
+                      'edge_count_by_label': [{'label': 'links', 'count': 3}]}
+
+
+def test_count_sinks_write_nothing_for_empty_matches():
+    req = request({'gene_name': 'missing'})
+    gen = mod.MorkCLIQueryGenerator.__new__(mod.MorkCLIQueryGenerator)
+    program = MorkJoinCompiler(req, 'human', 'result', gen._safe_atom).compile(counts=True)
+    assert evaluate(program, CHAIN) == set()
+
+
 def test_predicate_ids_do_not_collapse_distinct_constraints():
     req = request()
     req['predicates'][1]['predicate_id'] = 'p0'
@@ -277,7 +321,7 @@ def test_unsupported_filters_are_rejected(kind):
         compile_request(req)
 
 
-def test_queries_survive_json_transport_and_execute_once_each(tmp_path, monkeypatch):
+def test_queries_survive_json_transport_and_execute_once_total(tmp_path, monkeypatch):
     gen = mod.MorkCLIQueryGenerator(tmp_path)
     (tmp_path / gen.act_filename).touch()
     monkeypatch.setattr(mod, 'Path', lambda path: tmp_path if path == '/dev/shm' else Path(path))
@@ -294,12 +338,12 @@ def test_queries_survive_json_transport_and_execute_once_each(tmp_path, monkeypa
     queries = gen.query_Generator(req, {n['node_id']: n for n in req['nodes']})
     for query in json.loads(json.dumps(queries)):
         gen.run_query(query)
-    assert len(programs) == 3
+    assert len(programs) == 1
     assert req == original
     for program, query in zip(programs, queries):
         assert query[3] in program
         atoms = evaluate(program, CHAIN)
-        assert all(atom[0] in (query[3], 'tmp') for atom in atoms)
+        assert all(atom[0] in (query[3], f'{query[3]}_cnt', 'tmp') for atom in atoms)
         assert {atom[1] for atom in atoms if atom[0] == query[3]} == {
             sexprs('(transcribes_to (gene G1) (transcript T1))')[0],
             sexprs('(translates_to (transcript T1) (protein P1))')[0],

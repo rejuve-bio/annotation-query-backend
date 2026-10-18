@@ -51,3 +51,29 @@ def flatten_mork_value(value):
             result.extend(item if isinstance(item, list) else [item])
         return result
     return value
+
+
+def parse_mork_counts(inputs):
+    """Read distinct counts; empty MORK count sinks produce no atom."""
+    totals, nodes, edges = {}, {}, {}
+    found = False
+    for atoms in inputs:
+        for atom in atoms:
+            if len(atom) != 4 or not isinstance(atom[0], str) or not atom[0].endswith('_cnt'):
+                continue
+            _, kind, label, value = atom
+            if kind not in ('total', 'node', 'edge'):
+                continue
+            if not isinstance(value, str) or not value.isascii() or not value.isdigit():
+                raise ValueError(f'Invalid MORK count: {value!r}')
+            found = True
+            target = totals if kind == 'total' else nodes if kind == 'node' else edges
+            target[label] = int(value)
+    if not found:
+        return None
+    return {
+        'node_count': totals.get('node', sum(nodes.values())),
+        'edge_count': totals.get('edge', sum(edges.values())),
+        'node_count_by_label': [{'label': label, 'count': count} for label, count in nodes.items()],
+        'edge_count_by_label': [{'label': label, 'count': count} for label, count in edges.items()],
+    }

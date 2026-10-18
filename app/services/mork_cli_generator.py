@@ -9,10 +9,11 @@ import hashlib
 import uuid
 from pathlib import Path
 from functools import lru_cache
+from collections import OrderedDict
 from app.lib.mork_values import normalize_mork_value
 from app.services.mork_generator import MorkQueryGenerator
 from app.services.mork_program import MorkJoinCompiler
-from app.services.mork_output import parse_mork_output, serialize_mork_atom, flatten_mork_value
+from app.services.mork_output import parse_mork_output, serialize_mork_atom, flatten_mork_value, parse_mork_counts
 import logging
 
 logger = logging.getLogger(__name__)
@@ -279,24 +280,25 @@ def _get_property_schema():
 
 
 class MorkCLIQueryGenerator(MorkQueryGenerator):
+    _COUNT_CACHE_SIZE = 128
+
     def __init__(self, dataset_path, act_filename="annotation.act", species="human"):
         super().__init__(dataset_path=None)
         self.dataset_path = Path(dataset_path)
         self.act_filename = act_filename
         self.species = species
+        self._count_results = OrderedDict()
+        self._count_lock = threading.Lock()
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
         dataset_id = hashlib.md5(str(self.dataset_path.resolve()).encode()).hexdigest()[:8]
         result_id = self.generate_id()
         program = MorkJoinCompiler(requests, f"mork_{dataset_id}", result_id, self._safe_atom).compile(
-            properties=True, schema=_get_property_schema().get(self.species, {}))
+            properties=True, schema=_get_property_schema().get(self.species, {}), counts=True)
         # Keep the four-part query format serializable for the Celery workers.
-        queries = []
-        for suffix, query_type in (('', 'query'), ('_total', 'total_count'), ('_label', 'label_count')):
-            current_id = result_id + suffix
-            current_program = program.replace(f"({result_id} ", f"({current_id} ")
-            queries.append(((current_program,), (), query_type, current_id))
-        return queries
+        return [((program,), (), 'query', result_id),
+                ((), (), 'total_count', result_id),
+                ((), (), 'label_count', result_id)]
 
     def _serialize_metta_value(self, value):
         return normalize_mork_value(value)
@@ -363,11 +365,16 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
 
     def parse_and_serialize(self, input, schema, graph_components, result_type):
         if result_type != 'graph':
-            if all(not item or isinstance(item, dict) for item in input):
-                return super().parse_and_serialize(input, schema, graph_components, result_type)
-            graph = self._graph_result([input[0]], schema, graph_components)
-            return {key: graph[key] for key in (
-                'node_count', 'edge_count', 'node_count_by_label', 'edge_count_by_label')}
+            raw = [item for item in input if not isinstance(item, dict)]
+            counts = parse_mork_counts(raw)
+            if counts is None:
+                graph = self._graph_result(raw, schema, graph_components)
+                counts = {key: graph[key] for key in (
+                    'node_count', 'edge_count', 'node_count_by_label', 'edge_count_by_label')}
+            for item in input:
+                if isinstance(item, dict):
+                    counts.update({key: item[key] for key in counts if key in item})
+            return counts
         return self._graph_result(input, schema, graph_components)
 
     def _graph_result(self, inputs, schema, graph_components):
@@ -430,12 +437,21 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
             node.setdefault('name', node['id'])
         graph = {'nodes': [{'data': node} for node in nodes.values()],
                  'edges': [{'data': edge} for edge in edges.values()]}
-        graph.update(get_count_by_label(graph))
+        graph.update(parse_mork_counts(inputs) or get_count_by_label(graph))
         return graph
 
     def run_query(self, query, stop_event=None, species='human'):
         start_time = time.time()
-        pattern_tuple, template_tuple, query_type, _ = query
+        pattern_tuple, template_tuple, query_type, result_id = query
+
+        if query_type in ('total_count', 'label_count') and not pattern_tuple:
+            # Synchronous callers ask for counts after the graph on this same
+            # instance. Workers use the graph task's Redis metadata instead.
+            with self._count_lock:
+                if result_id not in self._count_results:
+                    raise RuntimeError('MORK counts require the graph query to run first on this instance')
+                self._count_results.move_to_end(result_id)
+                return [list(self._count_results[result_id])]
 
         pattern_str = " ".join(pattern_tuple)
         template_str = " ".join(template_tuple)
@@ -492,6 +508,12 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 actual_result = raw_output.strip()
 
             metta_result = parse_mork_output(_repair_mork_output(actual_result))
+            counts = [atom for atom in metta_result if atom and atom[0] == f'{result_id}_cnt']
+            with self._count_lock:
+                self._count_results[result_id] = counts
+                self._count_results.move_to_end(result_id)
+                while len(self._count_results) > self._COUNT_CACHE_SIZE:
+                    self._count_results.popitem(last=False)
             
             duration = (time.time() - start_time) * 1000
             logger.info("Query executed", extra={"query": str(query), "duration_ms": duration, "status": "success"})

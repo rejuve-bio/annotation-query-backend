@@ -18,9 +18,14 @@ class MorkProgram:
     def act(self, pattern):
         return f"(ACT {self.space} {pattern})"
 
-    def emit(self, sources, outputs=(), remove=None):
+    def emit(self, sources, outputs=(), remove=None, sinks=()):
         location = len(self.lines) + 1
-        sink = f"(O (- {remove}))" if remove else f"(, {' '.join(outputs)})"
+        if remove:
+            sink = f"(O (- {remove}))"
+        elif sinks:
+            sink = f"(O {' '.join(sinks)})"
+        else:
+            sink = f"(, {' '.join(outputs)})"
         self.lines.append(f"(exec {location} (I {' '.join(sources)}) {sink})")
 
     def finish(self):
@@ -72,7 +77,7 @@ class MorkJoinCompiler:
             sources.append(self.program.act(f"({name} {term} {normalize_mork_value(value)})"))
         return sources
 
-    def compile(self, properties=False, schema=None):
+    def compile(self, properties=False, schema=None, counts=False):
         p = self.program
         adjacency = {node_id: [] for node_id in self.nodes}
         for index, predicate in enumerate(self.predicates):
@@ -161,25 +166,41 @@ class MorkJoinCompiler:
                 final[other] = head
         if not self.predicates:
             p.emit([self.member(final[root], root)], [f"({self.result_id} {self.node(root)})"])
-        if properties:
-            self.fetch_properties(final, schema or {})
+        if properties or counts:
+            node_head = p.head()
+            for node_id, head in final.items():
+                p.emit([self.member(head, node_id)], [f"({node_head} {self.node(node_id)})"])
+            if counts:
+                self.count_results(node_head)
+            if properties:
+                self.fetch_properties(node_head, schema or {})
         return p.finish()
 
-    def fetch_properties(self, final, schema):
+    def count_results(self, node_head):
         p = self.program
-        by_type = {}
-        for node_id, head in final.items():
-            node_type = self.nodes[node_id]['type']
-            if node_type not in by_type:
-                by_type[node_type] = p.head()
-            p.emit([self.member(head, node_id)], [f"({by_type[node_type]} {self.node(node_id)})"])
-        for node_type, head in by_type.items():
+        count_head = f'{self.result_id}_cnt'
+        p.emit([f'(BTM ({node_head} $node))'],
+               sinks=[f'(count ({count_head} total node $count) $count $node)'])
+        for node_type in sorted({node['type'] for node in self.nodes.values()}):
+            node = f'({self.safe_atom(node_type)} $x)'
+            p.emit([f'(BTM ({node_head} {node}))'],
+                   sinks=[f'(count ({count_head} node {node_type} $count) $count $x)'])
+        p.emit([f'(BTM ({self.result_id} ($label $source $target)))'],
+               sinks=[f'(count ({count_head} total edge $count) $count ($label $source $target))'])
+        for label in sorted({pred['type'].replace(' ', '_') for pred in self.predicates}):
+            label = self.safe_atom(label)
+            p.emit([f'(BTM ({self.result_id} ({label} $source $target)))'],
+                   sinks=[f'(count ({count_head} edge {label} $count) $count ($source $target))'])
+
+    def fetch_properties(self, node_head, schema):
+        p = self.program
+        for node_type in sorted({node['type'] for node in self.nodes.values()}):
             node = f"({self.safe_atom(node_type)} $x)"
             for name in schema.get('nodes', {}).get(node_type, {}).get('properties', {}):
                 if name in ('synonym', 'synonyms', 'accessions'):
                     continue
                 require_safe_property_name(name, f"schema for '{node_type}'")
-                p.emit([f"(BTM ({head} {node}))", p.act(f"({name} {node} $value)")],
+                p.emit([f"(BTM ({node_head} {node}))", p.act(f"({name} {node} $value)")],
                        [f"(tmp (node {name} {node} $value))"])
         for index in range(len(self.predicates)):
             edge = self.edge(index)
