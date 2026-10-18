@@ -8,6 +8,7 @@ import time
 import hashlib
 import uuid
 from pathlib import Path
+from app.lib.mork_values import normalize_mork_value
 from app.services.mork_generator import MorkQueryGenerator
 from app.constants import QUERY_MAX_NODES, MAX_BINDING_VALS, MAX_COMBOS
 from hyperon import MeTTa
@@ -268,6 +269,17 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
         self.species = species
         self.metta = MeTTa()
 
+    def _serialize_metta_value(self, value):
+        return normalize_mork_value(value)
+
+    def _act_sources(self, target_space, patterns):
+        # A node's conjunctive property filters share a pattern string in the
+        # base generator. ACT accepts exactly one expression per source.
+        return " ".join(
+            f"(ACT {target_space} {pattern})"
+            for pattern in self.metta.parse_all(patterns)
+        )
+
     def _run_single_pattern(self, pattern_str, template_str):
         """Run one single-pattern MORK query and return raw MeTTa atoms."""
         dataset_id = hashlib.md5(str(self.dataset_path.resolve()).encode()).hexdigest()[:8]
@@ -284,7 +296,8 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 if not shm_act.exists():
                     logger.warning(f"SHM Symlink update failed: {e}")
 
-        metta_query = f'(exec 0 (I (ACT {target_space} {pattern_str})) (, {template_str}))'
+        sources = self._act_sources(target_space, pattern_str)
+        metta_query = f'(exec 0 (I {sources}) (, {template_str}))'
         query_file = Path("/dev/shm") / f"query_{uuid.uuid4().hex}.metta"
         try:
             fd = os.open(query_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -691,7 +704,8 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
         if len(pattern_tuple) == 1:
             act_pattern = pattern_tuple[0]
             template_body = template_str
-            metta_query = f'(exec 0 (I (ACT {target_space} {act_pattern})) (, {template_body}))'
+            sources = self._act_sources(target_space, act_pattern)
+            metta_query = f'(exec 0 (I {sources}) (, {template_body}))'
         else:
             return self._resolve_chained_patterns(pattern_tuple, template_tuple, query, start_time)
         
