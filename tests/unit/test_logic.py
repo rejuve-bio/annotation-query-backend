@@ -309,3 +309,44 @@ def test_rule_can_be_switched_off(monkeypatch):
 
 def test_ensure_has_positive_filter_works_on_raw_requests():
     ensure_has_positive_filter({"nodes": [{"id": "", "ids": ["A", "B"], "properties": {}}]})
+
+
+# --- plain-English description (titles, summaries) -----------------------------
+
+def test_describe_logic_for_properties_and_predicates():
+    from app.lib.logic import describe_logic
+    logic = {"operator": "AND", "children": [
+        or_names("N", "dpp"),
+        {"operator": "NOT", "nodes": {"node_id": "n0", "properties": {"gene_type": "lncRNA"}}},
+        {"operator": "NOT", "predicates": ["p0"]}]}
+    request = validate(gene_request(logic=logic, with_bp=True))
+    assert describe_logic(request) == [
+        "Gene has gene name N or dpp",
+        "Gene has none of: gene type lncRNA",
+        "Gene has no 'involved in' link to a Biological Process",
+    ]
+
+
+def test_describe_logic_for_or_between_predicates_names_the_shared_node():
+    from app.lib.logic import describe_logic
+    request = gene_request(logic={"operator": "AND", "children": [{"operator": "OR", "predicates": ["p0", "p1"]}]},
+                           gene_props={"gene_type": "rRNA"}, with_bp=True, with_mf=True)
+    request["predicates"][1] = pred("p1", "enables", "n0", "n2")
+    validate(request)
+    assert describe_logic(request) == [
+        "Gene has a 'involved in' link to a Biological Process or a 'enables' link to a Molecular Function"]
+
+
+def test_describe_logic_without_logic_is_empty():
+    from app.lib.logic import describe_logic
+    assert describe_logic(gene_request(gene_props={"gene_name": "N"})) == []
+
+
+def test_fallback_title_mentions_the_logic():
+    from app.services.llm_handler import LLMHandler
+    handler = LLMHandler.__new__(LLMHandler)
+    handler._title_without_logic = lambda req, node_map: "Selection: rRNA Gene"
+    request = validate(gene_request(logic={"operator": "AND", "children": [{"operator": "NOT", "predicates": ["p0"]}]},
+                                    gene_props={"gene_type": "rRNA"}, with_bp=True))
+    title = handler.generate_title_no_llm(request, {n["node_id"]: n for n in request["nodes"]})
+    assert title == "Selection: rRNA Gene, where Gene has no 'involved in' link to a Biological Process"

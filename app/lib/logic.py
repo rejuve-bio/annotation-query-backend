@@ -439,3 +439,71 @@ def _narrows(group):
     if operator == "AND":
         return any(_narrows(child) for child in children)
     return bool(children) and all(_narrows(child) for child in children)
+
+
+# ---------------------------------------------------------------------------
+# Plain-English description (titles, summaries)
+# ---------------------------------------------------------------------------
+
+def describe_logic(request):
+    """
+    Describe a validated request's 'logic' in plain English, one phrase per
+    top-level group, e.g. ["Gene has gene name N or dpp",
+    "Gene has no 'involved in' link to a Biological Process"]. Empty if none.
+    """
+    logic = request.get("logic")
+    if not logic:
+        return []
+    types = {n["node_id"]: _pretty(n.get("type", "node")) for n in request.get("nodes", [])}
+    predicates = {p.get("predicate_id"): p for p in request.get("predicates", [])}
+    groups = logic.get("children", []) if logic.get("operator", "AND") == "AND" else [logic]
+
+    phrases = []
+    for group in groups:
+        if "predicates" in group:
+            phrases.append(_describe_predicate_group(group, predicates, types))
+        else:
+            node_id = next(iter(_collect_node_ids(group)), None)
+            phrases.append(f"{types.get(node_id, 'Node')} {_describe_property_group(group)}")
+    return phrases
+
+
+def _pretty(name):
+    return str(name).replace("_", " ").title()
+
+
+def _describe_property_group(group):
+    operator = group.get("operator", "AND")
+    if "nodes" in group:
+        parts = [f"{name.replace('_', ' ')} {' or '.join(values)}"
+                 for name, values in sorted(group["nodes"]["properties"].items())]
+    else:
+        parts = [_describe_property_group(child) for child in group.get("children", [])]
+    if operator == "NOT":
+        return "has none of: " + "; ".join(parts)
+    joiner = " or " if operator == "OR" else " and "
+    return "has " + joiner.join(parts) if "nodes" in group else "(" + joiner.join(parts) + ")"
+
+
+def _describe_predicate_group(group, predicates, types):
+    operator = group.get("operator", "AND")
+    all_predicates = list(predicates.values())
+    ids = [pid for pid in group["predicates"] if pid in predicates]
+    far_of, kept = {}, None
+    if operator == "OR" and len(ids) > 1:
+        kept, far_of = or_predicate_ends(ids, all_predicates)
+    links = []
+    for pid in ids:
+        predicate = predicates[pid]
+        if operator == "NOT":
+            kept, far = negated_predicate_ends(predicate, all_predicates)
+        elif pid in far_of:
+            far = far_of[pid]
+        else:
+            kept, far = predicate["source"], predicate["target"]
+        links.append(f"'{predicate['type']}' link to a {types.get(far, 'node')}")
+    subject = types.get(kept, "Node")
+    if operator == "NOT":
+        return f"{subject} has no " + " and no ".join(links)
+    joiner = " or a " if operator == "OR" else " and a "
+    return f"{subject} has a " + joiner.join(links)
