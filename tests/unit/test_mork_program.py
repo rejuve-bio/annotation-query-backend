@@ -61,7 +61,11 @@ def evaluate(program, facts):
     """Interpret the ACT/BTM join and write/delete subset used by these programs."""
     stored = set(sexprs(facts))
     memory = set()
-    for _, _, sources, sink in sexprs(program):
+    for rule in sexprs(program):
+        if rule[0] != 'exec':
+            memory.add(rule)
+            continue
+        _, _, sources, sink = rule
         snapshot = set(memory)
         rows = [{}]
         for source in sources[1:]:

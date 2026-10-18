@@ -1,7 +1,15 @@
 """Staged joins for tree-shaped MORK requests."""
 
-from app.lib.logic import LogicValidationError, POSITIONAL_PROPERTIES, require_safe_property_name
+from copy import deepcopy
+
+from app.core.config import settings
+from app.lib.logic import (
+    LogicValidationError, POSITIONAL_PROPERTIES, ensure_has_positive_filter,
+    logic_narrows, negated_predicate_ends, normalize_logic, or_predicate_ends,
+    require_safe_property_name,
+)
 from app.lib.mork_values import normalize_mork_value
+from app.services.mork_logic import MorkPropertyCompiler
 
 
 class MorkProgram:
@@ -9,6 +17,7 @@ class MorkProgram:
         self.space = space
         self.lines = []
         self.heads = []
+        self.constants = []
 
     def head(self):
         name = f"join_{len(self.heads)}"
@@ -33,16 +42,37 @@ class MorkProgram:
         for head in self.heads:
             atom = f"({head} $x)"
             self.emit([f"(BTM {atom})"], remove=atom)
-        return "\n".join(self.lines) + "\n"
+        return "\n".join(self.constants + self.lines) + "\n"
 
 
 class MorkJoinCompiler:
     def __init__(self, request, space, result_id, safe_atom):
+        request = deepcopy(request)
+        self.request = request
         self.nodes = {node['node_id']: node for node in request['nodes']}
         self.predicates = request.get('predicates', [])
         self.result_id = result_id
         self.safe_atom = safe_atom
         self.program = MorkProgram(space)
+        self.groups = {node_id: [] for node_id in self.nodes}
+        self.small_candidates = set()
+        if request.get('logic') is not None:
+            by_id = {}
+            for index, predicate in enumerate(self.predicates):
+                predicate_id = predicate.setdefault('predicate_id', f'p{index}')
+                if predicate_id in by_id:
+                    raise LogicValidationError(f"duplicate predicate_id '{predicate_id}' when 'logic' is used")
+                by_id[predicate_id] = predicate
+            request['logic'] = normalize_logic(request['logic'], self.nodes, by_id)
+            logic = request['logic']
+            for group in logic['children'] if logic['operator'] == 'AND' else [logic]:
+                if 'predicates' in group:
+                    continue
+                leaf = group
+                while 'nodes' not in leaf:
+                    leaf = leaf['children'][0]
+                self.groups[leaf['nodes']['node_id']].append(group)
+        self.properties = MorkPropertyCompiler(self.program, self.node, self.member, self.candidate_first)
 
     def node(self, node_id, value='$x'):
         return f"({self.safe_atom(self.nodes[node_id]['type'])} {value})"
@@ -77,28 +107,54 @@ class MorkJoinCompiler:
             sources.append(self.program.act(f"({name} {term} {normalize_mork_value(value)})"))
         return sources
 
-    def compile(self, properties=False, schema=None, counts=False):
+    def candidate_first(self, node_id):
+        node = self.nodes[node_id]
+        names = node.get('properties', {})
+        return bool(node_id in self.small_candidates or node.get('id') or any(
+            (name.endswith('_name') or name == 'chr') and value not in (None, '', [])
+            for name, value in names.items()))
+
+    def select_node(self, node_id, filters, universe=None):
         p = self.program
-        adjacency = {node_id: [] for node_id in self.nodes}
-        for index, predicate in enumerate(self.predicates):
-            if predicate.get('properties'):
-                raise LogicValidationError('not supported yet: edge properties on MORK')
+        current = universe
+        if filters:
+            current = p.head()
+            value = self.safe_atom(self.nodes[node_id]['id']) if self.nodes[node_id].get('id') else '$x'
+            sources = [self.member(universe, node_id, value)] if universe else []
+            p.emit(sources + filters, [f'({current} {self.node(node_id, value)})'])
+        for group in sorted(self.groups[node_id], key=lambda group: not logic_narrows(group)):
+            current = self.properties.compile(node_id, group, current)
+        return current
+
+    def predicate_groups(self):
+        negated, alternatives = {}, []
+        logic = self.request.get('logic') or {}
+        if logic.get('operator') != 'AND':
+            return negated, alternatives
+        indexes = {pred['predicate_id']: index for index, pred in enumerate(self.predicates)}
+        for group in logic['children']:
+            if 'predicates' not in group:
+                continue
+            if group['operator'] == 'NOT':
+                for predicate_id in group['predicates']:
+                    index = indexes[predicate_id]
+                    negated[index] = negated_predicate_ends(self.predicates[index], self.predicates)
+            elif group['operator'] == 'OR' and len(group['predicates']) > 1:
+                kept, far = or_predicate_ends(group['predicates'], self.predicates)
+                alternatives.append((kept, {indexes[pid] for pid in far}))
+        if len({kept for kept, _ in alternatives}) > 1:
+            raise LogicValidationError('not supported yet: OR groups on different nodes on MORK')
+        return negated, alternatives
+
+    def tree(self, root, node_ids, indexes):
+        adjacency = {node_id: [] for node_id in node_ids}
+        for index in indexes:
+            predicate = self.predicates[index]
             source, target = predicate['source'], predicate['target']
             adjacency[source].append((index, target))
             adjacency[target].append((index, source))
-
-        filters = {node_id: self.filters(node_id) for node_id in self.nodes}
-        # IDs and name filters usually select fewer candidates than type filters.
-        def selectivity(node_id):
-            node = self.nodes[node_id]
-            return (not bool(node.get('id')), not bool(filters[node_id]),
-                    not any(name.endswith('_name') and value not in (None, '', [])
-                            for name, value in node.get('properties', {}).items()),
-                    -len(filters[node_id]))
-
-        root = min(self.nodes, key=selectivity)
         order, parent = [root], {root: None}
-        children = {node_id: [] for node_id in self.nodes}
+        children = {node_id: [] for node_id in node_ids}
         for node_id in order:
             for index, other in adjacency[node_id]:
                 if parent[node_id] == (other, index):
@@ -108,19 +164,78 @@ class MorkJoinCompiler:
                 parent[other] = (node_id, index)
                 children[node_id].append((index, other))
                 order.append(other)
-        if len(order) != len(self.nodes):
+        if len(order) != len(node_ids):
             raise LogicValidationError('not supported yet: disconnected request graphs on MORK')
+        return order, children
 
-        # Materialize only filtered node sets; unfiltered sets come from edges.
+    def exclude_predicate(self, index, kept, far, current, selected, filters):
+        p = self.program
+        head = p.head()
+        node = self.node(kept)
+        p.emit([self.member(current, kept)], [f'({head} {node})'])
+        forward = self.predicates[index]['source'] == kept
+        edge = self.edge(index, '$x', '$f') if forward else self.edge(index, '$f', '$x')
+
+        def sources(candidates):
+            terms = [self.member(candidates, kept), p.act(edge)]
+            # A bound target is not an ACT prefix: scan this predicate once.
+            return terms if forward else list(reversed(terms))
+
+        far_set = selected.get(far)
+        if far_set is None and self.groups[far]:
+            reached = p.head()
+            p.emit(sources(current), [f'({reached} {self.node(far, "$f")})'])
+            if self.candidate_first(kept):
+                self.small_candidates.add(far)
+            far_set = self.select_node(far, filters[far], reached)
+        terms = sources(head)
+        if far_set:
+            terms.append(self.member(far_set, far, '$f'))
+        p.emit(terms, remove=f'({head} {node})')
+        return head
+
+    def compile(self, properties=False, schema=None, counts=False, limit=None):
+        p = self.program
+        if not self.nodes:
+            raise LogicValidationError('MORK requests need at least one node')
+        if settings.REQUIRE_POSITIVE_FILTER:
+            ensure_has_positive_filter(self.request)
+        for predicate in self.predicates:
+            if predicate.get('properties'):
+                raise LogicValidationError('not supported yet: edge properties on MORK')
+        filters = {node_id: self.filters(node_id) for node_id in self.nodes}
+        negated, alternatives = self.predicate_groups()
+        if alternatives and limit is not None:
+            raise LogicValidationError('not supported yet: limits across OR predicates on MORK')
+        far_ids = {far for _, far in negated.values()}
+        kept_ids = [node_id for node_id in self.nodes if node_id not in far_ids]
+        active = [index for index in range(len(self.predicates)) if index not in negated]
+        # Check the whole shape too, including predicates that will be negated.
+        self.tree(next(iter(self.nodes)), self.nodes, range(len(self.predicates)))
+        narrow = {node_id for node_id in self.nodes if filters[node_id] or
+                  any(logic_narrows(group) for group in self.groups[node_id])}
+        or_far = {self.predicates[index]['target'] if self.predicates[index]['source'] == kept
+                  else self.predicates[index]['source'] for kept, indexes in alternatives for index in indexes}
+
+        def selectivity(node_id):
+            node = self.nodes[node_id]
+            return (not bool(node.get('id')), node_id not in narrow,
+                    not self.candidate_first(node_id),
+                    not any(kept == node_id for kept, _ in alternatives), -len(filters[node_id]))
+
+        roots = [node_id for node_id in kept_ids if node_id not in or_far]
+        root = min(roots, key=selectivity)
+        order, children = self.tree(root, kept_ids, active)
+
         selected = {}
-        for node_id in order:
-            if not filters[node_id] and node_id != root:
-                continue
-            head = p.head()
-            selected[node_id] = head
-            value = self.safe_atom(self.nodes[node_id]['id']) if self.nodes[node_id].get('id') else '$x'
-            sources = filters[node_id] or [p.act(self.node(node_id, value))]
-            p.emit(sources, [f"({head} {self.node(node_id, value)})"])
+        for node_id in [root] + [node_id for node_id in self.nodes if node_id != root and node_id in narrow]:
+            universe = None
+            if node_id not in narrow:
+                # OR arms can constrain their own far nodes while the kept
+                # node has no property filter of its own.
+                universe = p.head()
+                p.emit([p.act(self.node(node_id))], [f'({universe} {self.node(node_id)})'])
+            selected[node_id] = self.select_node(node_id, filters[node_id], universe)
 
         reached, edges = {root: selected[root]}, {}
         for node_id in order:
@@ -138,17 +253,38 @@ class MorkJoinCompiler:
                     sources.append(self.member(selected[other], other, b))
                 p.emit(sources, [f"({edge_head} {edge})", f"({node_head} {self.node(other, b)})"])
                 edges[index], reached[other] = edge_head, node_head
+                if other not in selected and self.groups[other]:
+                    if self.candidate_first(node_id):
+                        self.small_candidates.add(other)
+                    reached[other] = self.select_node(other, filters[other], node_head)
 
         # Reduce from leaves: every child edge must reach a surviving child.
         surviving = {}
         for node_id in reversed(order):
             current = reached[node_id]
-            for index, other in children[node_id]:
+            for index, (kept, far) in negated.items():
+                if kept == node_id:
+                    current = self.exclude_predicate(index, kept, far, current, selected, filters)
+            grouped = [indexes for kept, indexes in alternatives if kept == node_id]
+            optional = set().union(*grouped) if grouped else set()
+
+            def semijoin(index, other, head):
                 is_source = self.predicates[index]['source'] == node_id
                 edge = self.edge(index, '$x', '$y') if is_source else self.edge(index, '$y', '$x')
-                head = p.head()
                 p.emit([self.member(current, node_id), f"(BTM ({edges[index]} {edge}))",
                         self.member(surviving[other], other, '$y')], [f"({head} {self.node(node_id)})"])
+
+            for index, other in children[node_id]:
+                if index in optional:
+                    continue
+                head = p.head()
+                semijoin(index, other, head)
+                current = head
+            for indexes in grouped:
+                head = p.head()
+                for index, other in children[node_id]:
+                    if index in indexes:
+                        semijoin(index, other, head)
                 current = head
             surviving[node_id] = current
 
@@ -164,7 +300,7 @@ class MorkJoinCompiler:
                         self.member(surviving[other], other, b)],
                        [f"({head} {self.node(other, b)})", f"({self.result_id} {edge})"])
                 final[other] = head
-        if not self.predicates:
+        if not active:
             p.emit([self.member(final[root], root)], [f"({self.result_id} {self.node(root)})"])
         if properties or counts:
             node_head = p.head()

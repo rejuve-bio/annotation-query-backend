@@ -11,6 +11,7 @@ from pathlib import Path
 from functools import lru_cache
 from collections import OrderedDict
 from app.lib.mork_values import normalize_mork_value
+from app.lib.logic import LogicValidationError
 from app.services.mork_generator import MorkQueryGenerator
 from app.services.mork_program import MorkJoinCompiler
 from app.services.mork_output import parse_mork_output, serialize_mork_atom, flatten_mork_value, parse_mork_counts
@@ -280,6 +281,7 @@ def _get_property_schema():
 
 
 class MorkCLIQueryGenerator(MorkQueryGenerator):
+    supports_logic = True
     _COUNT_CACHE_SIZE = 128
 
     def __init__(self, dataset_path, act_filename="annotation.act", species="human"):
@@ -293,8 +295,12 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
         dataset_id = hashlib.md5(str(self.dataset_path.resolve()).encode()).hexdigest()[:8]
         result_id = self.generate_id()
-        program = MorkJoinCompiler(requests, f"mork_{dataset_id}", result_id, self._safe_atom).compile(
-            properties=True, schema=_get_property_schema().get(self.species, {}), counts=True)
+        try:
+            compiler = MorkJoinCompiler(requests, f"mork_{dataset_id}", result_id, self._safe_atom)
+            program = compiler.compile(properties=True, schema=_get_property_schema().get(self.species, {}),
+                                       counts=True, limit=limit)
+        except ValueError as exc:
+            raise LogicValidationError(str(exc)) from None
         # Keep the four-part query format serializable for the Celery workers.
         return [((program,), (), 'query', result_id),
                 ((), (), 'total_count', result_id),
@@ -479,7 +485,7 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 if not shm_act.exists():
                     logger.warning(f"SHM Symlink update failed: {e}")
 
-        if len(pattern_tuple) == 1 and pattern_tuple[0].lstrip().startswith('(exec '):
+        if len(pattern_tuple) == 1 and not template_tuple:
             metta_query = pattern_tuple[0]
         else:
             sources = self._act_sources(target_space, pattern_str)
