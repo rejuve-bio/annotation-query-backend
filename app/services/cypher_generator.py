@@ -487,7 +487,20 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 cypher_queries.extend(self._anchor_count_queries(
                     predicates, node_map, predicate_map, anchor_var, group_ids))
 
+            elif anchor_var is not None and not self._has_virtual_predicate(predicates):
+                # Count queries reuse the result query's arms, so an anchor with
+                # many edges of several types does not multiply rows.
+                cypher_query, aliases, outer_nodes = self._build_call_subquery(
+                    predicates, node_map, predicate_map, anchor_var, limit, node_only,
+                    inner_limit=None
+                )
+                cypher_queries.append(cypher_query)
+                cypher_queries.extend(self._anchor_count_queries(
+                    predicates, node_map, predicate_map, anchor_var))
+
             elif anchor_var is not None:
+                # overlaps_with is a virtual (APOC) relationship, which only the
+                # flat count query below knows how to build.
                 cypher_query, aliases, outer_nodes = self._build_call_subquery(
                     predicates, node_map, predicate_map, anchor_var, limit, node_only,
                     inner_limit=None
@@ -762,6 +775,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         far_conditions = self.where_construct(far_node, far_var)
         where = f" WHERE {' AND '.join(far_conditions)}" if far_conditions else ""
         return f"NOT EXISTS {{ MATCH {pattern}{where} }}"
+
+    @staticmethod
+    def _has_virtual_predicate(predicates):
+        return any(p['type'].replace(' ', '_').lower() == 'overlaps_with' for p in predicates)
 
     @staticmethod
     def _or_anchor(or_groups):

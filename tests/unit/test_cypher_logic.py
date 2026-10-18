@@ -177,3 +177,35 @@ def test_request_without_logic_takes_the_unchanged_path(gen):
                "predicates": [pred("p0", "involved in", "n0", "n1"), pred("p1", "enables", "n0", "n2")]}
     result = generate(gen, request)[0]
     assert "WITH * WHERE size(p0) > 0 AND size(p1) > 0" in result
+
+
+# --- count queries for multi-predicate requests (with or without logic) ---------
+
+def test_multi_predicate_counts_use_arms_not_one_flat_match(gen):
+    request = {"nodes": [node("n0", "gene", {"gene_name": "N"}), node("n1", "biological_process"), node("n2", "anatomy")],
+               "predicates": [pred("p0", "involved in", "n0", "n1"), pred("p1", "expressed in", "n0", "n2")]}
+    schema = {**SCHEMA, "gene_expressed_in_anatomy": {}}
+    node_map = validate_request(request, schema, None)
+    _, total, label = gen.query_Generator(request, node_map)
+    assert ("WITH n0 WHERE EXISTS { MATCH (n0)-[p0:involved_in]->(n1:biological_process) } "
+            "AND EXISTS { MATCH (n0)-[p1:expressed_in]->(n2:anatomy) }") in flat(total)
+    assert flat(total).count("CALL (anchors) {") == 2
+    assert "c_n1 AS n1_biological_process" in label and "c_p1 AS p1_expressed_in" in label
+
+
+def test_counts_for_a_chain_walk_the_arm_once(gen):
+    request = {"nodes": [node("n0", "gene", id_="ENSG00000141510"), node("n1", "transcript"), node("n2", "protein")],
+               "predicates": [pred("p0", "transcribed to", "n0", "n1"), pred("p1", "translates to", "n1", "n2")]}
+    _, total, _ = generate(gen, request)
+    assert flat(total).count("CALL (anchors) {") == 1
+    assert ("RETURN count(DISTINCT n1) AS c_n1, count(DISTINCT p0) AS c_p0, "
+            "count(DISTINCT n2) AS c_n2, count(DISTINCT p1) AS c_p1") in flat(total)
+    assert "RETURN (size(anchors) + c_n1 + c_n2) AS total_nodes, (c_p0 + c_p1) AS total_edges" in total
+
+
+def test_virtual_overlaps_with_keeps_the_flat_count_query(gen):
+    predicates = [pred("p0", "overlaps with", "n0", "n1"), pred("p1", "overlaps with", "n0", "n2")]
+    request = {"nodes": [node("n0", "snp", {"chr": "chr1"}), node("n1", "enhancer"), node("n2", "promoter")],
+               "predicates": predicates}
+    _, total, _ = gen.query_Generator(request, {n["node_id"]: n for n in request["nodes"]})
+    assert "apoc.create.vRelationship" in total and "CALL (anchors)" not in total
