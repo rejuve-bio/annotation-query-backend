@@ -7,6 +7,8 @@ import pytest
 from app.error import NeighbourhoodUnavailableError, TaskCancelledException
 from app.services import mork_neighbourhood as mod
 from app.services.mork_neighbourhood import MorkNeighbourhood
+from app.services.mork_neighbourhood_index import MISSING, READY, VOCABULARY_ONLY
+from app.services.mork_output import parse_mork_output
 from test_mork_program import evaluate
 
 FACTS = '''
@@ -20,26 +22,46 @@ FACTS = '''
 (translates_to (transcript T1) (protein P1))
 (source (transcribes_to (gene G1) (transcript T1)) GENCODE)
 (evidence (regulates (gene G1) (gene G2)) IDA) (evidence (regulates (gene G1) (gene G2)) TAS)
+(snp S1) (snp S2)
+(closest_gene (snp S1) (gene G1)) (closest_gene (snp S2) (gene G1)) (closest_gene (snp S2) (gene G2))
+(distance (closest_gene (snp S1) (gene G1)) 120)
+(coexpressed_with (gene G1) (gene G2)) (coexpressed_with (gene G2) (gene G1))
 '''
 
 VOCABULARY = {
-    'triples': [['gene', 'regulates', 'gene'], ['gene', 'transcribes_to', 'transcript'],
+    'triples': [['gene', 'coexpressed_with', 'gene'], ['gene', 'regulates', 'gene'],
+                ['gene', 'transcribes_to', 'transcript'], ['snp', 'closest_gene', 'gene'],
                 ['transcript', 'translates_to', 'protein']],
-    'node_types': ['gene', 'protein', 'transcript'],
+    'node_types': ['gene', 'protein', 'snp', 'transcript'],
     'node_properties': {'gene': ['gene_name', 'gene_type', 'synonym'], 'transcript': ['transcript_name']},
-    'edge_properties': {'regulates': ['evidence'], 'transcribes_to': ['source']},
+    'edge_properties': {'closest_gene': ['distance'], 'regulates': ['evidence'], 'transcribes_to': ['source']},
 }
 
 
-def backend(vocabulary=VOCABULARY):
+def reverse_spaces():
+    """Each non-symmetric edge type stored target-first, as the index builds it."""
+    spaces = {}
+    for atom in parse_mork_output(FACTS):
+        if len(atom) == 3 and all(isinstance(x, tuple) for x in atom[1:]) and atom[0] != 'coexpressed_with':
+            name = f'rev_{atom[1][0]}_{atom[0]}_{atom[2][0]}'
+            spaces[name] = spaces.get(name, '') + f'({atom[0]} ({atom[2][0]} {atom[2][1]}) ({atom[1][0]} {atom[1][1]}))\n'
+    return spaces
+
+
+def backend(vocabulary=VOCABULARY, status=READY):
     programs = []
+    spaces = {'human': FACTS, **reverse_spaces()}
 
     def run_program(program, timeout_s, stop_event=None):
         programs.append(program)
-        return list(evaluate(program, FACTS))
+        return list(evaluate(program, spaces))
 
-    generator = SimpleNamespace(space='human', run_program=run_program,
-                                neighbourhood_index=SimpleNamespace(vocabulary=lambda: vocabulary))
+    def reverse_space(triple):
+        name = 'rev_' + '_'.join(triple)
+        return name if status == READY and name in spaces else None
+
+    index = SimpleNamespace(vocabulary=lambda: vocabulary, status=lambda: status, reverse_space=reverse_space)
+    generator = SimpleNamespace(space='human', run_program=run_program, neighbourhood_index=index)
     nb = MorkNeighbourhood(generator, 'human')
     nb.programs = programs
     return nb
@@ -69,21 +91,21 @@ def test_one_hop_returns_the_neo4j_shape_with_properties_and_names():
     assert nodes['transcript T3']['name'] == 'transcript T3'   # no name property: id
     edges = edges_of(result)
     assert set(edges) == {('gene G1', 'transcribes_to', f'transcript {t}') for t in ('T1', 'T2', 'T3')} | {
-        ('gene G1', 'regulates', 'gene G2')}
+        ('gene G1', 'regulates', 'gene G2'), ('gene G1', 'coexpressed_with', 'gene G2')}
     assert edges[('gene G1', 'transcribes_to', 'transcript T1')] == {
         'source': 'gene G1', 'target': 'transcript T1', 'label': 'transcribes_to', 'hop': 1,
         'edge_id': 'gene_transcribes_to_transcript', 'source_data': 'GENCODE'}
     assert edges[('gene G1', 'regulates', 'gene G2')]['evidence'] == ['IDA', 'TAS']   # multi-valued
-    assert result['node_count'] == 5 and result['edge_count'] == 4
-    assert result['hops'] == [{'hop': 1, 'node_count': 4, 'edge_count': 4, 'truncated': False, 'ranked_by': None}]
+    assert result['node_count'] == 5 and result['edge_count'] == 5
+    assert result['hops'] == [{'hop': 1, 'node_count': 4, 'edge_count': 5, 'truncated': False, 'ranked_by': None}]
     assert sorted((r['label'], r['count']) for r in result['node_count_by_label']) == [('gene', 2), ('transcript', 3)]
 
 
 def test_programs_leave_no_helper_atoms():
     nb = backend()
     nb.expand(request())
-    atoms = evaluate(nb.programs[0], FACTS)
-    assert {atom[0] for atom in atoms} <= {'seed', 'out', 'np', 'ep'}
+    atoms = evaluate(nb.programs[0], {'human': FACTS, **reverse_spaces()})
+    assert {atom[0] for atom in atoms} <= {'seed', 'out', 'np', 'ep', 'deg'}
 
 
 def test_missing_or_invalid_seed_is_not_found():
@@ -147,17 +169,52 @@ def test_validation_uses_the_vocabulary_and_neo4j_messages():
     assert backend().validate(request()) == []
 
 
-def test_unsupported_parts_are_refused_for_now():
+def test_where_and_order_by_are_refused_for_now():
     errors = backend().validate(request(hops=[{'direction': 'both'}, {'direction': 'out', 'order_by': 'evidence'}]))
-    assert any("direction 'both'" in e for e in errors) and any("'order_by'" in e for e in errors)
+    assert errors == ["hops[1]: not supported yet on MORK: 'where' and 'order_by'"]
 
 
-def test_index_not_ready_queues_a_build_and_reports_unavailable(monkeypatch):
+def test_incoming_edges_come_from_the_reverse_index_with_their_real_direction():
+    result = backend().expand(request(hops=[{'direction': 'in', 'limit': 500}]))
+    edges = edges_of(result)
+    assert set(edges) == {('snp S1', 'closest_gene', 'gene G1'), ('snp S2', 'closest_gene', 'gene G1'),
+                          ('gene G2', 'coexpressed_with', 'gene G1')}
+    assert edges[('snp S1', 'closest_gene', 'gene G1')]['distance'] == '120'
+    assert edges[('snp S1', 'closest_gene', 'gene G1')]['edge_id'] == 'snp_closest_gene_gene'
+
+
+def test_both_directions_keep_symmetric_edges_as_two_edges():
+    edges = edges_of(backend().expand(request(hops=[{'direction': 'both', 'limit': 500}])))
+    assert ('gene G1', 'coexpressed_with', 'gene G2') in edges and ('gene G2', 'coexpressed_with', 'gene G1') in edges
+    assert ('snp S2', 'closest_gene', 'gene G1') in edges and ('gene G1', 'regulates', 'gene G2') in edges
+
+
+def test_incoming_respects_edge_and_node_types():
+    edges = edges_of(backend().expand(request(hops=[{'direction': 'in', 'limit': 500, 'node_types': ['gene']}])))
+    assert set(edges) == {('gene G2', 'coexpressed_with', 'gene G1')}
+
+
+def test_seed_degree_counts_both_directions():
+    result = backend().expand(request())
+    assert result['seed_degree'] == [
+        {'edge_type': 'transcribes_to', 'neighbour_type': 'transcript', 'direction': 'out', 'count': 3},
+        {'edge_type': 'closest_gene', 'neighbour_type': 'snp', 'direction': 'in', 'count': 2},
+        {'edge_type': 'coexpressed_with', 'neighbour_type': 'gene', 'direction': 'in', 'count': 1},
+        {'edge_type': 'coexpressed_with', 'neighbour_type': 'gene', 'direction': 'out', 'count': 1},
+        {'edge_type': 'regulates', 'neighbour_type': 'gene', 'direction': 'out', 'count': 1}]
+
+
+@pytest.mark.parametrize('status', [VOCABULARY_ONLY, MISSING])
+def test_every_request_is_refused_until_the_whole_index_is_built(monkeypatch, status):
     queued = []
     monkeypatch.setattr('app.workers.neighbourhood_task.request_index_build', queued.append)
-    with pytest.raises(NeighbourhoodUnavailableError, match='being built'):
-        backend(vocabulary=None).validate(request())
-    assert queued == ['human']
+    nb = backend(vocabulary=VOCABULARY if status == VOCABULARY_ONLY else None, status=status)
+    for req in (request(), request(hops=[{'direction': 'in', 'limit': 500}])):
+        with pytest.raises(NeighbourhoodUnavailableError, match='being built'):
+            nb.validate(req)
+        with pytest.raises(NeighbourhoodUnavailableError, match='being built'):
+            nb.expand(req)
+    assert queued and set(queued) == {'human'}
 
 
 def test_cancelled_before_a_hop():

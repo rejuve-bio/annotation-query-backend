@@ -54,7 +54,9 @@ def substitute(pattern, bindings):
 
 def evaluate(program, facts):
     """Interpret the ACT/BTM join and write/delete subset used by these programs."""
-    stored = set(sexprs(facts))
+    # facts: one text for every ACT, or {space: text} for several ACTs.
+    spaces = {name: set(sexprs(text)) for name, text in facts.items()} if isinstance(facts, dict) else None
+    stored = set(sexprs(facts)) if spaces is None else set()
     memory = set()
     for rule in sexprs(program):
         if rule[0] != 'exec':
@@ -64,7 +66,10 @@ def evaluate(program, facts):
         snapshot = set(memory)
         rows = [{}]
         for source in sources[1:]:
-            pool, pattern = (stored, source[2]) if source[0] == 'ACT' else (snapshot, source[1])
+            if source[0] == 'ACT':
+                pool, pattern = (stored if spaces is None else spaces.get(source[1], set())), source[2]
+            else:
+                pool, pattern = snapshot, source[1]
             joined = []
             for row in rows:
                 for fact in pool:
@@ -78,9 +83,14 @@ def evaluate(program, facts):
             continue
         if sink[0] == 'O' and sink[1][0] == 'count':
             for _, template, count_var, projection in sink[1:]:
-                values = {substitute(projection, row) for row in rows}
-                if values:
-                    memory.add(substitute(template, {count_var: str(len(values))}))
+                # Like MORK, count separately per binding of the template's
+                # other variables (e.g. one count per edge type).
+                groups = {}
+                for row in rows:
+                    key = substitute(template, {k: v for k, v in row.items() if k != count_var})
+                    groups.setdefault(key, set()).add(substitute(projection, row))
+                for key, values in groups.items():
+                    memory.add(substitute(key, {count_var: str(len(values))}))
             continue
         for row in rows:
             if sink[0] == ',':

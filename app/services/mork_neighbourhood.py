@@ -14,6 +14,7 @@ from collections import Counter, defaultdict
 
 from app.constants import NEIGHBOURHOOD_HOP_TIMEOUT_S, NEIGHBOURHOOD_MAX_TOTAL_NODES
 from app.error import NeighbourhoodUnavailableError, TaskCancelledException
+from app.services.mork_neighbourhood_index import READY, SYMMETRIC_LABELS
 from app.services.mork_output import serialize_mork_atom
 from app.services.mork_program import MorkProgram
 
@@ -56,8 +57,9 @@ class MorkNeighbourhood:
         self.space = generator.space
 
     def vocabulary(self):
+        """The index's vocabulary; until the whole index is built, requests are refused."""
         vocabulary = self.index.vocabulary()
-        if vocabulary is None:
+        if vocabulary is None or self.index.status() != READY:
             from app.workers.neighbourhood_task import request_index_build
             request_index_build(self.species)
             raise NeighbourhoodUnavailableError(INDEX_NOT_READY.format(species=self.species))
@@ -85,52 +87,96 @@ class MorkNeighbourhood:
             for prop in [c["property"] for c in hop.get("where") or []] + [hop.get("order_by")]:
                 if prop and prop not in property_keys:
                     errors.append(f"hops[{i}]: unknown edge property for {species}: {prop!r}")
-            if hop.get("direction", "both") != "out":
-                errors.append(f"hops[{i}]: not supported yet on MORK: direction {hop.get('direction', 'both')!r}")
             if hop.get("where") or hop.get("order_by"):
                 errors.append(f"hops[{i}]: not supported yet on MORK: 'where' and 'order_by'")
         return errors
+
+    def _incoming_sources(self, vocabulary, node_type, labels, neighbour_types):
+        """(source type, label, ACT space, stored target-first?) for edges into node_type."""
+        sources = []
+        for source, label, target in vocabulary["triples"]:
+            if target != node_type or (labels and label not in labels) or \
+                    (neighbour_types and source not in neighbour_types):
+                continue
+            if label in SYMMETRIC_LABELS and source == target:
+                # Stored in both directions: incoming = outgoing.
+                sources.append((source, label, self.space, False))
+                continue
+            space = self.index.reverse_space((source, label, target))
+            if space is None:
+                continue    # no edges of this type
+            sources.append((source, label, space, True))
+        return sources
 
     # -- one hop -----------------------------------------------------------
 
     def _hop_program(self, vocabulary, hop_filter, frontier, node_limit, seed, properties):
         p = MorkProgram(self.space)
         act = p.act
+        direction = hop_filter.get("direction", "both")
+        labels = hop_filter.get("edge_types") or []
+        neighbour_types = hop_filter.get("node_types") or []
+        frontier_types = sorted({node_type for node_type, _ in frontier})
+        incoming = {t: self._incoming_sources(vocabulary, t, labels, neighbour_types)
+                    for t in frontier_types} if direction != "out" else {}
+
         if seed is not None:
             seed_atom = f"({seed[0]} {seed[1]})"
             p.emit([act(seed_atom)], [f"(seed {seed_atom})"])
             for prop in self._node_props(vocabulary, seed[0], properties):
                 p.emit([act(f"({prop} {seed_atom} $v)")], [f"(np {prop} {seed_atom} $v)"])
+            self._seed_degree(p, vocabulary, seed)
 
         # Edges per frontier node, capped inside MORK at node_limit + 1: the
-        # extra row only tells Python that more exist (truncated).
-        labels = hop_filter.get("edge_types") or ["$l"]
-        neighbour_types = hop_filter.get("node_types") or ["$t"]
+        # extra row only tells Python that more exist (truncated). Incoming
+        # edges are read target-first from the reverse index.
+        head = node_limit + 1
         for node_type, node_id in frontier:
             node = f"({node_type} {node_id})"
-            for label in labels:
-                for neighbour_type in neighbour_types:
-                    edge = f"({label} {node} ({neighbour_type} $x))"
-                    p.emit([act(edge)], sinks=[f"(head {node_limit + 1} (out {node} ({neighbour_type} $x) {edge}))"])
+            if direction != "in":
+                for label in labels or ["$l"]:
+                    for neighbour_type in neighbour_types or ["$t"]:
+                        edge = f"({label} {node} ({neighbour_type} $x))"
+                        p.emit([act(edge)], sinks=[f"(head {head} (out {node} ({neighbour_type} $x) {edge}))"])
+            for source, label, space, reverse in incoming.get(node_type, []):
+                stored = f"({label} {node} ({source} $x))"
+                edge = f"({label} ({source} $x) {node})"
+                p.emit([f"(ACT {space} {stored})"], sinks=[f"(head {head} (out {node} ({source} $x) {edge}))"])
 
         # Properties of what is returned, by name: a variable property name
         # also matches every edge of the node and is far slower.
         returned_edges, returned_nodes = p.head(), p.head()
         p.emit(["(BTM (out $n $m $e))"], [f"({returned_edges} $e)", f"({returned_nodes} $m)"])
-        frontier_types = {node_type for node_type, _ in frontier}
-        triples = [t for t in vocabulary["triples"] if t[0] in frontier_types
-                   and (labels == ["$l"] or t[1] in labels) and (neighbour_types == ["$t"] or t[2] in neighbour_types)]
+        triples, neighbours = set(), set()
+        for source, label, target in vocabulary["triples"]:
+            matches = (not labels or label in labels)
+            if direction != "in" and source in frontier_types and matches and \
+                    (not neighbour_types or target in neighbour_types):
+                triples.add((source, label, target))
+                neighbours.add(target)
+            if direction != "out" and target in frontier_types and matches and \
+                    (not neighbour_types or source in neighbour_types):
+                triples.add((source, label, target))
+                neighbours.add(source)
         if properties:
-            for source, label, target in triples:
+            for source, label, target in sorted(triples):
                 edge = f"({label} ({source} $a) ({target} $b))"
                 for prop in vocabulary["edge_properties"].get(label, []):
                     p.emit([f"(BTM ({returned_edges} {edge}))", act(f"({prop} {edge} $v)")],
                            [f"(ep {prop} {edge} $v)"])
-        for neighbour_type in sorted({target for _, _, target in triples}):
+        for neighbour_type in sorted(neighbours):
             node = f"({neighbour_type} $x)"
             for prop in self._node_props(vocabulary, neighbour_type, properties):
                 p.emit([f"(BTM ({returned_nodes} {node}))", act(f"({prop} {node} $v)")], [f"(np {prop} {node} $v)"])
         return p.finish()
+
+    def _seed_degree(self, p, vocabulary, seed):
+        """Count sinks for the seed's edges by (edge type, neighbour type, direction)."""
+        seed_atom = f"({seed[0]} {seed[1]})"
+        p.emit([p.act(f"($l {seed_atom} ($t $x))")], sinks=["(count (deg out $l $t $c) $c ($t $x))"])
+        for source, label, space, reverse in self._incoming_sources(vocabulary, seed[0], [], []):
+            pattern = f"({label} {seed_atom} ({source} $x))"
+            p.emit([f"(ACT {space} {pattern})"], sinks=[f"(count (deg in {label} {source} $c) $c $x)"])
 
     @staticmethod
     def _node_props(vocabulary, node_type, properties):
@@ -196,10 +242,16 @@ class MorkNeighbourhood:
                     edge_props[atom[2]][atom[1]].append(atom[3])
                 elif atom[0] == "seed":
                     found = True
+                elif atom[0] == "deg":
+                    _, direction, label, neighbour_type, count = atom
+                    result["seed_degree"].append({"edge_type": label, "neighbour_type": neighbour_type,
+                                                  "direction": direction, "count": int(count)})
             if hop == 1:
                 if not found:
                     return result
                 result["seed"].update(found=True, node_id=f"{seed['type']} {seed['id']}")
+                result["seed_degree"].sort(key=lambda row: (-row["count"], row["edge_type"],
+                                                            row["neighbour_type"], row["direction"]))
                 nodes[seed_key] = make_node(seed_key, 0)
 
             # Same order and limits as the Cypher query: frontier order, at
