@@ -5,8 +5,8 @@ and `predicates`. Without it, every property filter and every predicate must
 match (AND), exactly as before. With it you can express OR and NOT, on node
 properties and on predicates (edges).
 
-Supported on the **Cypher (Neo4j) backend**. On MeTTa and MORK a request with
-`logic` is refused with a 400.
+Supported on **Cypher (Neo4j)** and **MORK CLI**. MeTTa and the separate MORK
+HTTP backend refuse requests with `logic` with a 400.
 
 ## Format
 
@@ -58,8 +58,8 @@ Supported on the **Cypher (Neo4j) backend**. On MeTTa and MORK a request with
 | **NOT** | none of the properties match — **a missing property counts as not matching** | none exist; the node at the far end is not returned or counted |
 
 Inside one `nodes` group, each property matches if it equals any of its
-values; the group's operator then combines the properties. Matching is
-case-insensitive and exact, like normal property filters.
+values; the group's operator then combines the properties. Cypher matching is
+case-insensitive and exact. MORK CLI matching is exact and case-sensitive.
 
 **Which node is kept** for predicate groups:
 - `NOT p`: the end of `p` that other predicates use is kept; the other end
@@ -117,7 +117,7 @@ any pathway"), and neither does anything under NOT ("everything except X").
 NOT on a whole node is always refused. (Server setting:
 `REQUIRE_POSITIVE_FILTER`.)
 
-**Estimated too large.** Before running, the server asks Neo4j for an
+**Estimated too large (Cypher only).** Before running, the server asks Neo4j for an
 estimate of the rows the query will produce. Above
 `QUERY_COST_HARD_LIMIT` (default 30M) the request is refused; above
 `QUERY_COST_SOFT_LIMIT` (default 5M) it runs on the slow queue. Requests
@@ -147,7 +147,7 @@ anchored by a single node id skip this check.
 | over a limit | `'logic' is nested too deeply …` / `… too many groups …` / `… too many values …` |
 | no positive filter | `this query is too broad: it would match almost the whole graph …` |
 | estimate over the hard limit | `This query is too broad (about N rows estimated) …` |
-| backend without logic | `boolean logic ('logic') is only supported on the Cypher backend for now` |
+| backend without logic | `boolean logic ('logic') is only supported on the Cypher and MORK CLI backends` |
 | not supported yet | `not supported yet: …` |
 
 ## Results, counts and caching
@@ -156,8 +156,85 @@ anchored by a single node id skip this check.
   node type is not returned and does not appear in `node_count_by_label`.
 - Titles and summaries describe the logic in plain English
   (e.g. *"…, where Gene has no 'involved in' link to a Biological Process"*).
-- Equivalent requests (different order, case or single value vs. list) share
-  a cache entry; requests without `logic` keep their existing cache keys.
+- Equivalent requests (different order, operator casing or single value vs.
+  list) share a cache entry. Property-value casing is preserved. Requests
+  without `logic` keep their existing cache keys.
+
+## MORK CLI
+
+Select `type: mork_cli` in `config/config.yaml` and configure each available
+species' `data_dir` and `act_file`. The live checks use the human v6 ACT;
+there is no fly ACT in the current test environment.
+
+MORK CLI supports nested property AND/OR/NOT and predicate AND/OR/NOT using
+the same validation and kept-end rules as Cypher. NOT means **none match**;
+nodes without the tested property are retained. Far-node conditions stay
+inside a negated predicate's existence check, and that far node is excluded
+from results and counts.
+
+- Matching is case-sensitive: `TP53` matches, while `tp53` does not.
+- Property values follow the BioCypher MeTTa writer: spaces become `_`,
+  punctuation is normalized, CURIE prefixes are removed from property values,
+  and stored symbols are limited to 63 UTF-8 bytes. URLs preserve their
+  punctuation but must be valid single symbols. Identifiers use the existing
+  ID preprocessing instead of property-value normalization.
+- Multiple required predicates return complete matches. OR returns the arms
+  that exist, while also requiring every ordinary predicate and every other
+  OR group to match.
+- One program fetches the graph, declared result properties and distinct
+  total/per-label counts. The count tasks reuse those counts. Repeated roles
+  referring to the same stored node or edge are counted once. Neo4j may
+  count duplicate relationships separately.
+- Missing display properties do not remove matching nodes. Property fetch
+  skips `synonym`, `synonyms` and `accessions`; these can still be used as
+  filters. Properties defined only on a schema parent are not yet fetched.
+- Helper sets are removed before output. Empty results return zero totals
+  and empty per-label lists.
+
+The shared positive-filter rule applies to MORK CLI. Cypher's Neo4j cost
+estimate does not run for this backend. MORK currently has no replacement
+for the former raw-atom result cap, so a positive filter does not guarantee
+a small result.
+
+Additional MORK CLI restrictions return HTTP 400: cycles, parallel predicates,
+disconnected request graphs, position/interval filters anywhere, edge-property
+filters, comma-separated values, ordinary node-property lists, and ID lists.
+Use value lists inside `logic` instead.
+
+There is no default limit. An explicit `?limit=N` behaves like Cypher's one
+row per anchor node: the graph keeps N matching root nodes with all of their
+complete matches, including OR arms. Counts still describe every match.
+`limit=0` means no limit; a negative limit returns HTTP 400.
+
+The Docker build pins MORK to `ed57c6716d8c510296fb5fbb8be6fbfe2df241d7`
+and its local PathMap dependency to
+`ef0259152867ece8e85888acc49c238f264a0330`.
+
+### Native live checks
+
+The live suite runs the app's compiler, parser and count-reuse path against
+the native binary. It skips unless `MORK_LIVE_TESTS=1`; it needs neither
+Docker nor MongoDB/Redis. Run from the repository root:
+
+```bash
+MORK_LIVE_TESTS=1 \
+MORK_TEST_BINARY="$PWD/dev-tools/mork/src/MORK/target/release/mork" \
+MORK_TEST_DATA_DIR=/mnt/hdd_1/biocypher-kg/output/hsa/metta_out_v6 \
+MORK_TEST_ACT_FILE=human_v6.act \
+MORK_TEST_LOCK_FILE="$PWD/dev-tools/mork/.mork.lock" \
+python -m pytest tests/integration/mork_cli -m mork_live --confcutdir=tests/integration/mork_cli -q
+```
+
+The lock serializes native executions; use the same lock file as other native
+runners and run without parallel test workers. `MORK_TEST_TIMEOUT` defaults
+to 300 seconds. `MORK_TEST_SOURCE_DIR` defaults to the ACT's data directory;
+source comparisons skip if its `.metta` files are absent. The fixed matrix
+counts describe the human v6 data build, so another snapshot can differ.
+
+Checks cover the S01–S17 scenarios, exact gene sets from source files,
+complete gene/transcript/protein joins, 100-value tables, explicit limits, response properties,
+count agreement and helper cleanup. Shared graph grouping is a separate
+layer and is not exercised by this native backend suite.
 
 ## For backend developers
 
@@ -165,7 +242,12 @@ anchored by a single node id skip this check.
   including which end of a NOT / OR predicate is kept).
 - Cypher generation: `CypherQueryGenerator._apply_logic` and friends in
   `app/services/cypher_generator.py`.
+- MORK compilation: `MorkJoinCompiler` in `app/services/mork_program.py` and
+  `MorkPropertyCompiler` in `app/services/mork_logic.py`.
 - A backend opts in with `supports_logic = True`.
 - Tests: `tests/unit/test_logic.py`, `test_cypher_logic.py`,
   `test_query_canonical.py`, `test_query_cost.py`; live checks against Neo4j
   in `tests/integration/cypher/test_logic_live.py` (`LOGIC_LIVE_TESTS=1`).
+- MORK unit checks: `test_mork_cli_values.py`, `test_mork_program.py`,
+  `test_mork_logic.py`, `test_mork_output.py`, `test_mork_counts.py` and
+  `test_mork_session.py`; native live checks in `tests/integration/mork_cli`.

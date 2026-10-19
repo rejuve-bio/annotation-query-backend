@@ -420,7 +420,7 @@ def ensure_has_positive_filter(request):
         if any(value not in (None, "", []) for value in (node.get("properties") or {}).values()):
             return
     logic = request.get("logic")
-    if logic and _narrows(logic):
+    if logic and logic_narrows(logic):
         return
     raise QueryTooBroadError(
         "this query is too broad: it would match almost the whole graph. "
@@ -428,7 +428,7 @@ def ensure_has_positive_filter(request):
     )
 
 
-def _narrows(group):
+def logic_narrows(group):
     """Whether a logic group is guaranteed to narrow its node's results."""
     operator = group.get("operator", "AND")
     if operator == "NOT" or "predicates" in group:
@@ -437,8 +437,8 @@ def _narrows(group):
         return True
     children = group.get("children", [])
     if operator == "AND":
-        return any(_narrows(child) for child in children)
-    return bool(children) and all(_narrows(child) for child in children)
+        return any(logic_narrows(child) for child in children)
+    return bool(children) and all(logic_narrows(child) for child in children)
 
 
 # ---------------------------------------------------------------------------

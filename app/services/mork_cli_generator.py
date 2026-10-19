@@ -8,9 +8,13 @@ import time
 import hashlib
 import uuid
 from pathlib import Path
+from functools import lru_cache
+from collections import OrderedDict
+from app.lib.mork_values import normalize_mork_value
+from app.lib.logic import LogicValidationError
 from app.services.mork_generator import MorkQueryGenerator
-from app.constants import QUERY_MAX_NODES, MAX_BINDING_VALS, MAX_COMBOS
-from hyperon import MeTTa
+from app.services.mork_program import MorkJoinCompiler
+from app.services.mork_output import parse_mork_output, serialize_mork_atom, flatten_mork_value, parse_mork_counts
 import logging
 
 logger = logging.getLogger(__name__)
@@ -260,16 +264,61 @@ if threading.current_thread() is threading.main_thread():
 
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=1)
+def _get_property_schema():
+    from app.services.schema_data import SchemaManager
+
+    config = Path(__file__).resolve().parents[2] / 'config'
+    # Reuse the app's schema construction without the API dependency's config
+    # merging. The metadata is read once per process, never once per request.
+    return SchemaManager(
+        human_schema_config_path=str(config / 'human_schema/human_full_schema_config.yaml'),
+        biocypher_config_path=str(config / 'biocypher_config.yaml'),
+        human_datasources_config_path=str(config / 'human_schema/data_source_schemas'),
+        fly_schema_config_path=str(config / 'fly_base_schema/dmel_full_schema_config.yaml'),
+        fly_datasources_config_path=str(config / 'fly_base_schema/data_source_schemas'),
+    ).full_schema_representation
+
+
 class MorkCLIQueryGenerator(MorkQueryGenerator):
+    supports_logic = True
+    _COUNT_CACHE_SIZE = 128
+
     def __init__(self, dataset_path, act_filename="annotation.act", species="human"):
         super().__init__(dataset_path=None)
         self.dataset_path = Path(dataset_path)
         self.act_filename = act_filename
         self.species = species
-        self.metta = MeTTa()
+        self._count_results = OrderedDict()
+        self._count_lock = threading.Lock()
+
+    def query_Generator(self, requests, node_map, limit=None, node_only=False):
+        dataset_id = hashlib.md5(str(self.dataset_path.resolve()).encode()).hexdigest()[:8]
+        result_id = self.generate_id()
+        try:
+            compiler = MorkJoinCompiler(requests, f"mork_{dataset_id}", result_id, self._safe_atom)
+            program = compiler.compile(properties=True, schema=_get_property_schema().get(self.species, {}),
+                                       counts=True, limit=limit)
+        except ValueError as exc:
+            raise LogicValidationError(str(exc)) from None
+        # Keep the four-part query format serializable for the Celery workers.
+        return [((program,), (), 'query', result_id),
+                ((), (), 'total_count', result_id),
+                ((), (), 'label_count', result_id)]
+
+    def _serialize_metta_value(self, value):
+        return normalize_mork_value(value)
+
+    def _act_sources(self, target_space, patterns):
+        # Callers may supply conjunctive patterns in one string. ACT accepts
+        # exactly one expression per source.
+        return " ".join(
+            f"(ACT {target_space} {serialize_mork_atom(pattern)})"
+            for pattern in parse_mork_output(patterns)
+        )
 
     def _run_single_pattern(self, pattern_str, template_str):
-        """Run one single-pattern MORK query and return raw MeTTa atoms."""
+        """Run a MORK pattern query and return atoms as nested tuples."""
         dataset_id = hashlib.md5(str(self.dataset_path.resolve()).encode()).hexdigest()[:8]
         target_space = f"mork_{dataset_id}"
         act_file = self.dataset_path / self.act_filename
@@ -284,7 +333,8 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 if not shm_act.exists():
                     logger.warning(f"SHM Symlink update failed: {e}")
 
-        metta_query = f'(exec 0 (I (ACT {target_space} {pattern_str})) (, {template_str}))'
+        sources = self._act_sources(target_space, pattern_str)
+        metta_query = f'(exec 0 (I {sources}) (, {template_str}))'
         query_file = Path("/dev/shm") / f"query_{uuid.uuid4().hex}.metta"
         try:
             fd = os.open(query_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -298,7 +348,7 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 return []
             repaired = _repair_mork_output(actual)
             try:
-                return self.metta.parse_all(repaired)
+                return parse_mork_output(repaired)
             except Exception as e:
                 logger.warning(f"Failed to parse MORK output: {e}\nRaw: {actual}")
                 return []
@@ -312,103 +362,6 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 except Exception:
                     pass
 
-    def prepare_query_input(self, inputs, schema):
-        """
-        Batch-optimized: runs one MORK query per (node_type, property) pair
-        instead of one per (node, property). Reduces docker exec calls from
-        N×P to T×P where T = number of unique node types (typically 1-3).
-        """
-        from .metta.metta_seralizer import metta_seralizer
-        result = []
-        for atoms in inputs:
-            if not atoms:
-                continue
-            tuples = metta_seralizer(atoms)
-            for t in tuples:
-                if t and t[0] == 'tmp':
-                    t = t[1:]
-                if len(t) == 2:
-                    src_type, src_id = t
-                    result.append({"source": f"{src_type} {src_id}"})
-                elif len(t) == 5:
-                    predicate, src_type, src_id, tgt_type, tgt_id = t
-                    result.append({
-                        "predicate": predicate,
-                        "source": f"{src_type} {src_id}",
-                        "target": f"{tgt_type} {tgt_id}",
-                    })
-
-        if not result:
-            return "()", [[]], []
-
-        to_be_removed = {'synonyms', 'accessions'}
-        merged_atoms = []
-
-        # --- Node properties: hybrid batch/per-node based on type population size ---
-        from app.constants import BATCH_MAX_TYPE_SIZE, BATCH_NODE_THRESHOLD
-        from app import graph_info as _graph_info
-        _type_counts = {e['name']: e['count'] for e in _graph_info.get('top_entities', [])}
-
-        nodes_by_type: dict[str, set] = {}
-        for item in result:
-            for role in ('source', 'target'):
-                node_str = item.get(role)
-                if not node_str:
-                    continue
-                parts = node_str.split(' ', 1)
-                if len(parts) == 2:
-                    node_type, node_id = parts
-                    nodes_by_type.setdefault(node_type, set()).add(node_id)
-
-        for node_type, node_ids in nodes_by_type.items():
-            props = schema.get(self.species, {}).get('nodes', {}).get(node_type, {}).get('properties', {})
-            total = _type_counts.get(node_type, 0)
-            use_batch = total < BATCH_MAX_TYPE_SIZE and len(node_ids) >= BATCH_NODE_THRESHOLD
-
-            if use_batch:
-                _id_re = re.compile(rf'\({re.escape(node_type)} ([^\)]+)\)')
-                for prop in props:
-                    if prop in to_be_removed:
-                        continue
-                    pattern  = f'({prop} ({node_type} $n) $v)'
-                    template = f'(tmp (node {prop} ({node_type} $n) $v))'
-                    for atom in self._run_single_pattern(pattern, template):
-                        m = _id_re.search(str(atom))
-                        if m and m.group(1) in node_ids:
-                            merged_atoms.append(atom)
-            else:
-                for node_id in node_ids:
-                    node_str = f'{node_type} {node_id}'
-                    for prop in props:
-                        if prop in to_be_removed:
-                            continue
-                        var = self.generate_id()
-                        pattern  = f'({prop} ({node_str}) ${var})'
-                        template = f'(tmp (node {prop} ({node_str}) ${var}))'
-                        merged_atoms.extend(self._run_single_pattern(pattern, template))
-
-        # --- Edge properties: per-edge (few edges, unchanged) ---
-        seen_edges: set = set()
-        for item in result:
-            if 'predicate' not in item or 'target' not in item:
-                continue
-            predicate = item['predicate']
-            source    = item['source']
-            target    = item['target']
-            edge_key  = (predicate, source, target)
-            if edge_key in seen_edges:
-                continue
-            seen_edges.add(edge_key)
-            edge_props = schema.get(self.species, {}).get('edges', {}).get(predicate, {}).get('properties', {})
-            for prop in edge_props:
-                var = self.generate_id()
-                pattern  = f'({prop} ({predicate} ({source}) ({target})) ${var})'
-                template = f'(tmp (edge {prop} ({predicate} ({source}) ({target})) ${var}))'
-                merged_atoms.extend(self._run_single_pattern(pattern, template))
-
-        dummy_query = ((), (), 'query')
-        return dummy_query, [merged_atoms], result
-
     def is_ready(self):
         act_file = self.dataset_path / self.act_filename
         return act_file.exists()
@@ -418,249 +371,93 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
 
     def parse_and_serialize(self, input, schema, graph_components, result_type):
         if result_type != 'graph':
-            return super().parse_and_serialize(input, schema, graph_components, result_type)
+            raw = [item for item in input if not isinstance(item, dict)]
+            counts = parse_mork_counts(raw)
+            if counts is None:
+                graph = self._graph_result(raw, schema, graph_components)
+                counts = {key: graph[key] for key in (
+                    'node_count', 'edge_count', 'node_count_by_label', 'edge_count_by_label')}
+            for item in input:
+                if isinstance(item, dict):
+                    counts.update({key: item[key] for key in counts if key in item})
+            return counts
+        return self._graph_result(input, schema, graph_components)
 
-        from .mork import get_total_counts, get_count_by_label
-        from .metta import metta_seralizer
+    def _graph_result(self, inputs, schema, graph_components):
+        from .mork import get_count_by_label
 
-        query, result, prev_result = self.prepare_query_input(input, schema)
-        tuples = metta_seralizer(result[0])
+        nodes, edges, properties = {}, {}, []
+        species_schema = schema.get(self.species, {})
+        node_schema, edge_schema = species_schema.get('nodes', {}), species_schema.get('edges', {})
 
-        if not tuples:
-            nodes, edges = self.parse_and_seralize_no_properties(prev_result)
-            meta_data = get_total_counts({"nodes": nodes, "edges": edges})
-            meta_data.update(get_count_by_label({"nodes": nodes, "edges": edges}))
-            return {
-                "nodes": nodes, "edges": edges,
-                "node_count": meta_data.get('node_count', 0),
-                "edge_count": meta_data.get('edge_count', 0),
-                "node_count_by_label": meta_data.get('node_count_by_label', []),
-                "edge_count_by_label": meta_data.get('edge_count_by_label', []),
-            }
+        def add_node(term):
+            if term not in nodes:
+                node_type, identifier = term
+                nodes[term] = {'id': f'{node_type} {identifier}', 'type': node_type}
+            return nodes[term]['id']
 
-        parsed = self.parse_and_serialize_properties(result, graph_components, result_type)
-
-        if not prev_result:
-            return parsed
-
-        changed = False
-
-        # Patch missing edges: process_result_graph only creates edges from
-        # (tmp (edge ...)) atoms, which exist only when the schema has edge
-        # properties.  Reconstruct any edge absent from the property result.
-        existing_edge_keys = {
-            (e['data']['label'], e['data']['source'], e['data']['target'])
-            for e in parsed.get('edges', [])
-        }
-        for item in prev_result:
-            if 'predicate' not in item or 'target' not in item:
-                continue
-            key = (item['predicate'], item['source'], item['target'])
-            if key in existing_edge_keys:
-                continue
-            existing_edge_keys.add(key)
-            src_label = item['source'].split(' ')[0]
-            tgt_label = item['target'].split(' ')[0]
-            parsed.setdefault('edges', []).append({"data": {
-                "id": self.generate_id(),
-                "edge_id": f"{src_label}_{item['predicate']}_{tgt_label}",
-                "label": item['predicate'],
-                "source": item['source'],
-                "target": item['target'],
-            }})
-            changed = True
-
-        # Patch missing nodes: any source/target referenced in prev_result that
-        # has no property atoms (e.g. schema gap, no MORK data) won't appear in
-        # the property-based node list — add it as a minimal node.
-        existing_node_ids = {n['data']['id'] for n in parsed.get('nodes', [])}
-        for item in prev_result:
-            for role in ('source', 'target'):
-                node_str = item.get(role)
-                if not node_str or node_str in existing_node_ids:
-                    continue
-                existing_node_ids.add(node_str)
-                node_type = node_str.split(' ')[0]
-                parsed.setdefault('nodes', []).append({"data": {
-                    "id": node_str,
-                    "type": node_type,
-                }})
-                changed = True
-
-        if changed:
-            meta = get_total_counts({"nodes": parsed['nodes'], "edges": parsed['edges']})
-            meta.update(get_count_by_label({"nodes": parsed['nodes'], "edges": parsed['edges']}))
-            parsed['node_count'] = meta.get('node_count', 0)
-            parsed['edge_count'] = meta.get('edge_count', 0)
-            parsed['node_count_by_label'] = meta.get('node_count_by_label', [])
-            parsed['edge_count_by_label'] = meta.get('edge_count_by_label', [])
-
-        return parsed
-
-    def _resolve_chained_patterns(self, pattern_tuple, template_tuple, query_obj, start_time):
-        """
-        Resolve an arbitrary multi-predicate query against ACT (which only supports
-        single-pattern matching).
-
-        Algorithm:
-          1. Separate property-filter patterns (not in template) from predicate patterns.
-          2. Phase 1 – run each property pattern to collect concrete node IDs; keep ALL
-             matches as a list (bindings: var -> [val, ...]).
-          3. Phase 2 – topological worklist: repeatedly pick any predicate whose input
-             variables are already bound, expand all combinations of those values, run one
-             MORK query per combination, collect result atoms AND capture new output-var
-             values so downstream predicates can use them.
-          4. Return the union of all collected result atoms.
-
-        This handles linear chains (A→B→C), branching (A→B and A→C), and arbitrary DAGs.
-        """
-        import re
-        import itertools
-
-        def extract_vars(s):
-            return set(re.findall(r'\$(\w+)', s))
-
-        def capture_var_values(pat, var):
-            atoms = self._run_single_pattern(pat, f'(captured_{var} ${var})')
-            vals = []
+        for atoms in inputs:
             for atom in atoms:
-                if hasattr(atom, 'get_children'):
-                    ch = atom.get_children()
-                    if len(ch) >= 2 and hasattr(ch[1], 'get_name'):
-                        v = ch[1].get_name()
-                        if v not in vals:
-                            vals.append(v)
-            return vals
-
-        # Map predicate-body string → full template string
-        body_to_tmpl = {}
-        for t in template_tuple:
-            m = re.match(r'^\s*\(\S+\s+(.+)\)\s*$', t.strip(), re.DOTALL)
-            if m:
-                body_to_tmpl[m.group(1).strip()] = t.strip()
-
-        property_pats  = [p for p in pattern_tuple if p.strip() not in body_to_tmpl]
-        predicate_pats = [p for p in pattern_tuple if p.strip() in body_to_tmpl]
-
-        # Phase 1: resolve property-filter variables (bindings: var -> list[str])
-        bindings = {}
-        for prop in property_pats:
-            for var in extract_vars(prop):
-                if var in bindings:
+                if len(atom) != 2 or not isinstance(atom[1], tuple):
                     continue
-                vals = capture_var_values(prop.strip(), var)
-                if vals:
-                    bindings[var] = vals
+                payload = atom[1]
+                if atom[0] == 'tmp' and payload and payload[0] in ('node', 'edge'):
+                    properties.append(payload)
+                elif len(payload) == 2 and all(isinstance(part, str) for part in payload):
+                    add_node(payload)
+                elif (len(payload) == 3 and all(isinstance(part, tuple) and len(part) == 2
+                                               for part in payload[1:])):
+                    label, source, target = payload
+                    key = (label, source, target)
+                    if key not in edges:
+                        edges[key] = {'id': self.generate_id(),
+                                      'edge_id': f'{source[0]}_{label}_{target[0]}', 'label': label,
+                                      'source': add_node(source), 'target': add_node(target)}
 
-        if not bindings and property_pats:
-            duration = (time.time() - start_time) * 1000
-            logger.info("Query executed", extra={"query": str(query_obj), "duration_ms": duration, "status": "no_match"})
-            return [[]]
+        named_properties = {'gene_name', 'transcript_name', 'protein_name', 'pathway_name', 'term_name'}
+        for payload in properties:
+            if len(payload) != 4:
+                continue
+            kind, name, subject, value = payload
+            if kind == 'node':
+                if subject not in nodes or name not in node_schema.get(subject[0], {}).get('properties', {}):
+                    continue
+                if name in ('synonym', 'synonyms', 'accessions'):
+                    continue
+                value = flatten_mork_value(value)
+                if graph_components.get('properties', True) and name not in ('id', 'type'):
+                    nodes[subject][name] = value
+                if name in named_properties:
+                    nodes[subject]['name'] = value
+            elif kind == 'edge':
+                if subject not in edges or name not in edge_schema.get(subject[0], {}).get('properties', {}):
+                    continue
+                if name == '_exists':
+                    continue
+                value = flatten_mork_value(value)
+                if isinstance(value, list):
+                    value = ' '.join(value)
+                edges[subject]['source_data' if name == 'source' else name] = value
 
-        # Pre-compute which vars appear in more than one predicate (need chaining)
-        var_pred_count = {}
-        for p in predicate_pats:
-            for v in extract_vars(p):
-                var_pred_count[v] = var_pred_count.get(v, 0) + 1
-        chained_vars = {v for v, c in var_pred_count.items() if c > 1}
-
-        # Phase 2: topological worklist
-        resolved_vars = set(bindings.keys())
-        remaining     = list(predicate_pats)
-        all_atoms     = []
-        _atom_cap     = False
-
-        for _ in range(len(predicate_pats) ** 2 + 1):
-            if not remaining or _atom_cap:
-                break
-            deferred = []
-            progress = False
-
-            for pred_pat in remaining:
-                vars_in_pat = extract_vars(pred_pat)
-                input_vars  = vars_in_pat & resolved_vars
-                output_vars = vars_in_pat - resolved_vars
-
-                if not input_vars and vars_in_pat:
-                    # Only defer if another unprocessed pattern with resolved
-                    # inputs shares our vars (meaning it will produce them for us).
-                    # Patterns whose vars are all new outputs (e.g. a predicate
-                    # starting from a concrete node ID) should run immediately.
-                    produces_our_vars = any(
-                        (extract_vars(other) & vars_in_pat)
-                        and (extract_vars(other) & resolved_vars)
-                        for other in remaining if other != pred_pat
-                    )
-                    if produces_our_vars:
-                        deferred.append(pred_pat)
-                        continue
-
-                tmpl           = body_to_tmpl[pred_pat.strip()]
-                input_var_list = sorted(input_vars)
-
-                # B4: cap each binding list before building the Cartesian product
-                for v in input_var_list:
-                    if len(bindings[v]) > MAX_BINDING_VALS:
-                        logger.warning(f"[MORK] Capping binding ${v}: {len(bindings[v])} → {MAX_BINDING_VALS}")
-                        bindings[v] = bindings[v][:MAX_BINDING_VALS]
-
-                combos = (
-                    list(itertools.product(*[bindings[v] for v in input_var_list]))
-                    if input_var_list else [()]
-                )
-                if len(combos) > MAX_COMBOS:
-                    logger.warning(f"[MORK] Combo cap: {len(combos)} → {MAX_COMBOS}")
-                    combos = combos[:MAX_COMBOS]
-
-                new_vals = {v: [] for v in output_vars}
-
-                for combo in combos:
-                    subst_pat  = pred_pat.strip()
-                    subst_tmpl = tmpl
-                    # Sort longest var name first to prevent $n1 clobbering $n10
-                    for var, val in sorted(zip(input_var_list, combo), key=lambda x: -len(x[0])):
-                        if any(ch in "()\"'\\" for ch in str(val)):
-                            raise ValueError(f"Invalid MeTTa atom value for ${var}: {val!r}")
-                        safe_val = str(val).replace('\\', '\\\\')
-                        subst_pat  = re.sub(r'\$' + re.escape(var) + r'(?!\w)', lambda m: safe_val, subst_pat)
-                        subst_tmpl = re.sub(r'\$' + re.escape(var) + r'(?!\w)', lambda m: safe_val, subst_tmpl)
-
-                    atoms = self._run_single_pattern(subst_pat, subst_tmpl)
-                    all_atoms.extend(atoms)
-
-                    # B5: early exit if atom count hits the hard cap
-                    if len(all_atoms) >= QUERY_MAX_NODES:
-                        logger.warning(f"[MORK] Early atom exit: {len(all_atoms)} atoms reached cap")
-                        _atom_cap = True
-                        break
-
-                    # Capture output vars that feed into downstream predicates
-                    for out_var in output_vars:
-                        if out_var not in chained_vars:
-                            continue
-                        for v in capture_var_values(subst_pat, out_var):
-                            if v not in new_vals[out_var]:
-                                new_vals[out_var].append(v)
-
-                for var, vals in new_vals.items():
-                    if vals:
-                        existing = bindings.get(var, [])
-                        bindings[var] = existing + [v for v in vals if v not in existing]
-                        resolved_vars.add(var)
-
-                progress = True
-
-            remaining = deferred
-            if not progress:
-                break
-
-        duration = (time.time() - start_time) * 1000
-        logger.info("Query executed", extra={"query": str(query_obj), "duration_ms": duration, "status": "capped" if _atom_cap else "success"})
-        return [all_atoms]
+        for node in nodes.values():
+            node.setdefault('name', node['id'])
+        graph = {'nodes': [{'data': node} for node in nodes.values()],
+                 'edges': [{'data': edge} for edge in edges.values()]}
+        graph.update(parse_mork_counts(inputs) or get_count_by_label(graph))
+        return graph
 
     def run_query(self, query, stop_event=None, species='human'):
         start_time = time.time()
-        pattern_tuple, template_tuple, query_type, _ = query
+        pattern_tuple, template_tuple, query_type, result_id = query
+
+        if query_type in ('total_count', 'label_count') and not pattern_tuple:
+            # Synchronous callers ask for counts after the graph on this same
+            # instance. Workers use the graph task's Redis metadata instead.
+            with self._count_lock:
+                if result_id not in self._count_results:
+                    raise RuntimeError('MORK counts require the graph query to run first on this instance')
+                self._count_results.move_to_end(result_id)
+                return [list(self._count_results[result_id])]
 
         pattern_str = " ".join(pattern_tuple)
         template_str = " ".join(template_tuple)
@@ -688,12 +485,11 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 if not shm_act.exists():
                     logger.warning(f"SHM Symlink update failed: {e}")
 
-        if len(pattern_tuple) == 1:
-            act_pattern = pattern_tuple[0]
-            template_body = template_str
-            metta_query = f'(exec 0 (I (ACT {target_space} {act_pattern})) (, {template_body}))'
+        if len(pattern_tuple) == 1 and not template_tuple:
+            metta_query = pattern_tuple[0]
         else:
-            return self._resolve_chained_patterns(pattern_tuple, template_tuple, query, start_time)
+            sources = self._act_sources(target_space, pattern_str)
+            metta_query = f'(exec 0 (I {sources}) (, {template_str}))'
         
         query_id = uuid.uuid4().hex
         query_file = Path("/dev/shm") / f"query_{query_id}.metta"
@@ -717,7 +513,13 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
             else:
                 actual_result = raw_output.strip()
 
-            metta_result = self.metta.parse_all(actual_result)
+            metta_result = parse_mork_output(_repair_mork_output(actual_result))
+            counts = [atom for atom in metta_result if atom and atom[0] == f'{result_id}_cnt']
+            with self._count_lock:
+                self._count_results[result_id] = counts
+                self._count_results.move_to_end(result_id)
+                while len(self._count_results) > self._COUNT_CACHE_SIZE:
+                    self._count_results.popitem(last=False)
             
             duration = (time.time() - start_time) * 1000
             logger.info("Query executed", extra={"query": str(query), "duration_ms": duration, "status": "success"})

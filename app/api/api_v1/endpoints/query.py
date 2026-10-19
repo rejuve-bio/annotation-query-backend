@@ -174,7 +174,7 @@ def process_query(
         if requests.get('logic') and not getattr(db_instance, 'supports_logic', False):
             raise HTTPException(
                 status_code=400,
-                detail="boolean logic ('logic') is only supported on the Cypher backend for now",
+                detail="boolean logic ('logic') is only supported on the Cypher and MORK CLI backends",
             )
         try:
             node_map = validate_request(requests, schema_for_species, source)
@@ -686,10 +686,10 @@ def get_annotation_by_id(
 
     if summary:
         response_data["summary"] = summary
-    if node_count:
+    if node_count is not None:
         response_data["node_count"] = node_count
         response_data["edge_count"] = edge_count
-    if node_count_by_label:
+    if node_count_by_label is not None:
         response_data["node_count_by_label"] = node_count_by_label
         response_data["edge_count_by_label"] = edge_count_by_label
     if retrieval_duration: response_data["retrieval_duration"] = retrieval_duration
