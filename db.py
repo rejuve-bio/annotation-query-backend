@@ -5,6 +5,7 @@ from pymongoose.methods import set_schemas
 from app.models.annotation import Annotation
 from app.models.user import User
 from app.models.shared_annotation import SharedAnnotation
+from app.models.neighbourhood_job import NeighbourhoodJob
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ def mongo_init():
             "annotation": Annotation(empty=True).schema,
             "user": User(empty=True).schema,
             "shared_annotation": SharedAnnotation(empty=True).schema,
+            "neighbourhood_job": NeighbourhoodJob(empty=True).schema,
         }
 
         set_schemas(_db, schemas)

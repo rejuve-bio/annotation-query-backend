@@ -284,3 +284,11 @@ BATCH_NODE_THRESHOLD = 50       # result sets with ≥ this many nodes use batch
 TASK_STALE_SECS = int(os.environ.get("TASK_STALE_SECS", "2400"))  # tasks older than this are dropped
 MAX_BINDING_VALS = int(os.environ.get("MAX_BINDING_VALS", "1000"))  # B4: cap per-variable binding list size
 MAX_COMBOS = int(os.environ.get("MAX_COMBOS", "50000"))             # B4: cap Cartesian product size
+
+# Neighbourhood expansion caps
+NEIGHBOURHOOD_MAX_HOPS = int(os.environ.get("NEIGHBOURHOOD_MAX_HOPS", "3"))
+NEIGHBOURHOOD_MAX_HOP_LIMIT = int(os.environ.get("NEIGHBOURHOOD_MAX_HOP_LIMIT", "5000"))     # edges per hop
+NEIGHBOURHOOD_MAX_PER_NODE_LIMIT = int(os.environ.get("NEIGHBOURHOOD_MAX_PER_NODE_LIMIT", "500"))
+NEIGHBOURHOOD_MAX_TOTAL_NODES = int(os.environ.get("NEIGHBOURHOOD_MAX_TOTAL_NODES", "20000"))
+NEIGHBOURHOOD_HOP_TIMEOUT_S = float(os.environ.get("NEIGHBOURHOOD_HOP_TIMEOUT_S", "60"))
+NEIGHBOURHOOD_MAX_ACTIVE_JOBS_PER_USER = int(os.environ.get("NEIGHBOURHOOD_MAX_ACTIVE_JOBS_PER_USER", "3"))
