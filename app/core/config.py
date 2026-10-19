@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     QUERY_COST_CHECK_ENABLED: bool = True
     QUERY_COST_SOFT_LIMIT: int = 5_000_000
     QUERY_COST_HARD_LIMIT: int = 30_000_000
+    # MORK neighbourhood index (vocabulary + reverse edges), built from the
+    # ACT by the service. Defaults to <data_dir>/neighbourhood_index, which
+    # the MORK container can read; set it when the data dir is read-only.
+    MORK_INDEX_DIR: Optional[str] = None
+    # Time limit per index build program (a full ACT scan takes ~10 min).
+    MORK_INDEX_PROGRAM_TIMEOUT_S: int = 3600
 
     class Config:
         case_sensitive = True

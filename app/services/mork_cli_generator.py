@@ -187,6 +187,35 @@ class _MorkSession:
                     ], capture_output=True, text=True, check=True)
                 raise
 
+    def run_program(self, query_file_name: str, timeout_s: int, stop_event=None) -> str:
+        """Run a MORK program with a time limit; stop_event cancels it. Returns stdout."""
+        with self._lock:
+            if not self._alive():
+                self._start()
+            proc = subprocess.Popen([
+                "docker", "exec", self._cid,
+                "timeout", "--signal=KILL", str(int(timeout_s)), self.MORK_BIN, "run", query_file_name,
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            while True:
+                try:
+                    out, err = proc.communicate(timeout=0.5)
+                    break
+                except subprocess.TimeoutExpired:
+                    if stop_event is not None and stop_event.is_set():
+                        # Killing the docker exec client leaves MORK running
+                        # inside the container, so kill it there by its file.
+                        subprocess.run(["docker", "exec", self._cid, "pkill", "-KILL", "-f", query_file_name],
+                                       capture_output=True)
+                        proc.kill()
+                        proc.communicate()
+                        from app.error import TaskCancelledException
+                        raise TaskCancelledException()
+        if proc.returncode == 137:
+            raise TimeoutError(f"MORK program exceeded {timeout_s} s")
+        if proc.returncode != 0:
+            raise RuntimeError(f"MORK program failed: {err.strip()[-2000:]}")
+        return out
+
     def stop(self):
         if self._cid:
             subprocess.run(["docker", "stop", self._cid], capture_output=True)
@@ -201,6 +230,20 @@ def _get_session(dataset_path: str) -> _MorkSession:
             session._recover()  # reuse container if a previous worker left one running
             _session_registry[key] = session
         return _session_registry[key]
+
+
+def run_mork_program(dataset_path, program: str, timeout_s: int, stop_event=None):
+    """Run a complete MORK program against a dataset and return its atoms."""
+    query_file = Path("/dev/shm") / f"query_{uuid.uuid4().hex}.metta"
+    fd = os.open(query_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(program)
+        out = _get_session(str(dataset_path)).run_program(str(query_file), timeout_s, stop_event)
+    finally:
+        query_file.unlink(missing_ok=True)
+    body = out.split("result:", 1)[1] if "result:" in out else ""
+    return parse_mork_output(_repair_mork_output(body))
 
 
 def _cleanup_sessions():
@@ -291,6 +334,33 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
         self.species = species
         self._count_results = OrderedDict()
         self._count_lock = threading.Lock()
+        self._neighbourhood_index = None
+
+    @property
+    def space(self):
+        dataset_id = hashlib.md5(str(self.dataset_path.resolve()).encode()).hexdigest()[:8]
+        return f"mork_{dataset_id}"
+
+    def _link_act(self):
+        """Point /dev/shm/<space>.act at the dataset's ACT (MORK reads ACTs from there)."""
+        act_file = self.dataset_path / self.act_filename
+        shm_act = Path("/dev/shm") / f"{self.space}.act"
+        if not shm_act.exists() or act_file.stat().st_mtime > shm_act.stat().st_mtime:
+            temp_shm = Path("/dev/shm") / f"{shm_act.name}.tmp.{uuid.uuid4().hex}"
+            os.symlink(act_file.resolve(), temp_shm)
+            os.replace(temp_shm, shm_act)
+
+    def run_program(self, program, timeout_s, stop_event=None):
+        self._link_act()
+        return run_mork_program(self.dataset_path, program, timeout_s, stop_event)
+
+    @property
+    def neighbourhood_index(self):
+        if self._neighbourhood_index is None:
+            from app.services.mork_neighbourhood_index import NeighbourhoodIndex
+            self._neighbourhood_index = NeighbourhoodIndex(
+                self.dataset_path, self.act_filename, self.space, self.run_program)
+        return self._neighbourhood_index
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
         dataset_id = hashlib.md5(str(self.dataset_path.resolve()).encode()).hexdigest()[:8]

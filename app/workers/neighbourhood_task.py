@@ -38,6 +38,33 @@ def _fail(job_id, message):
     _publish(job_id, TaskStatus.FAILED.value, error=message)
 
 
+INDEX_QUEUE = "slow"
+# Longer than a full build (~45 min), so a crashed build is retried later.
+INDEX_BUILD_GUARD_S = 4 * 3600
+
+
+def _index_guard_key(species):
+    return f"mork_neighbourhood_index_build:{species}"
+
+
+def request_index_build(species):
+    """Queue a MORK neighbourhood index build once; repeated calls do nothing while one is pending."""
+    if redis_state.set(_index_guard_key(species), 1, nx=True, ex=INDEX_BUILD_GUARD_S):
+        build_index_task.apply_async(args=[species], queue=INDEX_QUEUE)
+
+
+@celery_app.task(name="neighbourhood.build_mork_index")
+def build_index_task(species):
+    try:
+        index = getattr(get_db_instance(species), "neighbourhood_index", None)
+        if index is not None:
+            index.build()
+    except Exception:
+        logger.exception("[neighbourhood] MORK index build for %s failed", species)
+    finally:
+        redis_state.delete(_index_guard_key(species))
+
+
 @celery_app.task(name="neighbourhood.expand")
 def neighbourhood_task(job_id):
     job = NeighbourhoodStorageService.get_by_id(job_id)
