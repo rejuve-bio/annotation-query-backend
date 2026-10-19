@@ -18,8 +18,8 @@ COUNTS = '''
 (q_cnt edge transcribes_to 1) (q_cnt edge translates_to 1)
 '''
 EXPECTED = {'node_count': 3, 'edge_count': 2,
-            'node_count_by_label': [{'label': 'gene', 'count': 1}, {'label': 'transcript', 'count': 1},
-                                    {'label': 'protein', 'count': 1}],
+            'node_count_by_label': [{'label': 'gene', 'count': 1}, {'label': 'protein', 'count': 1},
+                                    {'label': 'transcript', 'count': 1}],
             'edge_count_by_label': [{'label': 'transcribes_to', 'count': 1}, {'label': 'translates_to', 'count': 1}]}
 
 

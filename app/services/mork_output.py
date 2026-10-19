@@ -74,6 +74,7 @@ def parse_mork_counts(inputs):
     return {
         'node_count': totals.get('node', sum(nodes.values())),
         'edge_count': totals.get('edge', sum(edges.values())),
-        'node_count_by_label': [{'label': label, 'count': count} for label, count in nodes.items()],
-        'edge_count_by_label': [{'label': label, 'count': count} for label, count in edges.items()],
+        # MORK output order follows set iteration; sort for stable responses.
+        'node_count_by_label': [{'label': label, 'count': count} for label, count in sorted(nodes.items())],
+        'edge_count_by_label': [{'label': label, 'count': count} for label, count in sorted(edges.items())],
     }

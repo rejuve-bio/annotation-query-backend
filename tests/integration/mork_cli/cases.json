@@ -1,0 +1,1081 @@
+[
+  {
+    "name": "S01_name_TP53_or_BRCA1",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {}
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "operator": "OR",
+        "nodes": {
+          "node_id": "n0",
+          "properties": {
+            "gene_name": [
+              "TP53",
+              "BRCA1"
+            ]
+          }
+        }
+      }
+    },
+    "expected": {
+      "node_count": 2,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 2
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S02_chr21_not_lncRNA",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21"
+          }
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "operator": "NOT",
+        "nodes": {
+          "node_id": "n0",
+          "properties": {
+            "gene_type": "lncRNA"
+          }
+        }
+      }
+    },
+    "expected": {
+      "node_count": 543,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 543
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S03_snoRNA_or_scaRNA_and_chr21",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {}
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "operator": "AND",
+        "children": [
+          {
+            "operator": "OR",
+            "nodes": {
+              "node_id": "n0",
+              "properties": {
+                "gene_type": [
+                  "snoRNA",
+                  "scaRNA"
+                ]
+              }
+            }
+          },
+          {
+            "operator": "AND",
+            "nodes": {
+              "node_id": "n0",
+              "properties": {
+                "chr": "chr21"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "expected": {
+      "node_count": 14,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 14
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S04_TP53_or_snoRNA_two_props",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {}
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "operator": "OR",
+        "nodes": {
+          "node_id": "n0",
+          "properties": {
+            "gene_name": "TP53",
+            "gene_type": "snoRNA"
+          }
+        }
+      }
+    },
+    "expected": {
+      "node_count": 943,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 943
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S05a_chr21_not_lncRNA_or_miscRNA",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21"
+          }
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "operator": "NOT",
+        "nodes": {
+          "node_id": "n0",
+          "properties": {
+            "gene_type": [
+              "lncRNA",
+              "misc_RNA"
+            ]
+          }
+        }
+      }
+    },
+    "expected": {
+      "node_count": 519,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 519
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S05b_chr21_not_group_two_props_none_match",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21"
+          }
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "operator": "NOT",
+        "nodes": {
+          "node_id": "n0",
+          "properties": {
+            "gene_type": "protein_coding",
+            "gene_name": "APP"
+          }
+        }
+      }
+    },
+    "expected": {
+      "node_count": 913,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 913
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S05c_chr21_not_synonym_missing_property",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21"
+          }
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "operator": "NOT",
+        "nodes": {
+          "node_id": "n0",
+          "properties": {
+            "synonym": "APP"
+          }
+        }
+      }
+    },
+    "expected": {
+      "node_count": 1133,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 1133
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S06_pc21_no_involved_in_BP",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21",
+            "gene_type": "protein_coding"
+          }
+        },
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "biological_process",
+          "properties": {}
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p0",
+          "type": "involved in",
+          "source": "n0",
+          "target": "n1"
+        }
+      ],
+      "logic": {
+        "operator": "AND",
+        "children": [
+          {
+            "operator": "NOT",
+            "predicates": [
+              "p0"
+            ]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "node_count": 67,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 67
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S06b_pc21_no_involved_in_GO_0008285",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21",
+            "gene_type": "protein_coding"
+          }
+        },
+        {
+          "node_id": "n1",
+          "id": "GO_0008285",
+          "type": "biological_process",
+          "properties": {}
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p0",
+          "type": "involved in",
+          "source": "n0",
+          "target": "n1"
+        }
+      ],
+      "logic": {
+        "operator": "AND",
+        "children": [
+          {
+            "operator": "NOT",
+            "predicates": [
+              "p0"
+            ]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "node_count": 214,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 214
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S07_pc21_BP_or_MF",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21",
+            "gene_type": "protein_coding"
+          }
+        },
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "biological_process",
+          "properties": {}
+        },
+        {
+          "node_id": "n2",
+          "id": "",
+          "type": "molecular_function",
+          "properties": {}
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p0",
+          "type": "involved in",
+          "source": "n0",
+          "target": "n1"
+        },
+        {
+          "predicate_id": "p1",
+          "type": "enables",
+          "source": "n0",
+          "target": "n2"
+        }
+      ],
+      "logic": {
+        "operator": "AND",
+        "children": [
+          {
+            "operator": "OR",
+            "predicates": [
+              "p0",
+              "p1"
+            ]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "node_count": 1311,
+      "edge_count": 1820,
+      "node_count_by_label": {
+        "molecular_function": 312,
+        "gene": 190,
+        "biological_process": 809
+      },
+      "edge_count_by_label": {
+        "involved_in": 1112,
+        "enables": 708
+      }
+    }
+  },
+  {
+    "name": "S08_kept_target_no_promoter",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21",
+            "gene_type": "protein_coding"
+          }
+        },
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "transcript",
+          "properties": {}
+        },
+        {
+          "node_id": "n2",
+          "id": "",
+          "type": "promoter",
+          "properties": {}
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p0",
+          "type": "transcribes to",
+          "source": "n0",
+          "target": "n1"
+        },
+        {
+          "predicate_id": "p1",
+          "type": "associated with",
+          "source": "n2",
+          "target": "n0"
+        }
+      ],
+      "logic": {
+        "operator": "AND",
+        "children": [
+          {
+            "operator": "NOT",
+            "predicates": [
+              "p1"
+            ]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "node_count": 36,
+      "edge_count": 29,
+      "node_count_by_label": {
+        "transcript": 29,
+        "gene": 7
+      },
+      "edge_count_by_label": {
+        "transcribes_to": 29
+      }
+    }
+  },
+  {
+    "name": "S09_transcribes_and_not_BP",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21",
+            "gene_type": "protein_coding"
+          }
+        },
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "transcript",
+          "properties": {}
+        },
+        {
+          "node_id": "n2",
+          "id": "",
+          "type": "biological_process",
+          "properties": {}
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p0",
+          "type": "transcribes to",
+          "source": "n0",
+          "target": "n1"
+        },
+        {
+          "predicate_id": "p1",
+          "type": "involved in",
+          "source": "n0",
+          "target": "n2"
+        }
+      ],
+      "logic": {
+        "operator": "AND",
+        "children": [
+          {
+            "operator": "NOT",
+            "predicates": [
+              "p1"
+            ]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "node_count": 215,
+      "edge_count": 148,
+      "node_count_by_label": {
+        "transcript": 148,
+        "gene": 67
+      },
+      "edge_count_by_label": {
+        "transcribes_to": 148
+      }
+    }
+  },
+  {
+    "name": "S10_nolog_two_predicates_join",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21",
+            "gene_type": "protein_coding"
+          }
+        },
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "transcript",
+          "properties": {}
+        },
+        {
+          "node_id": "n2",
+          "id": "",
+          "type": "biological_process",
+          "properties": {}
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p0",
+          "type": "transcribes to",
+          "source": "n0",
+          "target": "n1"
+        },
+        {
+          "predicate_id": "p1",
+          "type": "involved in",
+          "source": "n0",
+          "target": "n2"
+        }
+      ]
+    },
+    "expected": {
+      "node_count": 2485,
+      "edge_count": 2634,
+      "node_count_by_label": {
+        "gene": 154,
+        "transcript": 1522,
+        "biological_process": 809
+      },
+      "edge_count_by_label": {
+        "involved_in": 1112,
+        "transcribes_to": 1522
+      }
+    }
+  },
+  {
+    "name": "S10b_nolog_two_predicates_IG_C",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "gene_type": "IG_C_gene"
+          }
+        },
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "transcript",
+          "properties": {}
+        },
+        {
+          "node_id": "n2",
+          "id": "",
+          "type": "biological_process",
+          "properties": {}
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p0",
+          "type": "transcribes to",
+          "source": "n0",
+          "target": "n1"
+        },
+        {
+          "predicate_id": "p1",
+          "type": "involved in",
+          "source": "n0",
+          "target": "n2"
+        }
+      ]
+    },
+    "expected": {
+      "node_count": 44,
+      "edge_count": 80,
+      "node_count_by_label": {
+        "biological_process": 14,
+        "gene": 14,
+        "transcript": 16
+      },
+      "edge_count_by_label": {
+        "involved_in": 64,
+        "transcribes_to": 16
+      }
+    }
+  },
+  {
+    "name": "S10c_nolog_chain_TP53",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "gene_name": "TP53"
+          }
+        },
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "transcript",
+          "properties": {}
+        },
+        {
+          "node_id": "n2",
+          "id": "",
+          "type": "protein",
+          "properties": {}
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p0",
+          "type": "transcribes to",
+          "source": "n0",
+          "target": "n1"
+        },
+        {
+          "predicate_id": "p1",
+          "type": "translates to",
+          "source": "n1",
+          "target": "n2"
+        }
+      ]
+    },
+    "expected": {
+      "node_count": 14,
+      "edge_count": 24,
+      "node_count_by_label": {
+        "transcript": 12,
+        "protein": 1,
+        "gene": 1
+      },
+      "edge_count_by_label": {
+        "translates_to": 12,
+        "transcribes_to": 12
+      }
+    }
+  },
+  {
+    "name": "S10d_nolog_two_predicates_TR_V",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "gene_type": "TR_V_gene"
+          }
+        },
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "transcript",
+          "properties": {}
+        },
+        {
+          "node_id": "n2",
+          "id": "",
+          "type": "biological_process",
+          "properties": {}
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p0",
+          "type": "transcribes to",
+          "source": "n0",
+          "target": "n1"
+        },
+        {
+          "predicate_id": "p1",
+          "type": "involved in",
+          "source": "n0",
+          "target": "n2"
+        }
+      ]
+    },
+    "expected": {
+      "node_count": 217,
+      "edge_count": 308,
+      "node_count_by_label": {
+        "transcript": 105,
+        "gene": 105,
+        "biological_process": 7
+      },
+      "edge_count_by_label": {
+        "transcribes_to": 105,
+        "involved_in": 203
+      }
+    }
+  },
+  {
+    "name": "S11_nested_or_of_and",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {}
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "operator": "OR",
+        "children": [
+          {
+            "operator": "AND",
+            "nodes": {
+              "node_id": "n0",
+              "properties": {
+                "gene_name": "TP53",
+                "chr": "chr17"
+              }
+            }
+          },
+          {
+            "operator": "AND",
+            "nodes": {
+              "node_id": "n0",
+              "properties": {
+                "gene_type": "rRNA"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "expected": {
+      "node_count": 48,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 48
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S12_nested_or_with_not",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21"
+          }
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "operator": "AND",
+        "children": [
+          {
+            "operator": "OR",
+            "children": [
+              {
+                "operator": "AND",
+                "nodes": {
+                  "node_id": "n0",
+                  "properties": {
+                    "gene_type": "protein_coding"
+                  }
+                }
+              },
+              {
+                "operator": "NOT",
+                "nodes": {
+                  "node_id": "n0",
+                  "properties": {
+                    "gene_type": "lncRNA"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "node_count": 543,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 543
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S13_not_on_non_root_node",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "gene_name": "TP53"
+          }
+        },
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "transcript",
+          "properties": {}
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p0",
+          "type": "transcribes to",
+          "source": "n0",
+          "target": "n1"
+        }
+      ],
+      "logic": {
+        "operator": "NOT",
+        "nodes": {
+          "node_id": "n1",
+          "properties": {
+            "transcript_type": "protein_coding"
+          }
+        }
+      }
+    },
+    "expected": {
+      "node_count": 4,
+      "edge_count": 3,
+      "node_count_by_label": {
+        "transcript": 3,
+        "gene": 1
+      },
+      "edge_count_by_label": {
+        "transcribes_to": 3
+      }
+    }
+  },
+  {
+    "name": "S14_value_with_spaces",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "biological_process",
+          "properties": {}
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "operator": "OR",
+        "nodes": {
+          "node_id": "n0",
+          "properties": {
+            "term_name": [
+              "negative regulation of cell population proliferation",
+              "apoptotic process"
+            ]
+          }
+        }
+      }
+    },
+    "expected": {
+      "node_count": 2,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "biological_process": 2
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S15_case_insensitive",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {}
+        }
+      ],
+      "predicates": [],
+      "logic": {
+        "operator": "OR",
+        "nodes": {
+          "node_id": "n0",
+          "properties": {
+            "gene_name": [
+              "tp53",
+              "Brca1"
+            ]
+          }
+        }
+      }
+    },
+    "expected": {
+      "node_count": 0,
+      "edge_count": 0,
+      "node_count_by_label": {},
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S16_and_two_props_no_logic",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21",
+            "gene_type": "rRNA"
+          }
+        }
+      ],
+      "predicates": []
+    },
+    "expected": {
+      "node_count": 4,
+      "edge_count": 0,
+      "node_count_by_label": {
+        "gene": 4
+      },
+      "edge_count_by_label": {}
+    }
+  },
+  {
+    "name": "S17_or_preds_plus_and_pred",
+    "request": {
+      "nodes": [
+        {
+          "node_id": "n0",
+          "id": "",
+          "type": "gene",
+          "properties": {
+            "chr": "chr21",
+            "gene_type": "protein_coding"
+          }
+        },
+        {
+          "node_id": "n1",
+          "id": "",
+          "type": "biological_process",
+          "properties": {}
+        },
+        {
+          "node_id": "n2",
+          "id": "",
+          "type": "molecular_function",
+          "properties": {}
+        },
+        {
+          "node_id": "n3",
+          "id": "",
+          "type": "transcript",
+          "properties": {}
+        }
+      ],
+      "predicates": [
+        {
+          "predicate_id": "p0",
+          "type": "involved in",
+          "source": "n0",
+          "target": "n1"
+        },
+        {
+          "predicate_id": "p1",
+          "type": "enables",
+          "source": "n0",
+          "target": "n2"
+        },
+        {
+          "predicate_id": "p2",
+          "type": "transcribes to",
+          "source": "n0",
+          "target": "n3"
+        }
+      ],
+      "logic": {
+        "operator": "AND",
+        "children": [
+          {
+            "operator": "OR",
+            "predicates": [
+              "p0",
+              "p1"
+            ]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "node_count": 2910,
+      "edge_count": 3419,
+      "node_count_by_label": {
+        "molecular_function": 312,
+        "gene": 190,
+        "transcript": 1599,
+        "biological_process": 809
+      },
+      "edge_count_by_label": {
+        "involved_in": 1112,
+        "transcribes_to": 1599,
+        "enables": 708
+      }
+    }
+  }
+]

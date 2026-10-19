@@ -204,9 +204,9 @@ class MorkJoinCompiler:
             if predicate.get('properties'):
                 raise LogicValidationError('not supported yet: edge properties on MORK')
         filters = {node_id: self.filters(node_id) for node_id in self.nodes}
+        if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 0):
+            raise LogicValidationError('limit must be a non-negative integer')
         negated, alternatives = self.predicate_groups()
-        if alternatives and limit is not None:
-            raise LogicValidationError('not supported yet: limits across OR predicates on MORK')
         far_ids = {far for _, far in negated.values()}
         kept_ids = [node_id for node_id in self.nodes if node_id not in far_ids]
         active = [index for index in range(len(self.predicates)) if index not in negated]
@@ -288,31 +288,51 @@ class MorkJoinCompiler:
                 current = head
             surviving[node_id] = current
 
-        # Propagate the reduced root back down so sibling failures also remove
-        # edges that looked valid during expansion.
-        final = {root: surviving[root]}
-        for node_id in order:
-            for index, other in children[node_id]:
-                is_source = self.predicates[index]['source'] == node_id
-                a, b = ('$a', '$b') if is_source else ('$b', '$a')
-                edge, head = self.edge(index), p.head()
-                p.emit([f"(BTM ({edges[index]} {edge}))", self.member(final[node_id], node_id, a),
-                        self.member(surviving[other], other, b)],
-                       [f"({head} {self.node(other, b)})", f"({self.result_id} {edge})"])
-                final[other] = head
+        def propagate(root_head, edge_out):
+            # Propagate the reduced root back down so sibling failures also
+            # remove edges that looked valid during expansion.
+            final = {root: root_head}
+            for node_id in order:
+                for index, other in children[node_id]:
+                    is_source = self.predicates[index]['source'] == node_id
+                    a, b = ('$a', '$b') if is_source else ('$b', '$a')
+                    edge, head = self.edge(index), p.head()
+                    p.emit([f"(BTM ({edges[index]} {edge}))", self.member(final[node_id], node_id, a),
+                            self.member(surviving[other], other, b)],
+                           [f"({head} {self.node(other, b)})", f"({edge_out} {edge})"])
+                    final[other] = head
+            return final
+
+        def node_set(final):
+            head = p.head()
+            for node_id, members in final.items():
+                p.emit([self.member(members, node_id)], [f"({head} {self.node(node_id)})"])
+            return head
+
+        if limit:
+            # Like Cypher's one row per anchor: keep `limit` root nodes with
+            # all of their complete matches. Counts still cover every match.
+            if counts:
+                all_edges = p.head()
+                self.count_results(node_set(propagate(surviving[root], all_edges)), all_edges)
+                counts = False
+            limited = p.head()
+            p.emit([self.member(surviving[root], root)],
+                   sinks=[f"(head {limit} ({limited} {self.node(root)}))"])
+            final = propagate(limited, self.result_id)
+        else:
+            final = propagate(surviving[root], self.result_id)
         if not active:
             p.emit([self.member(final[root], root)], [f"({self.result_id} {self.node(root)})"])
         if properties or counts:
-            node_head = p.head()
-            for node_id, head in final.items():
-                p.emit([self.member(head, node_id)], [f"({node_head} {self.node(node_id)})"])
+            node_head = node_set(final)
             if counts:
-                self.count_results(node_head)
+                self.count_results(node_head, self.result_id)
             if properties:
                 self.fetch_properties(node_head, schema or {})
         return p.finish()
 
-    def count_results(self, node_head):
+    def count_results(self, node_head, edge_head):
         p = self.program
         count_head = f'{self.result_id}_cnt'
         p.emit([f'(BTM ({node_head} $node))'],
@@ -321,11 +341,11 @@ class MorkJoinCompiler:
             node = f'({self.safe_atom(node_type)} $x)'
             p.emit([f'(BTM ({node_head} {node}))'],
                    sinks=[f'(count ({count_head} node {node_type} $count) $count $x)'])
-        p.emit([f'(BTM ({self.result_id} ($label $source $target)))'],
+        p.emit([f'(BTM ({edge_head} ($label $source $target)))'],
                sinks=[f'(count ({count_head} total edge $count) $count ($label $source $target))'])
         for label in sorted({pred['type'].replace(' ', '_') for pred in self.predicates}):
             label = self.safe_atom(label)
-            p.emit([f'(BTM ({self.result_id} ({label} $source $target)))'],
+            p.emit([f'(BTM ({edge_head} ({label} $source $target)))'],
                    sinks=[f'(count ({count_head} edge {label} $count) $count ($source $target))'])
 
     def fetch_properties(self, node_head, schema):

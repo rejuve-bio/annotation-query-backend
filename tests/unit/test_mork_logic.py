@@ -197,6 +197,35 @@ def test_or_far_filter_does_not_require_that_arm_to_exist():
         '(first (gene G1) (term T1))', '(second (gene G2) (protein P2))')
 
 
+def test_predicate_or_combines_with_not_without_returning_the_negated_end():
+    req = or_request()
+    req['nodes'].append(node('n3', 'pathway'))
+    req['predicates'].append(predicate('n0', 'n3', 'excluded', 'p2'))
+    req['logic']['children'].append({'operator': 'NOT', 'predicates': ['p2']})
+    atoms = evaluate(compile_request(req, counts=True), OR_FACTS + '(excluded (gene G2) (pathway X))')
+    assert {a for a in atoms if a[0] == 'result'} == results('(first (gene G1) (term T1))')
+    assert parse_mork_counts([atoms]) == {
+        'node_count': 2, 'edge_count': 1,
+        'node_count_by_label': [{'label': 'gene', 'count': 1}, {'label': 'term', 'count': 1}],
+        'edge_count_by_label': [{'label': 'first', 'count': 1}],
+    }
+
+
+def test_predicate_or_supports_arms_in_opposite_directions():
+    req = or_request()
+    req['predicates'][0] = predicate('n1', 'n0', 'first')
+    facts = FACTS + '(first (term T1) (gene G1)) (second (gene G2) (protein P2))'
+    assert evaluate(compile_request(req), facts) == results(
+        '(first (term T1) (gene G1))', '(second (gene G2) (protein P2))')
+
+
+def test_non_root_not_filters_only_its_own_or_arm():
+    req = or_request()
+    req['logic']['children'].append(group('NOT', {'kind': 'excluded'}, 'n1'))
+    assert evaluate(compile_request(req), OR_FACTS + '(kind (term T1) excluded)') == results(
+        '(second (gene G2) (protein P2))')
+
+
 @pytest.mark.parametrize('req', [single(), single(logic=group('NOT', {'gene_type': 'coding'})),
                               single(logic={'operator': 'OR', 'children': [
                                   group('AND', {'gene_type': 'coding'}), group('NOT', {'name': 'x'})]})])
@@ -246,10 +275,43 @@ def test_or_groups_on_different_kept_nodes_are_rejected():
         compile_request(req)
 
 
-def test_limits_across_or_predicates_are_rejected():
+def compile_limited(req, limit):
     gen = mod.MorkCLIQueryGenerator.__new__(mod.MorkCLIQueryGenerator)
-    with pytest.raises(LogicValidationError, match='limits across OR predicates'):
-        MorkJoinCompiler(or_request(), 'human', 'result', gen._safe_atom).compile(limit=10)
+    return MorkJoinCompiler(req, 'human', 'result', gen._safe_atom).compile(counts=True, limit=limit)
+
+
+def test_limit_keeps_complete_matches_of_limited_roots_and_full_counts():
+    atoms = evaluate(compile_limited(or_request(), 1), OR_FACTS)
+    # One root gene with all of its matches; counts still cover both genes.
+    assert {a for a in atoms if a[0] == 'result'} == results('(first (gene G1) (term T1))')
+    assert parse_mork_counts([atoms]) == {
+        'node_count': 4, 'edge_count': 2,
+        'node_count_by_label': [{'label': 'gene', 'count': 2}, {'label': 'protein', 'count': 1},
+                                {'label': 'term', 'count': 1}],
+        'edge_count_by_label': [{'label': 'first', 'count': 1}, {'label': 'second', 'count': 1}],
+    }
+    assert all(a[0] in ('result', 'result_cnt') for a in atoms)
+
+
+def test_limit_on_node_only_requests_and_no_limit_by_default():
+    req = single({'chr': 'chr21'})
+    limited = evaluate(compile_limited(req, 2), FACTS)
+    assert {a for a in limited if a[0] == 'result'} == results('(gene G1)', '(gene G2)')
+    assert parse_mork_counts([limited])['node_count'] == 3
+    for no_limit in (None, 0):
+        assert {a for a in evaluate(compile_limited(req, no_limit), FACTS) if a[0] == 'result'} == results(
+            '(gene G1)', '(gene G2)', '(gene G3)')
+
+
+def test_limit_larger_than_the_result_returns_everything():
+    assert {a for a in evaluate(compile_limited(or_request(), 50), OR_FACTS) if a[0] == 'result'} == results(
+        '(first (gene G1) (term T1))', '(second (gene G2) (protein P2))')
+
+
+@pytest.mark.parametrize('limit', [-1, 1.5, '10', True])
+def test_invalid_limits_are_rejected(limit):
+    with pytest.raises(LogicValidationError, match='limit'):
+        compile_limited(single({'chr': 'chr21'}), limit)
 
 
 def test_value_tables_are_executed_as_a_program_after_json_transport(tmp_path, monkeypatch):

@@ -1,69 +1,32 @@
+"""Basic native execution and an independent direct-ACT comparison."""
+
 import os
-import shutil
-import subprocess
 
 import pytest
 
-from app.services.mork_cli_generator import MorkCLIQueryGenerator
+pytestmark = [pytest.mark.mork_live, pytest.mark.skipif(
+    os.environ.get('MORK_LIVE_TESTS') != '1', reason='set MORK_LIVE_TESTS=1 for native MORK')]
 
 
-def _docker_available():
-    if shutil.which("docker") is None:
-        return False
-    try:
-        subprocess.run(
-            ["docker", "info"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
-            timeout=10,
-        )
-        return True
-    except (subprocess.SubprocessError, OSError):
-        return False
+def test_mork_cli_runs_query(mork_backend):
+    graph, topology = mork_backend.run({
+        'nodes': [{'node_id': 'n0', 'type': 'gene', 'id': '', 'properties': {'gene_name': 'TP53'}}],
+        'predicates': [],
+    })
+    assert topology == {('gene', 'ENSG00000141510')}
+    assert graph['node_count'] == 1 and graph['edge_count'] == 0
+    independent = mork_backend.raw(
+        [f'(ACT {mork_backend.space} (gene_name (gene $x) TP53))'],
+        ['(reference (gene $x))'])
+    assert topology == independent
 
 
-def _require_env(var_name):
-    value = os.getenv(var_name)
-    if not value:
-        pytest.skip(f"{var_name} is not set")
-    return value
-
-
-def test_mork_cli_runs_query():
-    mork_data_dir = _require_env("MORK_DATA_DIR")
-    if not _docker_available():
-        pytest.skip("Docker is not available")
-
-    generator = MorkCLIQueryGenerator(mork_data_dir)
-    if not generator.is_ready():
-        pytest.skip("annotation.act is missing; run scripts/build_act.py")
-
-    node_type = "gene"
-    node_id_value = "ENSG00000101349"
-    if not node_id_value:
-        pytest.skip("node id is not set")
-
-    requests = {
-        "nodes": [
-            {
-                "node_id": "n1",
-                "id": node_id_value,
-                "type": node_type,
-                "properties": {},
-            }
-        ],
-        "predicates": [],
-    }
-
-    requests = generator.parse_id(requests)
-    node_map = {node["node_id"]: node for node in requests["nodes"]}
-
-    queries = generator.query_Generator(requests, node_map, limit=None, node_only=False)
-    result_query = queries[0]
-
-    result = generator.run_query(result_query)
-
-    assert isinstance(result, list)
-    assert len(result) == 1
-    assert isinstance(result[0], list)
+@pytest.mark.parametrize('result_id', ['00123456', '1e080001'])
+def test_numeric_looking_result_ids_remain_exact_symbols(mork_backend, monkeypatch, result_id):
+    monkeypatch.setattr(mork_backend.generator, 'generate_id', lambda: result_id)
+    graph, topology = mork_backend.run({
+        'nodes': [{'node_id': 'n0', 'type': 'gene', 'id': '', 'properties': {'gene_name': 'TP53'}}],
+        'predicates': [],
+    })
+    assert topology == {('gene', 'ENSG00000141510')}
+    assert graph['node_count'] == 1 and graph['edge_count'] == 0

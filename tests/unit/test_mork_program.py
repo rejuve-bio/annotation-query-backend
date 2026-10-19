@@ -6,12 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from hyperon import MeTTa
 
 from app.lib.logic import LogicValidationError
 from app.services import mork_cli_generator as mod
 from app.services.mork_program import MorkJoinCompiler
-from app.services.mork_output import parse_mork_counts
+from app.services.mork_output import parse_mork_counts, parse_mork_output
 
 
 def node(nid, typ, properties=None, identifier=''):
@@ -30,11 +29,7 @@ def request(properties=None):
 
 
 def sexprs(text):
-    def convert(atom):
-        if hasattr(atom, 'get_children'):
-            return tuple(convert(child) for child in atom.get_children())
-        return str(atom)
-    return [convert(atom) for atom in MeTTa().parse_all(text)]
+    return parse_mork_output(text)
 
 
 def match(pattern, fact, bindings):
@@ -77,6 +72,10 @@ def evaluate(program, facts):
                     if bound is not None:
                         joined.append(bound)
             rows = joined
+        if sink[0] == 'O' and sink[1][0] == 'head':
+            _, limit, template = sink[1]
+            memory.update(sorted({substitute(template, row) for row in rows})[:int(limit)])
+            continue
         if sink[0] == 'O' and sink[1][0] == 'count':
             for _, template, count_var, projection in sink[1:]:
                 values = {substitute(projection, row) for row in rows}
@@ -325,8 +324,10 @@ def test_unsupported_filters_are_rejected(kind):
         compile_request(req)
 
 
-def test_queries_survive_json_transport_and_execute_once_total(tmp_path, monkeypatch):
+@pytest.mark.parametrize('result_id', ['deadbeef', '00123456', '1e080001'])
+def test_queries_survive_json_transport_and_execute_once_total(tmp_path, monkeypatch, result_id):
     gen = mod.MorkCLIQueryGenerator(tmp_path)
+    monkeypatch.setattr(gen, 'generate_id', lambda: result_id)
     (tmp_path / gen.act_filename).touch()
     monkeypatch.setattr(mod, 'Path', lambda path: tmp_path if path == '/dev/shm' else Path(path))
     programs = []

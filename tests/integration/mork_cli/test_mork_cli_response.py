@@ -1,129 +1,37 @@
+"""Result properties and counts on the native human ACT."""
+
+import json
 import os
-import shutil
-import subprocess
+from pathlib import Path
 
 import pytest
 
-from app import schema_manager
-from app.services.mork_cli_generator import MorkCLIQueryGenerator
+pytestmark = [pytest.mark.mork_live, pytest.mark.skipif(
+    os.environ.get('MORK_LIVE_TESTS') != '1', reason='set MORK_LIVE_TESTS=1 for native MORK')]
 
 
-def _docker_available():
-    if shutil.which("docker") is None:
-        return False
-    try:
-        subprocess.run(
-            ["docker", "info"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
-            timeout=10,
-        )
-        return True
-    except (subprocess.SubprocessError, OSError):
-        return False
-
-
-def _require_env(var_name):
-    value = os.getenv(var_name)
-    if not value:
-        pytest.skip(f"{var_name} is not set")
-    return value
-
-
-def _assert_node_schema(node_data, schema):
-    node_type = node_data.get("type")
-    if not node_type or node_type not in schema["nodes"]:
-        return
-
-    allowed = set(schema["nodes"][node_type].get("properties", {}).keys())
-    allowed.update({"id", "type"})
-
-    for key in node_data.keys():
-        assert key in allowed
-
-
-def _assert_edge_schema(edge_data, schema):
-    edge_label = edge_data.get("label")
-    if not edge_label or edge_label not in schema["edges"]:
-        return
-
-    allowed = set(schema["edges"][edge_label].get("properties", {}).keys())
-    allowed.update({"edge_id", "label", "source", "target", "source_data"})
-
-    for key in edge_data.keys():
-        assert key in allowed
-
-
-def test_mork_cli_response_shape(request_list):
-    mork_data_dir = _require_env("MORK_DATA_DIR")
-    if not _docker_available():
-        pytest.skip("Docker is not available")
-
-    generator = MorkCLIQueryGenerator(mork_data_dir)
-    if not generator.is_ready():
-        pytest.skip("annotation.act is missing; run scripts/build_act.py")
-
-    species = os.getenv("MORK_TEST_SPECIES", "human")
-    schema = schema_manager.full_schema_representation[species]
-
-    request = generator.parse_id(request_list)
-    node_map = {node["node_id"]: node for node in request["nodes"]}
-
-    queries = generator.query_Generator(request, node_map, limit=None, node_only=False)
-    result_query = queries[0]
-    total_count_query = queries[1]
-    count_by_label_query = queries[2]
-
-    result = generator.run_query(result_query)
-
-    graph_components = {
-        "nodes": request["nodes"],
-        "predicates": request.get("predicates", []),
-        "properties": True,
-    }
-
-    graph_result = generator.parse_and_serialize(
-        result,
-        schema_manager.full_schema_representation,
-        graph_components,
-        result_type="graph",
-    )
-
-    assert isinstance(graph_result, dict)
-    assert isinstance(graph_result.get("nodes"), list)
-    assert isinstance(graph_result.get("edges"), list)
-
-    nodes = graph_result.get("nodes", [])
-    edges = graph_result.get("edges", [])
-
-    for value in nodes[:10]:
-        assert isinstance(value, dict)
-        node_data = value.get("data", {})
-        assert "id" in node_data
-        assert "type" in node_data
-        _assert_node_schema(node_data, schema)
-
-    for value in edges[:10]:
-        assert isinstance(value, dict)
-        edge_data = value.get("data", {})
-        assert "label" in edge_data
-        assert "source" in edge_data
-        assert "target" in edge_data
-        _assert_edge_schema(edge_data, schema)
-
-    total_count = generator.run_query(total_count_query)
-    count_by_label = generator.run_query(count_by_label_query)
-    count_result = [total_count[0], count_by_label[0]]
-
-    meta_data = generator.parse_and_serialize(
-        count_result,
-        schema_manager.full_schema_representation,
-        graph_components,
-        result_type="count",
-    )
-
-    assert "node_count" in meta_data
-    assert "edge_count" in meta_data
-    assert "node_count_by_label" in meta_data
-    assert "edge_count_by_label" in meta_data
+@pytest.mark.parametrize('case_name', ['S10c_nolog_chain_TP53', 'S13_not_on_non_root_node'])
+def test_mork_cli_response_shape(mork_backend, gene_facts, case_name):
+    cases = json.loads(Path(__file__).with_name('cases.json').read_text())
+    request = next(case['request'] for case in cases if case['name'] == case_name)
+    graph, _ = mork_backend.run(request)
+    schema = mork_backend.schema['human']
+    assert len(graph['nodes']) == graph['node_count']
+    assert len(graph['edges']) == graph['edge_count']
+    for entry in graph['nodes']:
+        data = entry['data']
+        assert {'id', 'type', 'name'} <= data.keys()
+        declared = schema['nodes'].get(data['type'], {}).get('properties', {})
+        assert data.keys() <= set(declared) | {'id', 'type', 'name'}
+        assert not {'synonym', 'synonyms', 'accessions'} & data.keys()
+        if data['type'] == 'gene':
+            source = gene_facts[data['id'].split(' ', 1)[1]]
+            for prop in set(declared) & source.keys() - {'synonym', 'synonyms', 'accessions'}:
+                assert prop in data and data[prop] in source[prop]
+    identifiers = {entry['data']['id'] for entry in graph['nodes']}
+    for entry in graph['edges']:
+        data = entry['data']
+        assert data['source'] in identifiers and data['target'] in identifiers
+        structural = {'id', 'edge_id', 'label', 'source', 'target', 'source_data'}
+        declared = schema['edges'].get(data['label'], {}).get('properties', {})
+        assert data.keys() <= set(declared) | structural

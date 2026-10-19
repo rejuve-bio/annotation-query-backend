@@ -4,6 +4,9 @@ RUN rustup install nightly-2026-03-01 && rustup default nightly-2026-03-01
 
 WORKDIR /app
 
+ARG MORK_COMMIT=ed57c6716d8c510296fb5fbb8be6fbfe2df241d7
+ARG PATHMAP_COMMIT=ef0259152867ece8e85888acc49c238f264a0330
+
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 
 RUN apt-get update \
@@ -14,8 +17,9 @@ RUN apt-get update \
 
 RUN git clone https://github.com/Adam-Vandervorst/PathMap.git /app/PathMap \
     && cd /app/PathMap \
-    && cargo build --release
+    && git checkout --detach "$PATHMAP_COMMIT"
 
 RUN git clone https://github.com/trueagi-io/MORK.git /app/MORK \
+    && git -C /app/MORK checkout --detach "$MORK_COMMIT" \
     && cd /app/MORK/kernel \
     && cargo build --release

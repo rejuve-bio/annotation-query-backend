@@ -174,7 +174,7 @@ def process_query(
         if requests.get('logic') and not getattr(db_instance, 'supports_logic', False):
             raise HTTPException(
                 status_code=400,
-                detail="boolean logic ('logic') is only supported on the Cypher backend for now",
+                detail="boolean logic ('logic') is only supported on the Cypher and MORK CLI backends",
             )
         try:
             node_map = validate_request(requests, schema_for_species, source)
