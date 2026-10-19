@@ -4,3 +4,7 @@ class ThreadStopException(Exception):
         
 class TaskCancelledException(Exception):
     pass
+
+
+class NeighbourhoodUnavailableError(Exception):
+    """The backend cannot run neighbourhood expansion yet (e.g. its index is still being built)."""

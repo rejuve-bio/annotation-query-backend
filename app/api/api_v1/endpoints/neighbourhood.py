@@ -15,6 +15,7 @@ from app.constants import (
     NEIGHBOURHOOD_MAX_PER_NODE_LIMIT,
     NEIGHBOURHOOD_MAX_ACTIVE_JOBS_PER_USER,
 )
+from app.error import NeighbourhoodUnavailableError
 from app.persistence import NeighbourhoodStorageService
 from app.workers.neighbourhood_task import (
     NEIGHBOURHOOD_QUEUE, cancel_job, init_job_state, neighbourhood_task,
@@ -128,6 +129,8 @@ def create_neighbourhood_job(
         errors = get_db_instance(species).validate_neighbourhood_request(request, species)
     except NotImplementedError as e:
         raise HTTPException(status_code=501, detail=str(e))
+    except NeighbourhoodUnavailableError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception:
         logger.exception("[neighbourhood] Could not validate request against %s graph", species)
         raise HTTPException(status_code=503, detail="Graph database unavailable")

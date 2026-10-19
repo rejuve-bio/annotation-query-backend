@@ -362,6 +362,14 @@ class MorkCLIQueryGenerator(MorkQueryGenerator):
                 self.dataset_path, self.act_filename, self.space, self.run_program)
         return self._neighbourhood_index
 
+    def validate_neighbourhood_request(self, request, species="human"):
+        from app.services.mork_neighbourhood import MorkNeighbourhood
+        return MorkNeighbourhood(self, species).validate(request)
+
+    def expand_neighbourhood(self, request, species="human", stop_event=None, on_hop_complete=None):
+        from app.services.mork_neighbourhood import MorkNeighbourhood
+        return MorkNeighbourhood(self, species).expand(request, stop_event, on_hop_complete)
+
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
         dataset_id = hashlib.md5(str(self.dataset_path.resolve()).encode()).hexdigest()[:8]
         result_id = self.generate_id()
