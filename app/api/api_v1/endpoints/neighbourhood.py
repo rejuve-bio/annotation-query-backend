@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import os
 from typing import Annotated, List, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query as FQuery, status
@@ -153,7 +154,14 @@ def create_neighbourhood_job(
             "seed": done.seed, "hops": done.hops, "node_count": done.node_count,
             "edge_count": done.edge_count, "truncated": done.truncated,
         })
-        return {"job_id": job_id, "status": TaskStatus.COMPLETE.value, "reused": True}
+        # Its owner may have deleted it (and the file) before this job's
+        # reference was stored; once stored, deletes keep the file.
+        if os.path.exists(done.result_path):
+            return {"job_id": job_id, "status": TaskStatus.COMPLETE.value, "reused": True}
+        NeighbourhoodStorageService.update(job_id, {
+            "status": TaskStatus.PENDING.value, "result_path": None, "seed": None, "hops": [],
+            "node_count": None, "edge_count": None, "truncated": None,
+        })
 
     try:
         init_job_state(job_id)
