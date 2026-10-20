@@ -184,7 +184,9 @@ class MeTTa_Query_Generator(QueryGeneratorInterface):
         return [total_count_query, lable_count_query]
 
         
-    def run_query(self, query_code, stop_event=True):
+    # species is accepted for interface compatibility with the other backends;
+    # a MeTTa instance serves a single dataset, so it is not used.
+    def run_query(self, query_code, stop_event=True, species="human"):
         result = self.metta.run(query_code)
         return result
 
