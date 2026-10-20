@@ -378,10 +378,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             # with a single frontier node (the seed) the hop limit alone applies.
             node_limit = per_node_limit if len(frontier) > 1 else hop_limit
             hop_query, hop_params = self._neighbourhood_hop_query(hop_filter)
+            hop_fetch = hop_limit + len(frontier) + 1
             rows = run(hop_query,
                        frontier=frontier,
                        per_node_fetch=node_limit + 1,
-                       hop_fetch=hop_limit + len(frontier) + 1,
+                       hop_fetch=hop_fetch,
                        **hop_params)
 
             preferred = (hop_filter.get("node_types") or [None])[0]
@@ -418,6 +419,12 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                         edge["source_data" if key == "source" else key] = value
                 edges[rel.element_id] = edge
                 hop_edges += 1
+
+            # The fetch counts rows, but rows for edges returned earlier (or
+            # reached from both ends) add no edge. A full fetch may therefore
+            # hold fewer than hop_limit new edges while more exist.
+            if len(rows) >= hop_fetch:
+                truncated = True
 
             # ranked_by tells the caller whether a truncated hop kept the top
             # edges (ranked) or an arbitrary subset (None).

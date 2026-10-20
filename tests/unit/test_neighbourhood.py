@@ -317,3 +317,27 @@ def test_transaction_timeout_is_not_retried():
 
     exc = TimedOut("The transaction has not completed within the timeout specified ... timed out")
     assert FailureClassifier.classify(exc) == FailureKind.PERMANENT
+
+
+class RepeatingGenerator(FakeGenerator):
+    """Hop 2 rows repeat edges returned in hop 1, filling the fetch without new edges."""
+
+    def run_query(self, query_code, stop_event=None, species="human", query_type=None, parameters=None):
+        params = parameters or {}
+        if "frontier" in params and len(params["frontier"]) > 1:
+            text = getattr(query_code, "text", query_code)
+            self.queries.append((text, parameters))
+            back = [{"n": rel.end_node, "r": rel, "m": SEED} for rel in EDGES[:3]]
+            return (back * 10)[:params["hop_fetch"]]
+        return super().run_query(query_code, stop_event, species, query_type, parameters)
+
+
+def test_a_full_fetch_of_already_returned_edges_is_reported_truncated():
+    # Hop 2 gets limit + frontier + 1 rows, all for edges hop 1 returned: no
+    # new edge fits, but the database may hold more, so the hop is truncated.
+    r = RepeatingGenerator().expand_neighbourhood(request(max_hops=2, hops=[
+        {"edge_types": ["regulates"], "direction": "out", "limit": 500},
+        {"edge_types": [], "direction": "both", "limit": 2},
+    ]))
+    assert r["hops"][1]["edge_count"] == 0
+    assert r["hops"][1]["truncated"] is True and r["truncated"] is True

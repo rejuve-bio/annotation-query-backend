@@ -54,8 +54,10 @@ async def on_join(sid, data):
             return
     else:
         job = NeighbourhoodStorageService.get_by_id(room)
-        if job is not None and str(job.user_id) != str(current_user_id):
-            logger.warning(f"User {current_user_id} denied access to neighbourhood room {room}")
+        # Unknown rooms are refused too: a deleted job's room could otherwise
+        # be joined by anyone who knows its id.
+        if job is None or str(job.user_id) != str(current_user_id):
+            logger.warning(f"User {current_user_id} denied access to room {room}")
             return
 
     await sio.enter_room(sid, room)
