@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.error import TaskCancelledException
 from app.events import RedisStopEvent
 from app.lib import Graph
+from app.lib.logic import counted_nodes_and_predicates
 from app.persistence import AnnotationStorageService
 import datetime as dt
 from app.lib.utils import format_duration as _format_duration
@@ -160,10 +161,12 @@ def generate_empty_label_count(requests):
     node_count_by_label = {}
     edge_count_by_label = {}
 
-    for node in requests["nodes"]:
+    # Predicates under NOT and their far nodes are never returned, so they get no label count.
+    counted_nodes, counted_predicates = counted_nodes_and_predicates(requests)
+    for node in counted_nodes:
         node_count_by_label[node["type"]] = 0
 
-    for edges in requests["predicates"]:
+    for edges in counted_predicates:
         edge_count_by_label[edges["type"]] = 0
 
     for key, value in node_count_by_label.items():
@@ -668,9 +671,10 @@ def total_count_task(
             return
 
         count_result = [total_count[0], {}]
+        counted_nodes, counted_predicates = counted_nodes_and_predicates(requests)
         graph_components = {
-            "nodes": requests["nodes"],
-            "predicates": requests["predicates"],
+            "nodes": counted_nodes,
+            "predicates": counted_predicates,
             "properties": False,
         }
         response = db_instance.parse_and_serialize(
@@ -842,9 +846,10 @@ def label_count_task(
 
         label_count = db_instance.run_query(count_query, None, species)
         count_result = [{}, label_count[0]]
+        counted_nodes, counted_predicates = counted_nodes_and_predicates(requests)
         graph_components = {
-            "nodes": requests["nodes"],
-            "predicates": requests["predicates"],
+            "nodes": counted_nodes,
+            "predicates": counted_predicates,
             "properties": False,
         }
         response = db_instance.parse_and_serialize(
@@ -926,17 +931,25 @@ def is_slow_query(request: dict) -> bool:
     """
     Route to the slow queue when any factor suggests large intermediate binding sets:
     - query uses a known high-cardinality predicate type, OR
-    - query has >= 4 predicates (combinatorial blowup risk), OR
-    - query targets a high-cardinality node type (snp/enhancer/tfbs/promoter)
+    - query has >= 3 predicates (combinatorial blowup risk), OR
+    - query targets a high-cardinality node type (snp/enhancer/tfbs/promoter), OR
+    - query ORs predicates (each OR'd predicate is matched for every anchor)
     """
     predicates = request.get('predicates', [])
     nodes = request.get('nodes', [])
-    pred_types = {p.get('type', '') for p in predicates}
+    # Request types use spaces ("expressed in"); the set above uses underscores.
+    pred_types = {p.get('type', '').replace(' ', '_').lower() for p in predicates}
     node_types = {n.get('type', '') for n in nodes}
+    logic = request.get('logic') or {}
+    ors_predicates = any(
+        'predicates' in group and group.get('operator') == 'OR' and len(group['predicates']) > 1
+        for group in logic.get('children', [])
+    )
     return (
         bool(pred_types & _SLOW_PREDICATE_TYPES)
-        or len(predicates) >= 4
+        or len(predicates) >= 3
         or bool(node_types & _SLOW_NODE_TYPES)
+        or ors_predicates
     )
 
 
@@ -951,7 +964,7 @@ def start_thread(annotation_id, args):
     meta_data = args["meta_data"]
     species = args["species"]
 
-    queue = 'slow' if is_slow_query(request) else 'fast'
+    queue = 'slow' if args.get('force_slow') or is_slow_query(request) else 'fast'
 
     # Admission control: reject slow queries when the slow queue is already saturated.
     # This prevents unbounded backlog growth and gives the user an immediate, honest

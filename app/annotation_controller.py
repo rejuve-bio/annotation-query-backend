@@ -19,7 +19,7 @@ schema_manager = get_schema_manager()
 llm = get_llm_handler()
 EXP = os.getenv('REDIS_EXPIRATION', 3600) # expiration time of redis cache
 
-def handle_client_request(query, request, current_user_id, node_types, species, data_source, node_map, fingerprint=None):
+def handle_client_request(query, request, current_user_id, node_types, species, data_source, node_map, fingerprint=None, force_slow=False):
     annotation_id = request.get('annotation_id', None)
     # --- 1. Check for existing Annotation ---
     if annotation_id:
@@ -62,6 +62,7 @@ def handle_client_request(query, request, current_user_id, node_types, species, 
             'species': species
         }
 
+        args['force_slow'] = force_slow
         start_thread(annotation_id, args)
         return {"annotation_id": str(annotation_id)}
 
@@ -91,6 +92,7 @@ def handle_client_request(query, request, current_user_id, node_types, species, 
             'data_source': data_source, 
             'species': species
         }
+        args['force_slow'] = force_slow
         start_thread(annotation_id, args)
 
         return {"annotation_id": str(annotation_id)}
@@ -125,6 +127,7 @@ def handle_client_request(query, request, current_user_id, node_types, species, 
             'meta_data': None, 
             'species': species
         }
+        args['force_slow'] = force_slow
         start_thread(annotation_id, args)
 
         return {"annotation_id": str(annotation_id)}
