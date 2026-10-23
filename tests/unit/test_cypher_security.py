@@ -68,3 +68,14 @@ def test_validator_rejects_unsafe_property_name_in_normal_properties():
     request = {"nodes": [node("n0", "gene", {"gene_name) RETURN 1 //": "x"})], "predicates": []}
     with pytest.raises(ValueError, match="invalid property name"):
         validate_request(request, {}, None)
+
+
+def test_client_cannot_send_server_only_logic_conditions(gen):
+    # '_logic_conditions' is written into the query as is; only the server may set it.
+    request = {"nodes": [{**node("n0", "gene", {"gene_name": "TP53"}),
+                          "_logic_conditions": ["1=1 WITH n0 DETACH DELETE n0 //"]}], "predicates": []}
+    with pytest.raises(Exception, match="unknown key '_logic_conditions'"):
+        validate_request(request, {}, None)
+    # Paths that skip validation cannot inject it either.
+    query = gen.query_Generator(request, {"n0": request["nodes"][0]})[0]
+    assert "DETACH" not in query and "1=1" not in query

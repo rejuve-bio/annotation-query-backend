@@ -405,22 +405,65 @@ def negated_predicate_ids(request):
 # "Too broad" rule
 # ---------------------------------------------------------------------------
 
+def conditional_nodes(request):
+    """Nodes whose own filters do not narrow the returned results.
+
+    Returns (excluded, or_alternatives):
+      - excluded: far nodes of NOT predicates (they only describe the edge
+        that must not exist) and of OR alternatives;
+      - or_alternatives: for each OR group of predicates, the far node ids of
+        its alternatives. The group narrows its kept node only if every
+        alternative is narrowed.
+    """
+    logic = request.get("logic")
+    if not logic or logic.get("operator", "AND").upper() != "AND":
+        return set(), []
+    predicates = request.get("predicates") or []
+    excluded, or_alternatives = set(), []
+    for group in logic.get("children", []):
+        if "predicates" not in group:
+            continue
+        operator = group.get("operator", "AND").upper()
+        if operator == "NOT":
+            for predicate in predicates:
+                if predicate.get("predicate_id") in group["predicates"]:
+                    excluded.add(negated_predicate_ends(predicate, predicates)[1])
+        elif operator == "OR" and len(group["predicates"]) > 1:
+            _, far = or_predicate_ends(group["predicates"], predicates)
+            excluded.update(far.values())
+            or_alternatives.append(set(far.values()))
+    return excluded, or_alternatives
+
+
+def _group_node_id(group):
+    while "nodes" not in group:
+        group = group["children"][0]
+    return group["nodes"]["node_id"]
+
+
 def ensure_has_positive_filter(request):
-    """Raise QueryTooBroadError unless some node is narrowed by a positive filter.
+    """Raise QueryTooBroadError unless the returned nodes are narrowed by a positive filter.
 
     A positive filter is a node id, a node property, or a logic condition that
     narrows the results. Predicates alone do not narrow ("all genes linked to
     any pathway"), and neither does anything under NOT ("everything except X"
-    is close to everything), so a request made only of those would scan most
-    of the graph.
+    is close to everything): a filter on the far node of a NOT only describes
+    the excluded edge. A filter on one OR alternative counts only if every
+    alternative is filtered.
     """
+    narrowed = set()
     for node in request.get("nodes", []):
-        if node.get("id") or node.get("ids"):
-            return
-        if any(value not in (None, "", []) for value in (node.get("properties") or {}).values()):
-            return
+        if node.get("id") or node.get("ids") or \
+                any(value not in (None, "", []) for value in (node.get("properties") or {}).values()):
+            narrowed.add(node.get("node_id"))
     logic = request.get("logic")
-    if logic and _narrows(logic):
+    if logic:
+        groups = logic.get("children", []) if logic.get("operator", "AND").upper() == "AND" else [logic]
+        for group in groups:
+            if "predicates" not in group and _narrows(group):
+                narrowed.add(_group_node_id(group))
+    excluded, or_alternatives = conditional_nodes(request)
+    if narrowed - excluded or any(far <= narrowed for far in or_alternatives):
         return
     raise QueryTooBroadError(
         "this query is too broad: it would match almost the whole graph. "

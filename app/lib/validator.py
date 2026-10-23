@@ -30,7 +30,12 @@ def validate_request(request, schema, source):
             raise Exception("'type' is required for each node")
         if 'node_id' not in node or node['node_id'] == "":
             raise Exception("'node_id' is required for each node")
-        
+        # Keys starting with '_' are filled in by the server (e.g. the
+        # conditions logic adds to a node) and written into the query as is.
+        reserved = [key for key in node if str(key).startswith('_')]
+        if reserved:
+            raise Exception(f"node '{node['node_id']}': unknown key '{reserved[0]}'")
+
         # format the node id into approperiate format
         node_id = node['node_id']
         node['node_id'] = clean_string(node_id)

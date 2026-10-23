@@ -209,3 +209,37 @@ def test_virtual_overlaps_with_keeps_the_flat_count_query(gen):
                "predicates": predicates}
     _, total, _ = gen.query_Generator(request, {n["node_id"]: n for n in request["nodes"]})
     assert "apoc.create.vRelationship" in total and "CALL (anchors)" not in total
+
+
+# --- unsupported shapes are refused, not run wrongly ---------------------------
+
+OVERLAP_SCHEMA = {**SCHEMA, "snp_overlaps_with_enhancer": {}, "snp_overlaps_with_promoter": {}}
+
+
+def test_comma_values_on_a_node_whose_only_predicate_is_negated(gen):
+    request = {"nodes": [node("n0", "gene", {"gene_name": "TP53, BRCA1"}), node("n1", "biological_process")],
+               "predicates": [pred("p0", "involved in", "n0", "n1")],
+               "logic": {"operator": "AND", "children": [{"operator": "NOT", "predicates": ["p0"]}]}}
+    with pytest.raises(LogicValidationError, match="comma-separated values"):
+        generate(gen, request)
+
+
+@pytest.mark.parametrize("operator", ["NOT", "OR"])
+def test_not_and_or_on_overlaps_with_are_refused(gen, operator):
+    # overlaps_with is computed from coordinates; a stored-edge pattern never matches it.
+    nodes = [node("n0", "snp", {"chr": "chr1"}), node("n1", "enhancer"), node("n2", "promoter")]
+    predicates = [pred("p0", "overlaps with", "n0", "n1"), pred("p1", "overlaps with", "n0", "n2")]
+    ids = ["p0"] if operator == "NOT" else ["p0", "p1"]
+    request = {"nodes": nodes if operator == "OR" else nodes[:2], "predicates": predicates if operator == "OR" else predicates[:1],
+               "logic": {"operator": "AND", "children": [{"operator": operator, "predicates": ids}]}}
+    node_map = validate_request(request, OVERLAP_SCHEMA, None)
+    with pytest.raises(LogicValidationError, match=f"{operator} on 'overlaps with'"):
+        gen.query_Generator(request, node_map)
+
+
+def test_plain_overlaps_with_still_uses_coordinates(gen):
+    request = {"nodes": [node("n0", "snp", {"chr": "chr1"}), node("n1", "enhancer")],
+               "predicates": [pred("p0", "overlaps with", "n0", "n1")]}
+    node_map = validate_request(request, OVERLAP_SCHEMA, None)
+    query = flat(gen.query_Generator(request, node_map)[0])
+    assert "toInteger(n0.start) < toInteger(n1.end)" in query

@@ -364,3 +364,39 @@ def test_fallback_title_does_not_describe_a_negated_predicate_as_present():
                                     gene_props={"gene_type": "rRNA"}, with_bp=True))
     handler.generate_title_no_llm(request, {n["node_id"]: n for n in request["nodes"]})
     assert seen == {"predicates": [], "nodes": ["n0"]}
+
+
+# --- what counts as a positive filter ---------------------------------------------
+
+def _not_request(far_id="GO_0008150", far_props=None, gene_props=None):
+    return {"nodes": [node("n0", "gene", gene_props), node("n1", "biological_process", far_props, far_id)],
+            "predicates": [pred("p0", "involved in", "n0", "n1")],
+            "logic": {"operator": "AND", "children": [{"operator": "NOT", "predicates": ["p0"]}]}}
+
+
+def test_a_filter_on_the_far_node_of_a_not_does_not_narrow_the_results():
+    # "every gene except those linked to GO_0008150" is almost every gene.
+    for request in (_not_request(), _not_request(far_id="", far_props={"term_name": "x"})):
+        with pytest.raises(QueryTooBroadError):
+            ensure_has_positive_filter(request)
+    ensure_has_positive_filter(_not_request(gene_props={"chr": "chr21"}))   # returned genes filtered
+
+
+def test_a_logic_group_on_the_far_node_of_a_not_does_not_narrow_either():
+    request = _not_request(far_id="")
+    request["logic"]["children"].append({"operator": "AND", "nodes": {"node_id": "n1", "properties": {"term_name": "x"}}})
+    with pytest.raises(QueryTooBroadError):
+        ensure_has_positive_filter(request)
+
+
+def _or_request(bp_id="GO_0008150", mf_id=""):
+    return {"nodes": [node("n0", "gene"), node("n1", "biological_process", id_=bp_id),
+                      node("n2", "molecular_function", id_=mf_id)],
+            "predicates": [pred("p0", "involved in", "n0", "n1"), pred("p1", "enables", "n0", "n2")],
+            "logic": {"operator": "AND", "children": [{"operator": "OR", "predicates": ["p0", "p1"]}]}}
+
+
+def test_an_or_narrows_only_when_every_alternative_is_filtered():
+    with pytest.raises(QueryTooBroadError):
+        ensure_has_positive_filter(_or_request())            # "... OR enables any function"
+    ensure_has_positive_filter(_or_request(mf_id="GO_0005515"))

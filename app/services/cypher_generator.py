@@ -421,10 +421,23 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return " AND ".join(checks)
 
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
+        # '_logic_conditions' is written into the query as is, so only
+        # _apply_logic may set it; drop anything a caller passed in.
+        if any('_logic_conditions' in n for n in requests['nodes']):
+            requests = copy.deepcopy(requests)
+            for node in requests['nodes']:
+                node.pop('_logic_conditions', None)
+            node_map = {n['node_id']: n for n in requests['nodes']}
         or_groups = []
         if requests.get('logic'):
+            had_predicates = bool(requests.get('predicates'))
             requests, or_groups = self._apply_logic(requests)
             node_map = {n['node_id']: n for n in requests['nodes']}
+            if had_predicates and not requests['predicates'] and self.is_in_list_request(requests):
+                raise LogicValidationError(
+                    "not supported yet: comma-separated values on a node whose only predicates are negated; "
+                    "use an OR group in 'logic' for those values instead"
+                )
 
         if self.is_in_list_request(requests):
             if or_groups:
@@ -713,6 +726,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         if logic['operator'] != 'AND':
             return requests, []
+
+        # overlaps_with is computed from coordinates, not stored, so NOT
+        # EXISTS / OR arms over a stored relationship would never match it.
+        by_id = {p['predicate_id']: p for p in predicates}
+        for group in logic['children']:
+            if 'predicates' in group and (group['operator'] == 'NOT' or len(group['predicates']) > 1) and \
+                    self._has_virtual_predicate([by_id[pid] for pid in group['predicates']]):
+                raise LogicValidationError(
+                    f"not supported yet: {group['operator']} on 'overlaps with' predicates")
 
         # NOT on predicates: NOT EXISTS on the kept node; the far node goes.
         negated = {pid for g in logic['children'] if 'predicates' in g and g['operator'] == 'NOT'

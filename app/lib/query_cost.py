@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from app.core.config import settings
+from app.lib.logic import conditional_nodes
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +32,17 @@ class CostDecision:
 
 
 def needs_cost_check(request):
-    """Only multi-node requests can blow up; a node fixed by one id keeps the query small."""
+    """Only multi-node requests can blow up; a node fixed by one id keeps the query small.
+
+    An id on the far node of a NOT, or on one OR alternative, does not fix the
+    returned nodes, so it does not skip the check.
+    """
     if not request.get("predicates") and not request.get("logic"):
         return False
+    excluded, _ = conditional_nodes(request)
     for node in request.get("nodes", []):
         node_id = node.get("id")
-        if isinstance(node_id, str) and node_id and "," not in node_id:
+        if isinstance(node_id, str) and node_id and "," not in node_id and node.get("node_id") not in excluded:
             return False
     return True
 

@@ -135,3 +135,18 @@ def test_only_cypher_supports_logic():
     assert CypherQueryGenerator.supports_logic is True
     assert MeTTa_Query_Generator.supports_logic is False
     assert getattr(MorkQueryGenerator, "supports_logic", False) is False
+
+
+def test_an_id_on_a_not_or_or_alternative_does_not_skip_the_check():
+    not_request = {"nodes": [node("n0", "gene", {"chr": "chr1"}), node("n1", "biological_process", id_="GO_0008150")],
+                   "predicates": [pred("p0", "involved in", "n0", "n1")],
+                   "logic": {"operator": "AND", "children": [{"operator": "NOT", "predicates": ["p0"]}]}}
+    assert needs_cost_check(not_request) is True
+    or_request = {"nodes": [node("n0", "gene", {"chr": "chr1"}), node("n1", "biological_process", id_="GO_0008150"),
+                            node("n2", "molecular_function")],
+                  "predicates": [pred("p0", "involved in", "n0", "n1"), pred("p1", "enables", "n0", "n2")],
+                  "logic": {"operator": "AND", "children": [{"operator": "OR", "predicates": ["p0", "p1"]}]}}
+    assert needs_cost_check(or_request) is True
+    plain = {"nodes": [node("n0", "gene"), node("n1", "biological_process", id_="GO_0008150")],
+             "predicates": [pred("p0", "involved in", "n0", "n1")]}
+    assert needs_cost_check(plain) is False                  # the id fixes every returned row
