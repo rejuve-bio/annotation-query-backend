@@ -385,7 +385,7 @@ def process_query(
                 )
                 return response
 
-        result = db_instance.run_query(result_query)
+        result = db_instance.run_query(result_query, species=species)
         graph_components = {
             "nodes": requests.get("nodes", []),
             "predicates": requests.get("predicates", []),
@@ -402,8 +402,8 @@ def process_query(
         if source == "hypothesis":
             return {"nodes": result_graph.get("nodes", [])}
 
-        total_count = db_instance.run_query(total_count_query)
-        count_by_label = db_instance.run_query(count_by_label_query)
+        total_count = db_instance.run_query(total_count_query, species=species)
+        count_by_label = db_instance.run_query(count_by_label_query, species=species)
         count_result = [total_count[0], count_by_label[0]]
 
         counted_nodes, counted_predicates = counted_nodes_and_predicates(requests)
@@ -442,6 +442,8 @@ def process_query(
             "question": question,
             "status": TaskStatus.COMPLETE.value,
             "query_fingerprint": fingerprint,
+            "species": species,
+            "data_source": data_source,
         }
 
         annotation_id = AnnotationStorageService.save(annotation)
