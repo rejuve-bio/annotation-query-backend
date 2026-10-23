@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
             print("Redis Listener task cancelling...")
         finally:
             await pubsub.unsubscribe('socket_event')
-            await redis_client.aclose()
+            await redis_client.close()
             print("Redis connection closed.")
 
     # Register MORK cleanup signal handlers from the main thread so they are

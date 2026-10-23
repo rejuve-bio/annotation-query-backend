@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from app import schema_manager
+from app.api.deps import get_schema_manager
 from app.services.mork_cli_generator import MorkCLIQueryGenerator
 
 
@@ -64,6 +64,7 @@ def test_mork_cli_response_shape(request_list):
     if not generator.is_ready():
         pytest.skip("annotation.act is missing; run scripts/build_act.py")
 
+    schema_manager = get_schema_manager()
     species = os.getenv("MORK_TEST_SPECIES", "human")
     schema = schema_manager.full_schema_representation[species]
 
