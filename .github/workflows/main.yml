@@ -57,6 +57,12 @@ jobs:
         env:
           MONGO_URI: mongodb://localhost:27017/test
           REDIS_URL: redis://localhost:6379/0
+          HUMAN_NEO4J_URI: bolt://localhost:7687
+          HUMAN_NEO4J_USERNAME: neo4j
+          HUMAN_NEO4J_PASSWORD: test
+          FLY_NEO4J_URI: bolt://localhost:7687
+          FLY_NEO4J_USERNAME: neo4j
+          FLY_NEO4J_PASSWORD: test
           JWT_SECRET: test-jwt-secret
           SECRET_KEY: test-secret-key
           LLM_MODEL: gemini
