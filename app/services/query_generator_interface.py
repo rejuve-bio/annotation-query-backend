@@ -26,6 +26,13 @@ class QueryGeneratorInterface(ABC):
     def parse_id(self, request) -> dict:
         pass
 
+    # Optional capabilities; backends override them when supported.
+    supports_logic = False
+
+    def estimate_rows(self, query_code, species="human"):
+        """Estimated peak row count of a query without running it, or None if unknown."""
+        return None
+
     # Neighbourhood expansion — not abstract so backends can adopt it one at
     # a time. Callers (endpoint / Celery task) only use these two methods, so
     # adding a backend never requires touching them.

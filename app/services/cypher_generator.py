@@ -5,10 +5,12 @@ from app.services.query_generator_interface import QueryGeneratorInterface
 import glob
 import os
 from collections import Counter
+import copy
 import re
 import time
 from app.lib.db_resilience import ResilientDriver, RetryPolicy, QueryType, QueryTimeoutConfig
 from app.lib.result_formatter import Result_Formatter
+from app.lib.logic import LogicValidationError, negated_predicate_ends, or_predicate_ends
 from collections import deque
 
 load_dotenv()
@@ -48,6 +50,8 @@ _TIMEOUT_CONFIG = QueryTimeoutConfig(
 
 
 class CypherQueryGenerator(QueryGeneratorInterface):
+    supports_logic = True
+
     def __init__(self, dataset_path: str):
         self.human_driver = ResilientDriver(
             uri=os.getenv('HUMAN_NEO4J_URI'),
@@ -118,6 +122,30 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             driver = self.human_driver
         return driver.run_with_retry(query_code, stop_event=stop_event, query_type=query_type,
                                      parameters=parameters)
+
+    def estimate_rows(self, query_code, species="human"):
+        """
+        Neo4j's estimate of the largest number of rows any step of the query
+        produces, from EXPLAIN (the query is planned, not run). None if the
+        estimate could not be obtained.
+        """
+        driver = self.human_driver if species == "human" else self.fly_driver
+        if driver is None:
+            return None
+        try:
+            with driver.session() as session:
+                plan = session.run("EXPLAIN " + query_code).consume().plan
+        except Exception as exc:
+            logger.warning("EXPLAIN failed, skipping cost check: %s", exc)
+            return None
+        if not plan:
+            return None
+        peak, stack = 0, [plan]
+        while stack:
+            step = stack.pop()
+            peak = max(peak, step.get("args", {}).get("EstimatedRows", 0) or 0)
+            stack.extend(step.get("children", []))
+        return int(peak)
 
     def get_cellular_component_locations(
         self, protein_ids, location_ids, species="human",
@@ -439,6 +467,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             raise ValueError(f"Invalid node/relationship type: {type_name!r}")
         return type_name
 
+    def _cypher_string_list(self, values) -> str:
+        """Render values as a Cypher list of single-quoted, escaped string literals."""
+        return "[" + ", ".join(f"'{self._escape_cypher_literal(v)}'" for v in values) + "]"
+
     def _escape_cypher_literal(self, value) -> str:
         """
         Escape a value for safe interpolation inside a single-quoted Cypher
@@ -487,7 +519,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         return None
 
     def _build_call_subquery(self, predicates, node_map, predicate_map,
-                            anchor_var, limit=None, node_only=False, inner_limit=None, strict=True):
+                            anchor_var, limit=None, node_only=False, inner_limit=None, strict=True,
+                            or_groups=None):
         """
         Build a CALL-subquery-scoped Cypher query using independent CALL arms.
 
@@ -495,7 +528,11 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         filters. Every predicate goes into an independent CALL arm.
         This ensures 1 row per anchor node regardless of connection count,
         and avoids Cartesian product row explosion entirely.
-        
+
+        or_groups: lists of predicate ids that are OR'd (logic). Each such
+        predicate is its own arm; the anchor is kept when at least one arm of
+        each group matched, instead of all of them.
+
         Returns:
             cypher_str   - the full query string
             aliases      - list of collect-alias names per arm
@@ -508,105 +545,15 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         outer_match = f"MATCH {self.match_node(anchor_node, anchor_var)}"
         outer_where = f"WHERE {' AND '.join(anchor_where)}" if anchor_where else ""
 
-        # All predicates go into independent CALL arms
-        remaining_predicates = predicates
-
-        # Group predicates into independent arms.
-        # An arm starts with a predicate touching the anchor.
-        # It then greedily pulls in ALL predicates that touch any node
-        # already in the arm (multi-branch chains like transcript->pathway
-        # AND transcript->protein both get pulled into the same arm).
-        # Predicates with NO connection to anchor go into their own arm.
-        arms = []
-        assigned = set()
-
-        for pred in remaining_predicates:
-            if pred['predicate_id'] in assigned:
-                continue
-            src = pred['source']
-            tgt = pred['target']
-
-            arm = [pred]
-            assigned.add(pred['predicate_id'])
-
-            # Collect all nodes introduced by this arm so far
-            arm_nodes = {src, tgt}
-
-            # Greedily pull in any unassigned predicate that shares a node
-            # with the current arm — repeat until no more can be added
-            changed = True
-            while changed:
-                changed = False
-                for next_pred in remaining_predicates:
-                    if next_pred['predicate_id'] in assigned:
-                        continue
-                    ns = next_pred['source']
-                    nt = next_pred['target']
-                    # Only pull in if it connects to a non-anchor arm node
-                    # (prevents pulling in unrelated predicates that only
-                    # share the anchor — those get their own arm)
-                    non_anchor_arm_nodes = arm_nodes - {anchor_var}
-                    if ns in non_anchor_arm_nodes or nt in non_anchor_arm_nodes:
-                        arm.append(next_pred)
-                        assigned.add(next_pred['predicate_id'])
-                        arm_nodes.add(ns)
-                        arm_nodes.add(nt)
-                        changed = True
-
-            arms.append(arm)
+        arms = self._group_into_arms(predicates, anchor_var)
 
         # Build independent CALL arms
         call_blocks = []
         all_aliases = []
 
         for arm in arms:
-            arm_pred_ids = [p['predicate_id'] for p in arm]
-            arm_alias = '_'.join(arm_pred_ids)
-
-            match_lines = []
-            map_entries = {}
-            seen_in_arm = {anchor_var}
-
-            for pred in arm:
-                pred_id = pred['predicate_id']
-                pred_type = pred['type'].replace(' ', '_').lower()
-                src = pred['source']
-                tgt = pred['target']
-                src_node = node_map[src]
-                tgt_node = node_map[tgt]
-
-                src_match_str = self.match_node(src_node, src)
-                tgt_match_str = self.match_node(tgt_node, tgt)
-
-                # Build MATCH pattern
-                if src == anchor_var:
-                    match_lines.append(f"  MATCH ({anchor_var})-[{pred_id}:{pred_type}]->{tgt_match_str}")
-                elif tgt == anchor_var:
-                    match_lines.append(f"  MATCH {src_match_str}-[{pred_id}:{pred_type}]->({anchor_var})")
-                elif src in seen_in_arm:
-                    match_lines.append(f"  MATCH ({src})-[{pred_id}:{pred_type}]->{tgt_match_str}")
-                elif tgt in seen_in_arm:
-                    match_lines.append(f"  MATCH {src_match_str}-[{pred_id}:{pred_type}]->({tgt})")
-                else:
-                    match_lines.append(f"  MATCH {src_match_str}-[{pred_id}:{pred_type}]->{tgt_match_str}")
-
-                # WHERE conditions for new nodes introduced in this arm
-                where_parts = []
-                for var in [src, tgt]:
-                    if var != anchor_var and var not in seen_in_arm:
-                        conds = self.where_construct(node_map[var], var)
-                        if conds:
-                            where_parts.extend(conds)
-                        seen_in_arm.add(var)
-
-                if where_parts:
-                    match_lines.append(f"  WHERE {' AND '.join(where_parts)}")
-
-                # Add non-anchor vars and relationship to collect map
-                for var in [src, tgt]:
-                    if var != anchor_var:
-                        map_entries[var] = var
-                map_entries[pred_id] = pred_id
+            arm_alias = '_'.join(p['predicate_id'] for p in arm)
+            match_lines, map_entries = self._arm_match_lines(arm, anchor_var, node_map)
 
             # Build collect expression
             collect_map = '{' + ', '.join(f"{k}: {v}" for k, v in map_entries.items()) + '}'
@@ -624,7 +571,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         # strict=True (default): all arms must return data, otherwise the whole
         # result is empty. strict=False: return partial results even if some arms
         # have no data.
-        size_checks = ' AND '.join(f"size({alias}) > 0" for alias in all_aliases)
+        size_checks = self._arm_conditions(
+            arms, [f"size({alias}) > 0" for alias in all_aliases], or_groups or [])
         strict_where = f"WITH * WHERE {size_checks}" if strict else ""
 
         parts = [outer_match, outer_where] + call_blocks + [strict_where, outer_return, limit_clause]
@@ -633,8 +581,148 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
         return cypher_str, all_aliases, [anchor_var]
 
+    def _group_into_arms(self, predicates, anchor_var):
+        """
+        Group predicates into independent arms around the anchor.
+
+        An arm starts with a predicate touching the anchor. It then greedily
+        pulls in ALL predicates that touch any node already in the arm
+        (multi-branch chains like transcript->pathway AND transcript->protein
+        both get pulled into the same arm). Predicates with NO connection to
+        the anchor go into their own arm.
+        """
+        arms = []
+        assigned = set()
+
+        for pred in predicates:
+            if pred['predicate_id'] in assigned:
+                continue
+
+            arm = [pred]
+            assigned.add(pred['predicate_id'])
+
+            # Collect all nodes introduced by this arm so far
+            arm_nodes = {pred['source'], pred['target']}
+
+            # Greedily pull in any unassigned predicate that shares a node
+            # with the current arm — repeat until no more can be added
+            changed = True
+            while changed:
+                changed = False
+                for next_pred in predicates:
+                    if next_pred['predicate_id'] in assigned:
+                        continue
+                    ns = next_pred['source']
+                    nt = next_pred['target']
+                    # Only pull in if it connects to a non-anchor arm node
+                    # (prevents pulling in unrelated predicates that only
+                    # share the anchor — those get their own arm)
+                    non_anchor_arm_nodes = arm_nodes - {anchor_var}
+                    if ns in non_anchor_arm_nodes or nt in non_anchor_arm_nodes:
+                        arm.append(next_pred)
+                        assigned.add(next_pred['predicate_id'])
+                        arm_nodes.add(ns)
+                        arm_nodes.add(nt)
+                        changed = True
+
+            arms.append(arm)
+        return arms
+
+    def _arm_match_lines(self, arm, anchor_var, node_map):
+        """
+        Return (match_lines, map_entries) for one arm: the MATCH/WHERE lines
+        that walk the arm from the anchor, and the arm's non-anchor variables
+        (nodes and relationships) in order of appearance.
+        """
+        match_lines = []
+        map_entries = {}
+        seen_in_arm = {anchor_var}
+
+        for pred in arm:
+            pred_id = pred['predicate_id']
+            pred_type = pred['type'].replace(' ', '_').lower()
+            src = pred['source']
+            tgt = pred['target']
+            src_match_str = self.match_node(node_map[src], src)
+            tgt_match_str = self.match_node(node_map[tgt], tgt)
+
+            # Build MATCH pattern
+            if src == anchor_var:
+                match_lines.append(f"  MATCH ({anchor_var})-[{pred_id}:{pred_type}]->{tgt_match_str}")
+            elif tgt == anchor_var:
+                match_lines.append(f"  MATCH {src_match_str}-[{pred_id}:{pred_type}]->({anchor_var})")
+            elif src in seen_in_arm:
+                match_lines.append(f"  MATCH ({src})-[{pred_id}:{pred_type}]->{tgt_match_str}")
+            elif tgt in seen_in_arm:
+                match_lines.append(f"  MATCH {src_match_str}-[{pred_id}:{pred_type}]->({tgt})")
+            else:
+                match_lines.append(f"  MATCH {src_match_str}-[{pred_id}:{pred_type}]->{tgt_match_str}")
+
+            # WHERE conditions for new nodes introduced in this arm
+            where_parts = []
+            for var in [src, tgt]:
+                if var != anchor_var and var not in seen_in_arm:
+                    conds = self.where_construct(node_map[var], var)
+                    if conds:
+                        where_parts.extend(conds)
+                    seen_in_arm.add(var)
+
+            if where_parts:
+                match_lines.append(f"  WHERE {' AND '.join(where_parts)}")
+
+            # Add non-anchor vars and relationship to collect map
+            for var in [src, tgt]:
+                if var != anchor_var:
+                    map_entries[var] = var
+            map_entries[pred_id] = pred_id
+
+        return match_lines, map_entries
+
+    @staticmethod
+    def _arm_conditions(arms, arm_conditions, or_groups):
+        """
+        Combine one condition per arm into the condition that keeps an anchor:
+        every arm must match, except that the arms of one OR group need only
+        one of them to match.
+        """
+        group_of = {pid: index for index, group in enumerate(or_groups) for pid in group}
+        condition_of = {arm[0]['predicate_id']: cond for arm, cond in zip(arms, arm_conditions)}
+
+        checks, done_groups = [], set()
+        for arm, cond in zip(arms, arm_conditions):
+            index = group_of.get(arm[0]['predicate_id'])
+            if index is None:
+                checks.append(cond)
+            elif index not in done_groups:
+                done_groups.add(index)
+                checks.append("(" + " OR ".join(condition_of[pid] for pid in or_groups[index]) + ")")
+        return " AND ".join(checks)
+
     def query_Generator(self, requests, node_map, limit=None, node_only=False):
+        # '_logic_conditions' is written into the query as is, so only
+        # _apply_logic may set it; drop anything a caller passed in.
+        if any('_logic_conditions' in n for n in requests['nodes']):
+            requests = copy.deepcopy(requests)
+            for node in requests['nodes']:
+                node.pop('_logic_conditions', None)
+            node_map = {n['node_id']: n for n in requests['nodes']}
+        or_groups = []
+        if requests.get('logic'):
+            had_predicates = bool(requests.get('predicates'))
+            requests, or_groups = self._apply_logic(requests)
+            node_map = {n['node_id']: n for n in requests['nodes']}
+            if had_predicates and not requests['predicates'] and self.is_in_list_request(requests):
+                raise LogicValidationError(
+                    "not supported yet: comma-separated values on a node whose only predicates are negated; "
+                    "use an OR group in 'logic' for those values instead"
+                )
+
         if self.is_in_list_request(requests):
+            if or_groups:
+                raise LogicValidationError(
+                    "not supported yet: OR between predicates together with comma-separated values; "
+                    "use an OR group in 'logic' for those values instead"
+                )
             return self.in_list_query_generator(requests, limit)
 
         nodes = requests['nodes']
@@ -675,7 +763,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             for node in nodes:
                 var_name = f"{node['node_id']}"
                 match_no_preds.append(self.match_node(node, var_name))
-                if node['properties']:
+                if node['properties'] or node.get('_logic_conditions'):
                     where_no_preds.extend(self.where_construct(node, var_name))
                 return_no_preds.append(var_name)
                 list_of_node_ids.append(var_name)
@@ -698,10 +786,38 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             cypher_queries.extend(count)
 
         else:
-            # Try CALL subquery pattern first — avoids Cartesian product row explosion
-            anchor_var = self._find_anchor_node(predicates, node_map=node_map)
+            # Try CALL subquery pattern first — avoids Cartesian product row explosion.
+            # OR'd predicates need the CALL form (one arm each), anchored on the
+            # node they share.
+            if or_groups:
+                anchor_var = self._or_anchor(or_groups)
+            else:
+                anchor_var = self._find_anchor_node(predicates, node_map=node_map)
 
-            if anchor_var is not None:
+            if anchor_var is not None and or_groups:
+                group_ids = [pids for _, pids in or_groups]
+                cypher_query, aliases, outer_nodes = self._build_call_subquery(
+                    predicates, node_map, predicate_map, anchor_var, limit, node_only,
+                    inner_limit=None, or_groups=group_ids
+                )
+                cypher_queries.append(cypher_query)
+                cypher_queries.extend(self._anchor_count_queries(
+                    predicates, node_map, predicate_map, anchor_var, group_ids))
+
+            elif anchor_var is not None and not self._has_virtual_predicate(predicates):
+                # Count queries reuse the result query's arms, so an anchor with
+                # many edges of several types does not multiply rows.
+                cypher_query, aliases, outer_nodes = self._build_call_subquery(
+                    predicates, node_map, predicate_map, anchor_var, limit, node_only,
+                    inner_limit=None
+                )
+                cypher_queries.append(cypher_query)
+                cypher_queries.extend(self._anchor_count_queries(
+                    predicates, node_map, predicate_map, anchor_var))
+
+            elif anchor_var is not None:
+                # overlaps_with is a virtual (APOC) relationship, which only the
+                # flat count query below knows how to build.
                 cypher_query, aliases, outer_nodes = self._build_call_subquery(
                     predicates, node_map, predicate_map, anchor_var, limit, node_only,
                     inner_limit=None
@@ -854,6 +970,200 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                 cypher_queries.extend(count)
             
         return cypher_queries
+
+    # ------------------------------------------------------------------
+    # Boolean logic (AND / OR / NOT) — see app/lib/logic.py for the format
+    # ------------------------------------------------------------------
+
+    def _apply_logic(self, requests):
+        """
+        Turn a validated 'logic' section into per-node WHERE conditions.
+
+        Returns (requests_for_matching, or_groups):
+          - a deep copy of the request in which each node carries its rendered
+            logic conditions in '_logic_conditions' (never stored on self: one
+            generator instance serves concurrent requests);
+          - predicates under NOT and their far nodes are removed and become a
+            NOT EXISTS condition on the kept node;
+          - or_groups: [(kept_node_id, [predicate_ids])] for OR between
+            predicates.
+        """
+        requests = copy.deepcopy(requests)
+        logic = requests['logic']
+        nodes_by_id = {node['node_id']: node for node in requests['nodes']}
+        predicates = requests.get('predicates') or []
+
+        # Property groups, attached to the node they are about.
+        groups = logic['children'] if logic['operator'] == 'AND' else [logic]
+        for group in groups:
+            if 'predicates' in group:
+                continue
+            node_id = self._logic_group_node_id(group)
+            nodes_by_id[node_id].setdefault('_logic_conditions', []).append(
+                self._render_logic_group(group, node_id))
+
+        if logic['operator'] != 'AND':
+            return requests, []
+
+        # overlaps_with is computed from coordinates, not stored, so NOT
+        # EXISTS / OR arms over a stored relationship would never match it.
+        by_id = {p['predicate_id']: p for p in predicates}
+        for group in logic['children']:
+            if 'predicates' in group and (group['operator'] == 'NOT' or len(group['predicates']) > 1) and \
+                    self._has_virtual_predicate([by_id[pid] for pid in group['predicates']]):
+                raise LogicValidationError(
+                    f"not supported yet: {group['operator']} on 'overlaps with' predicates")
+
+        # NOT on predicates: NOT EXISTS on the kept node; the far node goes.
+        negated = {pid for g in logic['children'] if 'predicates' in g and g['operator'] == 'NOT'
+                   for pid in g['predicates']}
+        far_ids = set()
+        for predicate in predicates:
+            if predicate['predicate_id'] not in negated:
+                continue
+            kept_id, far_id = negated_predicate_ends(predicate, predicates)
+            far_node = nodes_by_id[far_id]
+            if self._node_has_list_values(far_node):
+                raise LogicValidationError(
+                    f"not supported yet: list values on node '{far_id}', which is only used by a negated "
+                    "predicate; use an OR group in 'logic' for its values instead"
+                )
+            nodes_by_id[kept_id].setdefault('_logic_conditions', []).append(
+                self._render_not_exists(predicate, far_node, kept_id))
+            far_ids.add(far_id)
+
+        requests['nodes'] = [n for n in requests['nodes'] if n['node_id'] not in far_ids]
+        requests['predicates'] = [p for p in predicates if p['predicate_id'] not in negated]
+
+        or_groups = []
+        for group in logic['children']:
+            if 'predicates' in group and group['operator'] == 'OR' and len(group['predicates']) > 1:
+                kept_id, _ = or_predicate_ends(group['predicates'], predicates)
+                or_groups.append((kept_id, list(group['predicates'])))
+        return requests, or_groups
+
+    @staticmethod
+    def _node_has_list_values(node):
+        """True if the node has an 'ids' list or a comma-separated id or property value."""
+        if isinstance(node.get('ids'), list) and node['ids']:
+            return True
+        if isinstance(node.get('id'), str) and ',' in node['id']:
+            return True
+        return any(isinstance(v, str) and ',' in v for v in node.get('properties', {}).values())
+
+    def _logic_group_node_id(self, group):
+        if 'nodes' in group:
+            return group['nodes']['node_id']
+        return self._logic_group_node_id(group['children'][0])
+
+    def _render_logic_group(self, group, var_name):
+        """
+        Render a property group, or a nest of them, as one Cypher condition.
+
+        Within a group each property matches if it equals ANY of its values;
+        the group's operator then combines the properties (AND: all, OR: at
+        least one, NOT: none). NOT treats a missing property as not matching:
+        coalesce turns its null into false before NOT is applied.
+        """
+        operator = group['operator']
+        if 'nodes' in group:
+            parts = [self._render_property_condition(var_name, name, values)
+                     for name, values in sorted(group['nodes']['properties'].items())]
+        else:
+            parts = [self._render_logic_group(child, var_name) for child in group['children']]
+
+        if operator == 'NOT':
+            return f"NOT coalesce({' OR '.join(parts)}, false)" if len(parts) > 1 else f"NOT coalesce({parts[0]}, false)"
+        joined = f" {operator} ".join(parts)
+        return f"({joined})" if len(parts) > 1 else joined
+
+    def _render_property_condition(self, var_name, name, values):
+        """'property matches any of the values', as one condition."""
+        if not isinstance(values, list):
+            raise LogicValidationError(f"internal error: logic values for '{name}' were not normalized")
+        key = self._safe_label(name)
+        options = [f"{var_name}.{key} =~ '(?i){self._escape_regex(v)}'" for v in values]
+        return options[0] if len(options) == 1 else "(" + " OR ".join(options) + ")"
+
+    def _render_not_exists(self, predicate, far_node, kept_id):
+        """
+        "No such edge from the kept node", as NOT EXISTS { MATCH ... }. The far
+        node keeps its own filters inside the braces: "no pathway named X"
+        excludes only genes linked to a pathway named X.
+        """
+        far_var = far_node['node_id']
+        relationship = f"-[:{self._safe_label(predicate['type'].replace(' ', '_').lower())}]->"
+        far_pattern = self.match_node(far_node, far_var)
+        if predicate['source'] == kept_id:
+            pattern = f"({kept_id}){relationship}{far_pattern}"
+        else:
+            pattern = f"{far_pattern}{relationship}({kept_id})"
+        far_conditions = self.where_construct(far_node, far_var)
+        where = f" WHERE {' AND '.join(far_conditions)}" if far_conditions else ""
+        return f"NOT EXISTS {{ MATCH {pattern}{where} }}"
+
+    @staticmethod
+    def _has_virtual_predicate(predicates):
+        return any(p['type'].replace(' ', '_').lower() == 'overlaps_with' for p in predicates)
+
+    @staticmethod
+    def _or_anchor(or_groups):
+        """The node every OR group is kept on; it must be the CALL anchor."""
+        kept_ids = {kept_id for kept_id, _ in or_groups}
+        if len(kept_ids) > 1:
+            raise LogicValidationError(f"not supported yet: OR groups on different nodes {sorted(kept_ids)}")
+        return kept_ids.pop()
+
+    def _anchor_count_queries(self, predicates, node_map, predicate_map, anchor_var, or_groups=None):
+        """
+        Return [total_count_query, label_count_query] built from the same
+        arms as the CALL result query.
+
+        The anchors that qualify are found once (each arm as an EXISTS check),
+        then every arm is counted in its own CALL over those anchors. The work
+        is the sum of each anchor's edges per arm, not their product, so
+        anchors with many edges of several types do not multiply rows the way
+        one flat MATCH over all predicates does.
+        """
+        or_groups = or_groups or []
+        arms = self._group_into_arms(predicates, anchor_var)
+        anchor_node = node_map[anchor_var]
+        anchor_where = self.where_construct(anchor_node, anchor_var)
+
+        exists_checks, count_blocks, node_terms, edge_terms, label_terms = [], [], [], [], []
+        for index, arm in enumerate(arms):
+            match_lines, map_entries = self._arm_match_lines(arm, anchor_var, node_map)
+            body = " ".join(line.strip() for line in match_lines)
+            exists_checks.append(f"EXISTS {{ {body} }}")
+
+            columns = []
+            for var in map_entries:
+                column = f"c_{var}"
+                columns.append(f"count(DISTINCT {var}) AS {column}")
+                if var in predicate_map:
+                    edge_terms.append(column)
+                    label_terms.append(f"{column} AS {var}_{predicate_map[var]['type'].replace(' ', '_')}")
+                else:
+                    node_terms.append(column)
+                    label_terms.append(f"{column} AS {var}_{node_map[var]['type']}")
+            count_blocks.append(
+                f"CALL (anchors) {{\n  UNWIND anchors AS {anchor_var}\n"
+                + "\n".join(match_lines) + f"\n  RETURN {', '.join(columns)}\n}}")
+
+        qualify = self._arm_conditions(arms, exists_checks, or_groups)
+        head = "\n".join(filter(None, [
+            f"MATCH {self.match_node(anchor_node, anchor_var)}",
+            f"WHERE {' AND '.join(anchor_where)}" if anchor_where else "",
+            f"WITH {anchor_var} WHERE {qualify}",
+            f"WITH collect(DISTINCT {anchor_var}) AS anchors",
+        ] + count_blocks))
+
+        total_nodes = " + ".join(["size(anchors)"] + node_terms)
+        total_edges = " + ".join(edge_terms) if edge_terms else "0"
+        total_query = f"{head}\nRETURN ({total_nodes}) AS total_nodes, ({total_edges}) AS total_edges"
+        label_query = (f"{head}\nRETURN size(anchors) AS {anchor_var}_{anchor_node['type']}"
+                       + "".join(f", {term}" for term in label_terms))
+        return [total_query, label_query]
 
     def construct_clause(self, match_clause, return_clause, where_no_preds, limit):
         match_clause = f"MATCH {', '.join(match_clause)}"
@@ -1092,7 +1402,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         
         predicates = self._topological_sort_predicates(predicates, list_vars)
         # WITH clause — only list variables
-        with_parts = [f"{id_list} AS {list_var}" for (id_list, list_var, _) in list_vars.values()]
+        with_parts = [f"{self._cypher_string_list(id_list)} AS {list_var}" for (id_list, list_var, _) in list_vars.values()]
         with_clause = f"WITH {', '.join(with_parts)}" if with_parts else ""
 
         def get_node_filter(node, var_name):
@@ -1107,7 +1417,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
             if var_name in list_vars:
                 _, list_var, filter_prop = list_vars[var_name]
-                conditions.append(f"{var_name}.{filter_prop} IN {list_var}")
+                conditions.append(f"{var_name}.{self._safe_label(filter_prop)} IN {list_var}")
 
             # Additional property filters (non-list, non-reserved)
             props = node.get('properties', {})
@@ -1118,8 +1428,9 @@ class CypherQueryGenerator(QueryGeneratorInterface):
                     continue
                 if isinstance(value, str) and ',' in value:
                     continue
-                conditions.append(f"{var_name}.{key} =~ '(?i){value}'")
+                conditions.append(f"{var_name}.{self._safe_label(key)} =~ '(?i){self._escape_regex(value)}'")
 
+            conditions.extend(node.get('_logic_conditions', []))
             return conditions
 
         def get_match_node(node, var_name):
@@ -1289,9 +1600,10 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         - Supports offsets for upstream/downstream: 'upstream_distance', 'downstream_distance'.
         """
         properties = []
-    
+        logic_conditions = list(node.get('_logic_conditions', []))
+
         if node['id']:
-            return properties
+            return logic_conditions
     
         start = node['properties'].get('start')
         end = node['properties'].get('end')
@@ -1304,7 +1616,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             if key in ['start', 'end', 'interval_type', 'upstream_distance', 'downstream_distance']:
                 continue
             escaped = self._escape_regex(value)
-            properties.append(f"{var_name}.{key} =~ '(?i){escaped}'")
+            properties.append(f"{var_name}.{self._safe_label(key)} =~ '(?i){escaped}'")
     
         # Interval logic with start and end
         if start is not None and end is not None:
@@ -1340,8 +1652,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
             else:
                 # Fallback: within
                 properties.append(f"{start_int} >= {start} AND {end_int} <= {end}")
-    
-        return properties
+
+        return properties + logic_conditions
 
     def parse_and_serialize(self, input, schema, graph_components, result_type):
         return self.formatter.format_result(input, "neo4j", graph_components, result_type)

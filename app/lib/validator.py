@@ -1,6 +1,13 @@
 import networkx as nx
 import re
 
+from app.core.config import settings
+from app.lib.logic import (
+    ensure_has_positive_filter,
+    normalize_logic,
+    require_safe_property_name,
+)
+
 def clean_string(s):
     return re.sub(r'[-_]', '', s)
 
@@ -23,12 +30,22 @@ def validate_request(request, schema, source):
             raise Exception("'type' is required for each node")
         if 'node_id' not in node or node['node_id'] == "":
             raise Exception("'node_id' is required for each node")
-        
+        # Keys starting with '_' are filled in by the server (e.g. the
+        # conditions logic adds to a node) and written into the query as is.
+        reserved = [key for key in node if str(key).startswith('_')]
+        if reserved:
+            raise Exception(f"node '{node['node_id']}': unknown key '{reserved[0]}'")
+
         # format the node id into approperiate format
         node_id = node['node_id']
         node['node_id'] = clean_string(node_id)
 
         node.setdefault('properties', {})
+
+        # Property names are written into generated queries as identifiers,
+        # so anything other than a plain identifier is rejected.
+        for property_name in node['properties']:
+            require_safe_property_name(property_name, f"node '{node['node_id']}'")
 
         if 'chr' in node["properties"]:
             chr_property = node["properties"]["chr"]
@@ -90,6 +107,23 @@ def validate_request(request, schema, source):
     if source != 'hypothesis':
         if check_disconnected_graph(request):
             raise Exception("disconnected subgraph: all nodes must be connected through predicates")
+
+    if request.get('logic') is not None:
+        # 'logic' refers to predicates by id, so every id must name exactly one
+        # predicate. Requests without 'logic' keep accepting repeated ids.
+        predicate_map = {}
+        for predicate in predicates:
+            predicate_id = predicate['predicate_id']
+            if predicate_id in predicate_map:
+                raise Exception(
+                    f"duplicate predicate_id '{predicate_id}'; when 'logic' is used, "
+                    "give every predicate its own predicate_id"
+                )
+            predicate_map[predicate_id] = predicate
+        request['logic'] = normalize_logic(request['logic'], node_map, predicate_map)
+
+    if settings.REQUIRE_POSITIVE_FILTER:
+        ensure_has_positive_filter(request)
 
     return node_map
 

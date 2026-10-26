@@ -5,6 +5,7 @@ import traceback
 import json
 import tiktoken
 from app.prompts.summarizer_prompts import SUMMARY_PROMPT, SUMMARY_PROMPT_BASED_ON_USER_QUERY, SUMMARY_PROMPT_CHUNKING, SUMMARY_PROMPT_CHUNKING_USER_QUERY
+from app.lib.logic import describe_logic
 
 
 class Graph_Summarizer:
@@ -160,6 +161,11 @@ class Graph_Summarizer:
 
             if graph:
                 prev_summery = []
+                logic_phrases = describe_logic(request or {})
+                if logic_phrases:
+                    # Spell out AND/OR/NOT so the summary does not describe a
+                    # NOT query as if it were a plain one.
+                    request = {**request, "logic_in_plain_english": logic_phrases}
                 self.graph_description(graph)
                 count_by_label  = [graph['node_count_by_label'], graph['edge_count_by_label']]
                 for i, batch in enumerate(self.descriptions):  
