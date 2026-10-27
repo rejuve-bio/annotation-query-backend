@@ -25,7 +25,9 @@ class AnnotationStorageService():
             data_source=annotation.get('data_source', 'all'),
             query_fingerprint=annotation.get('query_fingerprint', None),
             participant_user_ids=annotation.get('participant_user_ids', []),
-            thread_id=annotation.get('thread_id', None)
+            thread_id=annotation.get('thread_id', None),
+            path_url=annotation.get('path_url', None),
+            files=annotation.get('files', None)
         )
 
         id = data.save()

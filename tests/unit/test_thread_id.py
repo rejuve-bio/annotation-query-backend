@@ -244,3 +244,40 @@ def test_annotation_detail_returns_thread_id_or_null(monkeypatch, thread_id):
     response = endpoint.get_annotation_by_id(id="a1", token=None, limit=None, properties=None, source=None,
                                              auth_header=token, redis_client=redis)
     assert response["thread_id"] == thread_id
+
+
+# --- storage ----------------------------------------------------------------------
+
+def test_save_keeps_thread_id_and_the_reused_graph(monkeypatch):
+    """Copies made by dedup must keep path_url/files, or they lose the graph when Redis expires."""
+    from app.persistence import annotation_storage_service as storage_module
+
+    saved = {}
+
+    class FakeAnnotation:
+        def __init__(self, **kwargs):
+            saved.update(kwargs)
+
+        def save(self):
+            return "new-id"
+
+    monkeypatch.setattr(storage_module, "Annotation", FakeAnnotation)
+    annotation_id = storage_module.AnnotationStorageService.save({
+        "current_user_id": "u1", "request": REQUESTS, "query": "q", "title": "APOE",
+        "node_types": ["gene"], "status": TaskStatus.COMPLETE.value, "thread_id": THREAD_A,
+        "path_url": "/app/public/graph/orig.json", "files": [{"name": "nodes.tsv"}]})
+    assert annotation_id == "new-id"
+    assert (saved["thread_id"], saved["path_url"], saved["files"]) == (
+        THREAD_A, "/app/public/graph/orig.json", [{"name": "nodes.tsv"}])
+
+
+def test_save_without_graph_fields_stores_none(monkeypatch):
+    from app.persistence import annotation_storage_service as storage_module
+
+    saved = {}
+    monkeypatch.setattr(storage_module, "Annotation",
+                        type("FakeAnnotation", (), {"__init__": lambda self, **kw: saved.update(kw),
+                                                    "save": lambda self: "id"}))
+    storage_module.AnnotationStorageService.save({
+        "current_user_id": "u1", "request": REQUESTS, "query": "q", "title": "APOE", "node_types": ["gene"]})
+    assert saved["thread_id"] is None and saved["path_url"] is None and saved["files"] is None
