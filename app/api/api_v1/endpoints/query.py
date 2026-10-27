@@ -32,6 +32,7 @@ from app.lib.email import send_email
 from app.lib.query_canonical import canonicalize_graph, query_fingerprint
 from app.lib.logic import LogicValidationError, counted_nodes_and_predicates
 from app.lib.query_cost import REFUSE, SLOW, assess_query_cost, too_broad_message
+from app.lib.thread_id import parse_thread_id
 import threading
 from app.core.config import settings
 from app.api.deps import oauth2_scheme
@@ -63,7 +64,7 @@ def _get_graph_for_annotation(existing_doc, redis_client):
  
     return {"nodes": [], "edges": []}
 
-def _create_annotation_from_existing(existing_doc, current_user_id, data_source, species, requests, fingerprint, redis_client):
+def _create_annotation_from_existing(existing_doc, current_user_id, data_source, species, requests, fingerprint, redis_client, thread_id=None):
     """
     Creates a new annotation for the current user reusing the existing doc's
     graph data (path_url, files, counts, summary, title, query).
@@ -88,6 +89,7 @@ def _create_annotation_from_existing(existing_doc, current_user_id, data_source,
         "files": existing_doc.files,
         "species": species,
         "data_source": data_source,
+        "thread_id": thread_id,
     }
     new_annotation_id = AnnotationStorageService.save(new_annotation)
  
@@ -113,6 +115,10 @@ def process_query(
 ):
     if "requests" not in data:
         raise HTTPException(status_code=400, detail="Missing requests data")
+    try:
+        thread_id = parse_thread_id(data.get("thread_id"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Handling boolean query param manually or via Pydantic if defined properly
     prop_bool = True
@@ -255,6 +261,7 @@ def process_query(
                             "files": existing_doc.files,
                             "species": species,
                             "data_source": data_source,
+                            "thread_id": thread_id,
                         }
                         new_annotation_id = AnnotationStorageService.save(new_annotation)
 
@@ -270,12 +277,17 @@ def process_query(
                         # No question — each user gets their own annotation so their
                         # data_source preference is preserved. Same user re-querying
                         # gets their existing annotation back unchanged.
-                        if str(existing_doc.user_id) == str(current_user_id):
-                            return {"annotation_id": str(existing_doc.id)}
+                        # Per thread too: the same query in another thread
+                        # gets its own annotation over the same results.
+                        own_doc = AnnotationStorageService.get_user_annotation_in_thread(
+                            fingerprint, str(current_user_id), thread_id
+                        )
+                        if own_doc:
+                            return {"annotation_id": str(own_doc.id)}
 
                         new_annotation_id = _create_annotation_from_existing(
                             existing_doc, current_user_id, data_source,
-                            species, requests, fingerprint, redis_client
+                            species, requests, fingerprint, redis_client, thread_id
                         )
                         return {"annotation_id": str(new_annotation_id)}
 
@@ -317,6 +329,7 @@ def process_query(
                         "files": existing_doc.files,
                         "species": species,
                         "data_source": data_source,
+                        "thread_id": thread_id,
                     }
                     new_annotation_id = AnnotationStorageService.save(new_annotation)
 
@@ -334,16 +347,19 @@ def process_query(
                     # No question — each user gets their own annotation so their
                     # data_source preference is preserved. Same user re-querying
                     # gets their existing annotation back unchanged.
-                    if str(existing_doc.user_id) == str(current_user_id):
+                    own_doc = AnnotationStorageService.get_user_annotation_in_thread(
+                        fingerprint, str(current_user_id), thread_id
+                    )
+                    if own_doc:
                         return {
-                            "annotation_id": str(existing_doc.id),
+                            "annotation_id": str(own_doc.id),
                             "question": None,
-                            "answer": existing_doc.answer,  # None or a graph-level summary
+                            "answer": own_doc.answer,  # None or a graph-level summary
                         }
 
                     new_annotation_id = _create_annotation_from_existing(
                         existing_doc, current_user_id, data_source,
-                        species, requests, fingerprint, redis_client
+                        species, requests, fingerprint, redis_client, thread_id
                     )
                     return {
                         "annotation_id": str(new_annotation_id),
@@ -382,6 +398,7 @@ def process_query(
                     node_map,
                     fingerprint=fingerprint,
                     force_slow=cost.action == SLOW,
+                    thread_id=thread_id,
                 )
                 return response
 
@@ -444,6 +461,7 @@ def process_query(
             "query_fingerprint": fingerprint,
             "species": species,
             "data_source": data_source,
+            "thread_id": thread_id,
         }
 
         annotation_id = AnnotationStorageService.save(annotation)
@@ -546,6 +564,7 @@ def process_user_history(
                     "status": document["status"],
                     "species": document.get("species", "human"),
                     "source": source,
+                    "thread_id": document.get("thread_id"),
                     "created_at": document["created_at"].isoformat(),
                     "updated_at": document["updated_at"].isoformat(),
                 }
@@ -684,6 +703,7 @@ def get_annotation_by_id(
         "source": source,
         "species": species,
         "status": status,
+        "thread_id": cursor.thread_id,
     }
 
     if summary:
@@ -703,7 +723,8 @@ def get_annotation_by_id(
     if label_count_error_message: response_data["label_count_error_message"] = label_count_error_message
         
     if cursor.data_source == 'ai-assistant':
-         return {"annotation_id": str(annotation_id), "question": question, "answer": answer}
+         return {"annotation_id": str(annotation_id), "question": question, "answer": answer,
+                 "thread_id": cursor.thread_id}
 
     # Redis Cache Check
     if redis_client:
