@@ -5,6 +5,7 @@ metta_data/
 .venv
 venv
 .env
+.env.production
 public
 logs/
 Data/
