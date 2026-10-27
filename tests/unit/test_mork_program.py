@@ -81,6 +81,18 @@ def evaluate(program, facts):
             _, limit, template = sink[1]
             memory.update(sorted({substitute(template, row) for row in rows})[:int(limit)])
             continue
+        if sink[0] == 'O' and sink[1][0] == 'pure':
+            # (pure template $k (ifnz (op (f64_from_string a) (f64_from_string b)) then 1 else 0))
+            _, template, var, (_, (op, (_, left), (_, right)), _, yes, _, no) = sink[1]
+            compare = {'gte_f64': float.__ge__, 'gt_f64': float.__gt__, 'lte_f64': float.__le__,
+                       'lt_f64': float.__lt__, 'eq_f64': float.__eq__, 'ne_f64': float.__ne__}[op]
+            for row in rows:
+                try:
+                    result = compare(float(substitute(left, row)), float(substitute(right, row)))
+                except (TypeError, ValueError):
+                    continue    # not a number: MORK writes no atom
+                memory.add(substitute(template, {**row, var: yes if result else no}))
+            continue
         if sink[0] == 'O' and sink[1][0] == 'count':
             for _, template, count_var, projection in sink[1:]:
                 # Like MORK, count separately per binding of the template's

@@ -26,15 +26,25 @@ FACTS = '''
 (closest_gene (snp S1) (gene G1)) (closest_gene (snp S2) (gene G1)) (closest_gene (snp S2) (gene G2))
 (distance (closest_gene (snp S1) (gene G1)) 120)
 (coexpressed_with (gene G1) (gene G2)) (coexpressed_with (gene G2) (gene G1))
+(protein P2) (protein P3) (protein P4) (protein P5) (protein P6)
+(interacts_with (protein P1) (protein P2)) (score (interacts_with (protein P1) (protein P2)) 0.9)
+(interacts_with (protein P1) (protein P3)) (score (interacts_with (protein P1) (protein P3)) 0.4)
+(interacts_with (protein P1) (protein P4))
+(interacts_with (protein P1) (protein P5)) (score (interacts_with (protein P1) (protein P5)) 0.2)
+(score (interacts_with (protein P1) (protein P5)) 0.8)
+(interacts_with (protein P1) (protein P6)) (score (interacts_with (protein P1) (protein P6)) high)
+(evidence (interacts_with (protein P1) (protein P2)) Inferred_from_IEA)
+(evidence (interacts_with (protein P1) (protein P3)) TAS)
 '''
 
 VOCABULARY = {
     'triples': [['gene', 'coexpressed_with', 'gene'], ['gene', 'regulates', 'gene'],
                 ['gene', 'transcribes_to', 'transcript'], ['snp', 'closest_gene', 'gene'],
-                ['transcript', 'translates_to', 'protein']],
+                ['protein', 'interacts_with', 'protein'], ['transcript', 'translates_to', 'protein']],
     'node_types': ['gene', 'protein', 'snp', 'transcript'],
     'node_properties': {'gene': ['gene_name', 'gene_type', 'synonym'], 'transcript': ['transcript_name']},
-    'edge_properties': {'closest_gene': ['distance'], 'regulates': ['evidence'], 'transcribes_to': ['source']},
+    'edge_properties': {'closest_gene': ['distance'], 'interacts_with': ['evidence', 'score'],
+                        'regulates': ['evidence'], 'transcribes_to': ['source']},
 }
 
 
@@ -160,18 +170,13 @@ def test_total_node_cap(monkeypatch):
 
 def test_validation_uses_the_vocabulary_and_neo4j_messages():
     hops = [{'direction': 'out', 'edge_types': ['nope'], 'node_types': ['cell'],
-             'where': [{'property': 'score', 'op': '>=', 'value': 1}]}]
+             'where': [{'property': 'weight', 'op': '>=', 'value': 1}]}]
     errors = backend().validate({'seed': {'type': 'gen', 'id': 'x'}, 'hops': hops})
     assert errors[:4] == ["Unknown node type for human: 'gen'",
                           "hops[0]: unknown edge type for human: 'nope'",
                           "hops[0]: unknown node type for human: 'cell'",
-                          "hops[0]: unknown edge property for human: 'score'"]
+                          "hops[0]: unknown edge property for human: 'weight'"]
     assert backend().validate(request()) == []
-
-
-def test_where_and_order_by_are_refused_for_now():
-    errors = backend().validate(request(hops=[{'direction': 'both'}, {'direction': 'out', 'order_by': 'evidence'}]))
-    assert errors == ["hops[1]: not supported yet on MORK: 'where' and 'order_by'"]
 
 
 def test_incoming_edges_come_from_the_reverse_index_with_their_real_direction():
@@ -221,3 +226,85 @@ def test_cancelled_before_a_hop():
     stop = SimpleNamespace(is_set=lambda: True)
     with pytest.raises(TaskCancelledException):
         backend().expand(request(), stop_event=stop)
+
+
+def ppi(hop, per_node_limit=50):
+    return request(seed='P1', seed_type='protein', hops=[{'direction': 'out', 'limit': 500, **hop}],
+                   per_node_limit=per_node_limit)
+
+
+def targets(result):
+    return [e[2].split()[1] for e in edges_of(result)]
+
+
+@pytest.mark.parametrize('op, value, expected', [
+    ('>=', 0.8, {'P2', 'P5'}),          # P5: any of its values (0.2, 0.8)
+    ('<', 0.3, {'P5'}),
+    ('=', 0.4, {'P3'}),
+    ('!=', 0.9, {'P3', 'P5'}),          # missing (P4) and non-numeric (P6) never match
+])
+def test_numeric_where(op, value, expected):
+    result = backend().expand(ppi({'where': [{'property': 'score', 'op': op, 'value': value}]}))
+    assert set(targets(result)) == expected
+
+
+@pytest.mark.parametrize('op, value, expected', [
+    ('=', 'Inferred from IEA', {'P2'}),  # normalized like the stored values
+    ('in', ['TAS', 'IDA'], {'P3'}),
+    ('!=', 'TAS', {'P2'}),              # edges without evidence never match
+    ('not_in', ['TAS', 'Inferred_from_IEA'], set()),
+    ('=', 'x) (y', set()),               # cannot be a stored value
+])
+def test_string_where(op, value, expected):
+    result = backend().expand(ppi({'where': [{'property': 'evidence', 'op': op, 'value': value}]}))
+    assert set(targets(result)) == expected
+
+
+def test_conditions_are_combined_with_and():
+    result = backend().expand(ppi({'where': [{'property': 'score', 'op': '>=', 'value': 0.3},
+                                             {'property': 'evidence', 'op': '=', 'value': 'TAS'}]}))
+    assert targets(result) == ['P3']
+
+
+def test_order_by_ranks_with_missing_values_last_and_truncates_to_the_best():
+    desc = backend().expand(ppi({'order_by': 'score'}))
+    assert [e['data']['target'] for e in desc['edges']][:3] == ['protein P2', 'protein P5', 'protein P3']
+    assert {e['data']['target'] for e in desc['edges'][3:]} == {'protein P4', 'protein P6'}
+    assert desc['hops'][0]['ranked_by'] == 'score'
+    top = backend().expand(ppi({'order_by': 'score', 'order': 'asc', 'limit': 2}))
+    assert targets(top) == ['P5', 'P3'] and top['truncated'] is True   # P5's best ascending value is 0.2
+
+
+def test_order_by_with_where_and_per_node_limit_over_two_hops():
+    hops = [{'direction': 'out', 'limit': 500, 'edge_types': ['transcribes_to']},
+            {'direction': 'out', 'limit': 500, 'order_by': 'score'}]
+    result = backend().expand(request(max_hops=2, hops=hops, per_node_limit=1))
+    assert [h['edge_count'] for h in result['hops']] == [3, 1]
+
+
+def test_too_many_candidates_for_a_filtered_hop(monkeypatch):
+    from app.error import NeighbourhoodTooLargeError
+    monkeypatch.setattr(mod, 'NEIGHBOURHOOD_MAX_CANDIDATES', 3)
+    with pytest.raises(NeighbourhoodTooLargeError, match='more than 3 edges'):
+        backend().expand(ppi({'order_by': 'score'}))
+    assert backend().expand(ppi({}))['edge_count'] == 5   # plain hops are capped per node instead
+
+
+def test_filtered_programs_leave_no_helper_atoms():
+    nb = backend()
+    nb.expand(ppi({'where': [{'property': 'score', 'op': '>=', 'value': 0.1},
+                             {'property': 'evidence', 'op': 'not_in', 'value': ['x']}], 'order_by': 'score'}))
+    atoms = evaluate(nb.programs[0], {'human': FACTS, **reverse_spaces()})
+    assert {atom[0] for atom in atoms} <= {'seed', 'out', 'np', 'ep', 'deg', 'rank', 'candidates'}
+
+
+def test_edges_from_earlier_hops_do_not_use_up_the_per_node_limit():
+    # Hop 2 from T1 sees its edge back to G1 again (direction both). With a
+    # per-node limit of 1 that edge must not take T1's only slot.
+    hops = [{'direction': 'out', 'limit': 500, 'edge_types': ['transcribes_to']},
+            {'direction': 'both', 'limit': 500}]
+    nb = backend()
+    result = nb.expand(request(max_hops=2, hops=hops, per_node_limit=1))
+    assert ('transcript T1', 'translates_to', 'protein P1') in edges_of(result)
+    assert result['hops'][1] == {'hop': 2, 'node_count': 1, 'edge_count': 1, 'truncated': False, 'ranked_by': None}
+    assert '(head 3 (out (transcript T1)' in nb.programs[1]    # 1 + 1 + its one known edge

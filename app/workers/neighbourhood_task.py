@@ -4,7 +4,7 @@ import logging
 
 from app.api.deps import get_db_instance, get_redis_client
 from app.constants import TaskStatus, TASK_STALE_SECS
-from app.error import NeighbourhoodUnavailableError, TaskCancelledException
+from app.error import NeighbourhoodTooLargeError, NeighbourhoodUnavailableError, TaskCancelledException
 from app.events import RedisStopEvent
 from app.persistence import NeighbourhoodStorageService
 from .celery_app import celery_app, redis_state
@@ -107,7 +107,7 @@ def neighbourhood_task(job_id):
         _publish(job_id, TaskStatus.CANCELLED.value)
         _finish_state(job_id)
         return
-    except NeighbourhoodUnavailableError as e:
+    except (NeighbourhoodUnavailableError, NeighbourhoodTooLargeError) as e:
         _fail(job_id, str(e))
         return
     except Exception:

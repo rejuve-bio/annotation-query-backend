@@ -12,8 +12,11 @@ import logging
 import time
 from collections import Counter, defaultdict
 
-from app.constants import NEIGHBOURHOOD_HOP_TIMEOUT_S, NEIGHBOURHOOD_MAX_TOTAL_NODES
-from app.error import NeighbourhoodUnavailableError, TaskCancelledException
+from app.constants import (
+    NEIGHBOURHOOD_HOP_TIMEOUT_S, NEIGHBOURHOOD_MAX_CANDIDATES, NEIGHBOURHOOD_MAX_TOTAL_NODES,
+)
+from app.error import NeighbourhoodTooLargeError, NeighbourhoodUnavailableError, TaskCancelledException
+from app.lib.mork_values import normalize_mork_value
 from app.services.mork_neighbourhood_index import READY, SYMMETRIC_LABELS
 from app.services.mork_output import serialize_mork_atom
 from app.services.mork_program import MorkProgram
@@ -41,6 +44,30 @@ def _symbol(value):
     if not value or value[0] in "$;" or any(ch in "()\"' \t\r\n\\" for ch in value):
         return None
     return value
+
+
+NUMERIC_OPS = {">=": "gte_f64", ">": "gt_f64", "<=": "lte_f64", "<": "lt_f64", "=": "eq_f64", "!=": "ne_f64"}
+
+
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _number(value):
+    return repr(float(value)) if isinstance(value, float) else str(int(value))
+
+
+def _float(value):
+    if isinstance(value, tuple):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _atom(key):
+    return f"({key[0]} {key[1]})"
 
 
 def _value(values):
@@ -87,8 +114,6 @@ class MorkNeighbourhood:
             for prop in [c["property"] for c in hop.get("where") or []] + [hop.get("order_by")]:
                 if prop and prop not in property_keys:
                     errors.append(f"hops[{i}]: unknown edge property for {species}: {prop!r}")
-            if hop.get("where") or hop.get("order_by"):
-                errors.append(f"hops[{i}]: not supported yet on MORK: 'where' and 'order_by'")
         return errors
 
     def _incoming_sources(self, vocabulary, node_type, labels, neighbour_types):
@@ -110,7 +135,7 @@ class MorkNeighbourhood:
 
     # -- one hop -----------------------------------------------------------
 
-    def _hop_program(self, vocabulary, hop_filter, frontier, node_limit, seed, properties):
+    def _hop_program(self, vocabulary, hop_filter, frontier, caps, seed, properties):
         p = MorkProgram(self.space)
         act = p.act
         direction = hop_filter.get("direction", "both")
@@ -127,21 +152,27 @@ class MorkNeighbourhood:
                 p.emit([act(f"({prop} {seed_atom} $v)")], [f"(np {prop} {seed_atom} $v)"])
             self._seed_degree(p, vocabulary, seed)
 
-        # Edges per frontier node, capped inside MORK at node_limit + 1: the
-        # extra row only tells Python that more exist (truncated). Incoming
-        # edges are read target-first from the reverse index.
-        head = node_limit + 1
-        for node_type, node_id in frontier:
-            node = f"({node_type} {node_id})"
+        # Each frontier node's edges as (source, neighbour, edge) patterns.
+        # Incoming edges are read target-first from the reverse index.
+        patterns = []
+        for node_key in frontier:
+            node = _atom(node_key)
             if direction != "in":
                 for label in labels or ["$l"]:
                     for neighbour_type in neighbour_types or ["$t"]:
                         edge = f"({label} {node} ({neighbour_type} $x))"
-                        p.emit([act(edge)], sinks=[f"(head {head} (out {node} ({neighbour_type} $x) {edge}))"])
-            for source, label, space, reverse in incoming.get(node_type, []):
-                stored = f"({label} {node} ({source} $x))"
-                edge = f"({label} ({source} $x) {node})"
-                p.emit([f"(ACT {space} {stored})"], sinks=[f"(head {head} (out {node} ({source} $x) {edge}))"])
+                        patterns.append((node_key, act(edge), f"({neighbour_type} $x)", edge))
+            for source, label, space, reverse in incoming.get(node_key[0], []):
+                patterns.append((node_key, f"(ACT {space} ({label} {node} ({source} $x)))",
+                                 f"({source} $x)", f"({label} ({source} $x) {node})"))
+
+        if not (hop_filter.get("where") or hop_filter.get("order_by")):
+            # Capped inside MORK per node (see expand): the extra row only
+            # tells Python that more exist (truncated).
+            for node_key, source, neighbour, edge in patterns:
+                p.emit([source], sinks=[f"(head {caps[node_key]} (out {_atom(node_key)} {neighbour} {edge}))"])
+        else:
+            self._filtered_rows(p, hop_filter, frontier, caps, patterns)
 
         # Properties of what is returned, by name: a variable property name
         # also matches every edge of the node and is far slower.
@@ -169,6 +200,72 @@ class MorkNeighbourhood:
             for prop in self._node_props(vocabulary, neighbour_type, properties):
                 p.emit([f"(BTM ({returned_nodes} {node}))", act(f"({prop} {node} $v)")], [f"(np {prop} {node} $v)"])
         return p.finish()
+
+    def _filtered_rows(self, p, hop_filter, frontier, caps, patterns):
+        """Rows for a hop with 'where' / 'order_by'.
+
+        Every candidate edge is read (up to NEIGHBOURHOOD_MAX_CANDIDATES), the
+        conditions run in MORK, and ranked hops return all matching rows with
+        their ranking values so Python can sort them: MORK cannot sort.
+        """
+        candidates = p.head()
+        for node_key, source, neighbour, edge in patterns:
+            p.emit([source], sinks=[f"(head {NEIGHBOURHOOD_MAX_CANDIDATES + 1} "
+                                    f"({candidates} (row {_atom(node_key)} {neighbour} {edge})))"])
+        p.emit([f"(BTM ({candidates} $r))"], sinks=["(count (candidates $k) $k $r)"])
+        rows = candidates
+        conditions = hop_filter.get("where") or []
+        if conditions:
+            matched = [self._condition(p, i, condition, candidates) for i, condition in enumerate(conditions)]
+            rows = p.head()
+            p.emit([f"(BTM ({candidates} $r))"] + [f"(BTM ({m} $r))" for m in matched], [f"({rows} $r)"])
+        order_by = hop_filter.get("order_by")
+        if order_by:
+            p.emit([f"(BTM ({rows} (row $n $m $e)))"], ["(out $n $m $e)"])
+            p.emit([f"(BTM ({rows} (row $n $m $e)))", p.act(f"({order_by} $e $v)")], ["(rank $e $v)"])
+        else:
+            for node_key in frontier:
+                node = _atom(node_key)
+                p.emit([f"(BTM ({rows} (row {node} $m $e)))"], sinks=[f"(head {caps[node_key]} (out {node} $m $e))"])
+
+    def _condition(self, p, i, condition, candidates):
+        """Rows where ANY value of the property satisfies the condition.
+
+        An edge without the property never matches, also for != and not_in,
+        as on Cypher (a missing property compares as null).
+        """
+        prop, op, value = condition["property"], condition["op"], condition["value"]
+        matched = p.head()
+        source = f"(BTM ({candidates} (row $n $m $e)))"
+        row = "(row $n $m $e)"
+        numeric = op in NUMERIC_OPS and (op not in ("=", "!=") or _is_number(value))
+        if numeric:
+            # MORK has no < or > in patterns; the grounded `pure` sink computes
+            # 1 or 0 per value (non-numeric values give no atom, like toFloat).
+            tested = f"tested{i}"
+            p.emit([source, p.act(f"({prop} $e $v)")],
+                   sinks=[f"(pure ({tested} {row} $v $k) $k (ifnz ({NUMERIC_OPS[op]} (f64_from_string $v) "
+                          f"(f64_from_string {_number(value)})) then 1 else 0))"])
+            p.emit([f"(BTM ({tested} $r $v 1))"], [f"({matched} $r)"])
+            p.emit([f"(BTM ({tested} $r $v $k))"], remove=f"({tested} $r $v $k)")
+            return matched
+        symbols = []
+        for item in value if isinstance(value, list) else [value]:
+            try:
+                symbols.append(normalize_mork_value(str(item)))
+            except ValueError:
+                pass    # cannot be a stored value, so it never matches
+        if op in ("=", "in"):
+            for symbol in dict.fromkeys(symbols):
+                p.emit([source, p.act(f"({prop} $e {symbol})")], [f"({matched} {row})"])
+            return matched
+        # != / not_in: rows with a value outside the excluded set.
+        values = p.head()
+        p.emit([source, p.act(f"({prop} $e $v)")], [f"({values} (pair {row} $v))"])
+        for symbol in dict.fromkeys(symbols):
+            p.emit([f"(BTM ({values} (pair $r {symbol})))"], remove=f"({values} (pair $r {symbol}))")
+        p.emit([f"(BTM ({values} (pair $r $v)))"], [f"({matched} $r)"])
+        return matched
 
     def _seed_degree(self, p, vocabulary, seed):
         """Count sinks for the seed's edges by (edge type, neighbour type, direction)."""
@@ -227,15 +324,27 @@ class MorkNeighbourhood:
             # per_node_limit spreads a hop's budget across many frontier nodes;
             # from a single node (the seed) the hop limit alone applies.
             node_limit = per_node_limit if len(frontier) > 1 else hop_limit
-            program = self._hop_program(vocabulary, hop_filter, frontier, node_limit,
+            # A node's edges returned by earlier hops come back too but add
+            # nothing, so its cap leaves room for them: node_limit + 1 new rows.
+            known = Counter()
+            for _, source, target in edges:
+                known[source] += 1
+                known[target] += 1
+            caps = {node: node_limit + 1 + known[node] for node in frontier}
+            program = self._hop_program(vocabulary, hop_filter, frontier, caps,
                                         seed_key if hop == 1 else None, properties)
             started = time.monotonic()
             atoms = self.generator.run_program(program, NEIGHBOURHOOD_HOP_TIMEOUT_S, stop_event)
 
             rows, edge_props, found = defaultdict(list), defaultdict(lambda: defaultdict(list)), False
+            ranks, candidates = defaultdict(list), 0
             for atom in atoms:
                 if atom[0] == "out":
                     rows[atom[1]].append((atom[2], atom[3]))
+                elif atom[0] == "rank":
+                    ranks[atom[1]].append(atom[2])
+                elif atom[0] == "candidates":
+                    candidates = int(atom[1])
                 elif atom[0] == "np":
                     node_props[atom[2]][atom[1]].append(atom[3])
                 elif atom[0] == "ep":
@@ -254,12 +363,39 @@ class MorkNeighbourhood:
                                                             row["neighbour_type"], row["direction"]))
                 nodes[seed_key] = make_node(seed_key, 0)
 
-            # Same order and limits as the Cypher query: frontier order, at
-            # most node_limit rows per node, at most hop_limit edges per hop.
-            fetched = [(node, *row) for node in frontier for row in rows.get(node, [])[:node_limit + 1]]
-            fetched = fetched[:hop_limit + len(frontier) + 1]
+            if candidates > NEIGHBOURHOOD_MAX_CANDIDATES:
+                raise NeighbourhoodTooLargeError(
+                    f"Hop {hop} matches more than {NEIGHBOURHOOD_MAX_CANDIDATES} edges, too many to filter or "
+                    f"rank; narrow it with edge_types or node_types")
+
+            def new_rows(node):
+                # Edges returned by an earlier hop add nothing; leaving them
+                # out keeps them from crowding out new edges.
+                return [(node, *row) for row in rows.get(node, []) if row[1] not in edges]
+
+            # Same order and limits as the Cypher query: at most node_limit
+            # rows per node, at most hop_limit edges per hop; ranked hops keep
+            # the best rows (edges without a value last), others frontier order.
+            order_by = hop_filter.get("order_by")
+            if order_by:
+                descending = hop_filter.get("order", "desc") != "asc"
+
+                def rank_key(row):
+                    # Several values on one edge: rank by its best one.
+                    values = [v for v in (_float(x) for x in ranks.get(row[2], [])) if v is not None]
+                    if not values:
+                        return (1, 0.0)
+                    return (0, -max(values) if descending else min(values))
+
+                fetched = [row for node in frontier
+                           for row in sorted(new_rows(node), key=rank_key)[:node_limit + 1]]
+                fetched.sort(key=rank_key)
+            else:
+                fetched = [row for node in frontier for row in new_rows(node)[:node_limit + 1]]
+            hop_fetch = hop_limit + len(frontier) + 1
+            new_frontier, hop_edges, truncated = [], 0, len(fetched) > hop_fetch
+            fetched = fetched[:hop_fetch]
             per_node_seen = Counter()
-            new_frontier, hop_edges, truncated = [], 0, False
             for node, neighbour, edge in fetched:
                 per_node_seen[node] += 1
                 if per_node_seen[node] > node_limit:
@@ -285,7 +421,7 @@ class MorkNeighbourhood:
             logger.info("[neighbourhood] MORK hop %s: %s frontier nodes, %s edges, %.2f s",
                         hop, len(frontier), hop_edges, time.monotonic() - started)
             summary = {"hop": hop, "node_count": len(new_frontier), "edge_count": hop_edges,
-                       "truncated": truncated, "ranked_by": hop_filter.get("order_by")}
+                       "truncated": truncated, "ranked_by": order_by}
             result["hops"].append(summary)
             result["truncated"] = result["truncated"] or truncated
             if on_hop_complete is not None:

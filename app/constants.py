@@ -292,3 +292,6 @@ NEIGHBOURHOOD_MAX_PER_NODE_LIMIT = int(os.environ.get("NEIGHBOURHOOD_MAX_PER_NOD
 NEIGHBOURHOOD_MAX_TOTAL_NODES = int(os.environ.get("NEIGHBOURHOOD_MAX_TOTAL_NODES", "20000"))
 NEIGHBOURHOOD_HOP_TIMEOUT_S = float(os.environ.get("NEIGHBOURHOOD_HOP_TIMEOUT_S", "60"))
 NEIGHBOURHOOD_MAX_ACTIVE_JOBS_PER_USER = int(os.environ.get("NEIGHBOURHOOD_MAX_ACTIVE_JOBS_PER_USER", "3"))
+# MORK: edges a hop with 'where' / 'order_by' may consider (all of them are
+# read and filtered or ranked; plain hops stop at the per-node limit instead).
+NEIGHBOURHOOD_MAX_CANDIDATES = int(os.environ.get("NEIGHBOURHOOD_MAX_CANDIDATES", "200000"))

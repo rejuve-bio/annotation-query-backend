@@ -8,3 +8,7 @@ class TaskCancelledException(Exception):
 
 class NeighbourhoodUnavailableError(Exception):
     """The backend cannot run neighbourhood expansion yet (e.g. its index is still being built)."""
+
+
+class NeighbourhoodTooLargeError(Exception):
+    """A neighbourhood hop would read more edges than the backend allows."""
