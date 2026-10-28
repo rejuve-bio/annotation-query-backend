@@ -275,3 +275,18 @@ DEDUP_ENABLED=false docker compose up -d --no-deps annotation_service celery_wor
 ```
 
 Disabling dedup does **not** affect fingerprint storage — every new annotation is still fingerprinted and saved.
+
+## Chat threads (`thread_id`)
+
+`POST /query` takes an optional top-level `thread_id` in its JSON body: the UUIDv4 of the assistant chat thread the query was started from (Threads API v1). Anything that is not a UUIDv4 is rejected with a `400`. The `species` and `source` query parameters are unchanged.
+
+```json
+{
+  "requests": { "nodes": [ ... ], "predicates": [] },
+  "thread_id": "8d2f0c1e-4b7a-4c39-9e21-5f6a7b8c9d0e"
+}
+```
+
+The id is stored on the annotation and returned as `thread_id` (or `null`) in `GET /history` rows and `GET /annotation/{id}`. Annotations created before this field, or without it, return `null`.
+
+With dedup on, a repeated query reuses the stored results, but each thread gets its own annotation: the same user running the same query in another thread (or outside any thread) gets a new annotation with its own copy of the graph (and VCF) files, so it shows up in that thread and is unaffected if the original is later edited or re-run. Re-running an existing annotation (`requests.annotation_id`) on the default queued path updates it in place and keeps its original `thread_id`. With `source=ai-assistant` the run is saved as a new annotation, under the request's `thread_id`.

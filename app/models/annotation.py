@@ -32,6 +32,7 @@ class Annotation(Schema):
     total_duration = None
     query_fingerprint = None
     participant_user_ids = None
+    thread_id = None
     graph_error_message = None
     count_error_message = None
     label_count_error_message = None
@@ -83,6 +84,7 @@ class Annotation(Schema):
             "data_source": any,
             "files": any,
             "query_fingerprint": {"type": Types.String, "index": True},
+            "thread_id": {"type": Types.String, "index": True},
             "participant_user_ids": [
                 {
                     "type": Types.String,
