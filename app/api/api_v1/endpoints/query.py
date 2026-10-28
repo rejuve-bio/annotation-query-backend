@@ -33,6 +33,7 @@ from app.lib.query_canonical import canonicalize_graph, query_fingerprint
 from app.lib.logic import LogicValidationError, counted_nodes_and_predicates
 from app.lib.query_cost import REFUSE, SLOW, assess_query_cost, too_broad_message
 from app.lib.thread_id import parse_thread_id
+from app.lib.annotation_files import copy_graph_files
 import threading
 from app.core.config import settings
 from app.api.deps import oauth2_scheme
@@ -67,7 +68,8 @@ def _get_graph_for_annotation(existing_doc, redis_client):
 def _create_annotation_from_existing(existing_doc, current_user_id, data_source, species, requests, fingerprint, redis_client, thread_id=None):
     """
     Creates a new annotation for the current user reusing the existing doc's
-    graph data (path_url, files, counts, summary, title, query).
+    graph data (counts, summary, title, query) and its own copy of the
+    graph/VCF files.
     Copies the Redis cache under the new annotation_id.
     """
     new_annotation = {
@@ -85,13 +87,14 @@ def _create_annotation_from_existing(existing_doc, current_user_id, data_source,
         "question": existing_doc.question,
         "status": TaskStatus.COMPLETE.value,
         "query_fingerprint": fingerprint,
-        "path_url": existing_doc.path_url,
-        "files": existing_doc.files,
         "species": species,
         "data_source": data_source,
         "thread_id": thread_id,
     }
     new_annotation_id = AnnotationStorageService.save(new_annotation)
+    AnnotationStorageService.update(
+        new_annotation_id, copy_graph_files(existing_doc, new_annotation_id)
+    )
  
     # Copy Redis cache so GET /annotation/{id} resolves instantly
     existing_cache = redis_client.get(str(existing_doc.id))
@@ -257,13 +260,14 @@ def process_query(
                             "question": question,
                             "status": TaskStatus.COMPLETE.value,
                             "query_fingerprint": fingerprint,
-                            "path_url": existing_doc.path_url,
-                            "files": existing_doc.files,
                             "species": species,
                             "data_source": data_source,
                             "thread_id": thread_id,
                         }
                         new_annotation_id = AnnotationStorageService.save(new_annotation)
+                        AnnotationStorageService.update(
+                            new_annotation_id, copy_graph_files(existing_doc, new_annotation_id)
+                        )
 
                         # Reuse the existing Redis graph cache under the new annotation_id
                         # so GET /annotation/{id} resolves the graph instantly.
@@ -325,13 +329,14 @@ def process_query(
                         "question": question,
                         "status": TaskStatus.COMPLETE.value,
                         "query_fingerprint": fingerprint,
-                        "path_url": existing_doc.path_url,
-                        "files": existing_doc.files,
                         "species": species,
                         "data_source": data_source,
                         "thread_id": thread_id,
                     }
                     new_annotation_id = AnnotationStorageService.save(new_annotation)
+                    AnnotationStorageService.update(
+                        new_annotation_id, copy_graph_files(existing_doc, new_annotation_id)
+                    )
 
                     existing_cache = redis_client.get(str(existing_doc.id))
                     if existing_cache:

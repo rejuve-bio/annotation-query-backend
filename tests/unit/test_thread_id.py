@@ -58,6 +58,15 @@ class FakeAnnotations:
         self.docs.append(doc)
         return doc.id
 
+    def update(self, id_, data):
+        doc = next(d for d in self.docs if d.id == id_)
+        doc.saved.update(data)
+        for key, value in data.items():
+            setattr(doc, key, value)
+
+    def get_by_id(self, id_):
+        return next((d for d in self.docs if d.id == id_), None)
+
     def get_by_fingerprint(self, fingerprint):
         return next((d for d in self.docs if d.query_fingerprint == fingerprint
                      and d.status == TaskStatus.COMPLETE.value), None)
@@ -168,7 +177,7 @@ def test_same_query_other_thread_gets_its_own_annotation_over_the_same_results(r
     response, storage, queued = run_query(body(THREAD_B), storage)
     new = storage.docs[-1]
     assert response == {"annotation_id": new.id} and new.id != "orig"
-    assert new.thread_id == THREAD_B and new.saved["path_url"] == "/graph.json"
+    assert new.thread_id == THREAD_B and new.saved["path_url"] != "/graph.json"  # never the original's file
     assert queued == []     # reused, not recomputed
 
 
@@ -208,6 +217,56 @@ def test_question_on_a_reused_result_stores_the_thread_id(run_query, monkeypatch
         schema_manager=SimpleNamespace(schema={}))
     assert storage.docs[-1].thread_id == THREAD_B
     assert response == {"annotation_id": storage.docs[-1].id}
+
+
+def test_reused_result_gets_its_own_copy_of_the_graph_file(run_query, monkeypatch, tmp_path):
+    from app.lib import annotation_files
+    monkeypatch.setattr(annotation_files, "PUBLIC_DIR", tmp_path)
+    (tmp_path / "graph").mkdir()
+    original_file = tmp_path / "graph" / "orig.json"
+    original_file.write_text('{"nodes": [1], "edges": []}')
+    fp = fingerprint_of(run_query)
+    original = completed(fp, "u2", THREAD_A)
+    original.path_url = str(original_file)
+    response, storage, _ = run_query(body(THREAD_B), FakeAnnotations(original), user_id="u1")
+    new = storage.docs[-1]
+    assert new.path_url == str(tmp_path / "graph" / f"{new.id}.json")
+    original_file.write_text('{"nodes": [2], "edges": []}')  # original edited / re-run
+    assert json.loads(open(new.path_url).read())["nodes"] == [1]
+
+
+def test_ai_assistant_rerun_is_saved_as_a_new_annotation_in_the_requests_thread(monkeypatch):
+    original = completed("fp-old", "u1", THREAD_A)
+    storage = FakeAnnotations(original)
+    monkeypatch.setattr(endpoint, "AnnotationStorageService", storage)
+    monkeypatch.setattr(endpoint, "SharedAnnotationStorageService", SimpleNamespace(get=lambda query: None))
+    monkeypatch.setattr(endpoint, "UserStorageService", SimpleNamespace(get=lambda _id: None))
+    monkeypatch.setattr(endpoint, "validate_request", lambda requests, schema, source: {"n1": {}})
+    monkeypatch.setattr(endpoint, "assess_query_cost", lambda *a: SimpleNamespace(action=RUN))
+    monkeypatch.setattr(endpoint, "Graph", lambda: SimpleNamespace(
+        group_node_only=lambda graph, requests: graph, group_graph=lambda graph: graph))
+
+    class SyncBackend(FakeBackend):
+        def run_query(self, query, species=None):
+            return [{}]
+
+        def parse_and_serialize(self, result, schema, components, result_type):
+            if result_type == "graph":
+                return {"nodes": [], "edges": []}
+            return {"node_count": 0, "edge_count": 0, "node_count_by_label": [], "edge_count_by_label": []}
+
+    monkeypatch.setattr(endpoint, "get_db_instance", lambda species: SyncBackend())
+    data = body(THREAD_B)
+    data["requests"]["annotation_id"] = original.id
+    response = endpoint.process_query(
+        data=data, limit=None, properties=None, source="ai-assistant", current_user_id="u1", db_instance=None,
+        llm=SimpleNamespace(generate_title=lambda *a: "APOE", generate_summary=lambda *a: "s"),
+        redis_client=FakeRedis(), schema_manager=SimpleNamespace(
+            schema={}, full_schema_representation={}))
+    new = storage.docs[-1]
+    assert response["annotation_id"] == new.id != original.id
+    assert new.thread_id == THREAD_B
+    assert original.thread_id == THREAD_A
 
 
 # --- reads ----------------------------------------------------------------------
