@@ -451,11 +451,19 @@ def process_query(
         )
 
         title = llm.generate_title(result_query, requests, node_map)
+        # The summarizer needs the counts alongside nodes/edges (as summary_task gives it).
+        result_graph_for_llm = {
+            **result_graph,
+            "node_count": meta_data["node_count"],
+            "edge_count": meta_data["edge_count"],
+            "node_count_by_label": meta_data["node_count_by_label"],
+            "edge_count_by_label": meta_data["edge_count_by_label"],
+        }
         summary = (
-            llm.generate_summary(result_graph, requests)
+            llm.generate_summary(result_graph_for_llm, requests)
             or "Graph too big, could not summarize"
         )
-        answer = llm.generate_summary(result_graph, requests, question, False, summary)
+        answer = llm.generate_summary(result_graph_for_llm, requests, question, False, summary)
 
         graph = Graph()
         if len(result_graph["edges"]) == 0:
