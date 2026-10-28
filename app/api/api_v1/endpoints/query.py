@@ -65,6 +65,20 @@ def _get_graph_for_annotation(existing_doc, redis_client):
  
     return {"nodes": [], "edges": []}
 
+def _graph_rebuild_in_progress(annotation_id):
+    """
+    True while a run (or re-run) is still rebuilding this annotation's graph:
+    init_request_state set graph_done to 0 and graph_task hasn't set it to 1.
+    A missing state hash means nothing is known to be running.
+    """
+    try:
+        done = redis_state.hget(f"annotation:{annotation_id}", "graph_done")
+    except Exception:
+        return False
+    if isinstance(done, bytes):
+        done = done.decode("utf-8")
+    return done is not None and str(done) == "0"
+
 def _create_annotation_from_existing(existing_doc, current_user_id, data_source, species, requests, fingerprint, redis_client, thread_id=None):
     """
     Creates a new annotation for the current user reusing the existing doc's
@@ -761,13 +775,17 @@ def get_annotation_by_id(
             #   1. node_count must be set — total_count_task populates this,
             #      confirming the chord header tasks (not just graph_task) finished.
             #   2. Graph file must exist on disk.
+            #   3. graph_task must not still be running. A re-run keeps the old
+            #      graph file and counts, so without this a GET straight after a
+            #      re-run (once the Redis cache has expired) would mark it
+            #      COMPLETE and serve the old graph.
             # The DB update uses complete_if_pending (conditional $set) so
             # concurrent GET requests don't race to overwrite each other.
             default_path = f"/app/public/graph/{id}.json"
             resolved_path = file_path if (file_path and os.path.exists(file_path)) else (
                 default_path if os.path.exists(default_path) else None
             )
-            if resolved_path and node_count is not None:
+            if resolved_path and node_count is not None and not _graph_rebuild_in_progress(annotation_id):
                 AnnotationStorageService.complete_if_pending(
                     annotation_id,
                     {"status": TaskStatus.COMPLETE.value, "path_url": resolved_path},
