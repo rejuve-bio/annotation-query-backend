@@ -24,7 +24,10 @@ class AnnotationStorageService():
             species=annotation.get('species', 'human'),
             data_source=annotation.get('data_source', 'all'),
             query_fingerprint=annotation.get('query_fingerprint', None),
-            participant_user_ids=annotation.get('participant_user_ids', [])
+            participant_user_ids=annotation.get('participant_user_ids', []),
+            thread_id=annotation.get('thread_id', None),
+            path_url=annotation.get('path_url', None),
+            files=annotation.get('files', None)
         )
 
         id = data.save()
@@ -70,6 +73,16 @@ class AnnotationStorageService():
     @staticmethod
     def get_by_fingerprint(fingerprint):
         data = Annotation.find({"query_fingerprint": fingerprint, "status": "COMPLETE"}, one=True)
+        return data
+
+    @staticmethod
+    def get_user_annotation_in_thread(fingerprint, user_id, thread_id):
+        """The user's own completed annotation for this query in this thread.
+
+        A thread_id of None matches annotations made outside any thread.
+        """
+        data = Annotation.find({"query_fingerprint": fingerprint, "status": "COMPLETE",
+                                "user_id": user_id, "thread_id": thread_id}, one=True)
         return data
 
     @staticmethod

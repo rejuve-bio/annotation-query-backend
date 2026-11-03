@@ -32,6 +32,8 @@ from app.lib.email import send_email
 from app.lib.query_canonical import canonicalize_graph, query_fingerprint
 from app.lib.logic import LogicValidationError, counted_nodes_and_predicates
 from app.lib.query_cost import REFUSE, SLOW, assess_query_cost, too_broad_message
+from app.lib.thread_id import parse_thread_id
+from app.lib.annotation_files import copy_graph_files
 import threading
 from app.core.config import settings
 from app.api.deps import oauth2_scheme
@@ -63,10 +65,25 @@ def _get_graph_for_annotation(existing_doc, redis_client):
  
     return {"nodes": [], "edges": []}
 
-def _create_annotation_from_existing(existing_doc, current_user_id, data_source, species, requests, fingerprint, redis_client):
+def _graph_rebuild_in_progress(annotation_id):
+    """
+    True while a run (or re-run) is still rebuilding this annotation's graph:
+    init_request_state set graph_done to 0 and graph_task hasn't set it to 1.
+    A missing state hash means nothing is known to be running.
+    """
+    try:
+        done = redis_state.hget(f"annotation:{annotation_id}", "graph_done")
+    except Exception:
+        return False
+    if isinstance(done, bytes):
+        done = done.decode("utf-8")
+    return done is not None and str(done) == "0"
+
+def _create_annotation_from_existing(existing_doc, current_user_id, data_source, species, requests, fingerprint, redis_client, thread_id=None):
     """
     Creates a new annotation for the current user reusing the existing doc's
-    graph data (path_url, files, counts, summary, title, query).
+    graph data (counts, summary, title, query) and its own copy of the
+    graph/VCF files.
     Copies the Redis cache under the new annotation_id.
     """
     new_annotation = {
@@ -84,12 +101,14 @@ def _create_annotation_from_existing(existing_doc, current_user_id, data_source,
         "question": existing_doc.question,
         "status": TaskStatus.COMPLETE.value,
         "query_fingerprint": fingerprint,
-        "path_url": existing_doc.path_url,
-        "files": existing_doc.files,
         "species": species,
         "data_source": data_source,
+        "thread_id": thread_id,
     }
     new_annotation_id = AnnotationStorageService.save(new_annotation)
+    AnnotationStorageService.update(
+        new_annotation_id, copy_graph_files(existing_doc, new_annotation_id)
+    )
  
     # Copy Redis cache so GET /annotation/{id} resolves instantly
     existing_cache = redis_client.get(str(existing_doc.id))
@@ -113,6 +132,10 @@ def process_query(
 ):
     if "requests" not in data:
         raise HTTPException(status_code=400, detail="Missing requests data")
+    try:
+        thread_id = parse_thread_id(data.get("thread_id"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Handling boolean query param manually or via Pydantic if defined properly
     prop_bool = True
@@ -251,12 +274,14 @@ def process_query(
                             "question": question,
                             "status": TaskStatus.COMPLETE.value,
                             "query_fingerprint": fingerprint,
-                            "path_url": existing_doc.path_url,
-                            "files": existing_doc.files,
                             "species": species,
                             "data_source": data_source,
+                            "thread_id": thread_id,
                         }
                         new_annotation_id = AnnotationStorageService.save(new_annotation)
+                        AnnotationStorageService.update(
+                            new_annotation_id, copy_graph_files(existing_doc, new_annotation_id)
+                        )
 
                         # Reuse the existing Redis graph cache under the new annotation_id
                         # so GET /annotation/{id} resolves the graph instantly.
@@ -270,12 +295,17 @@ def process_query(
                         # No question — each user gets their own annotation so their
                         # data_source preference is preserved. Same user re-querying
                         # gets their existing annotation back unchanged.
-                        if str(existing_doc.user_id) == str(current_user_id):
-                            return {"annotation_id": str(existing_doc.id)}
+                        # Per thread too: the same query in another thread
+                        # gets its own annotation over the same results.
+                        own_doc = AnnotationStorageService.get_user_annotation_in_thread(
+                            fingerprint, str(current_user_id), thread_id
+                        )
+                        if own_doc:
+                            return {"annotation_id": str(own_doc.id)}
 
                         new_annotation_id = _create_annotation_from_existing(
                             existing_doc, current_user_id, data_source,
-                            species, requests, fingerprint, redis_client
+                            species, requests, fingerprint, redis_client, thread_id
                         )
                         return {"annotation_id": str(new_annotation_id)}
 
@@ -313,12 +343,14 @@ def process_query(
                         "question": question,
                         "status": TaskStatus.COMPLETE.value,
                         "query_fingerprint": fingerprint,
-                        "path_url": existing_doc.path_url,
-                        "files": existing_doc.files,
                         "species": species,
                         "data_source": data_source,
+                        "thread_id": thread_id,
                     }
                     new_annotation_id = AnnotationStorageService.save(new_annotation)
+                    AnnotationStorageService.update(
+                        new_annotation_id, copy_graph_files(existing_doc, new_annotation_id)
+                    )
 
                     existing_cache = redis_client.get(str(existing_doc.id))
                     if existing_cache:
@@ -334,16 +366,19 @@ def process_query(
                     # No question — each user gets their own annotation so their
                     # data_source preference is preserved. Same user re-querying
                     # gets their existing annotation back unchanged.
-                    if str(existing_doc.user_id) == str(current_user_id):
+                    own_doc = AnnotationStorageService.get_user_annotation_in_thread(
+                        fingerprint, str(current_user_id), thread_id
+                    )
+                    if own_doc:
                         return {
-                            "annotation_id": str(existing_doc.id),
+                            "annotation_id": str(own_doc.id),
                             "question": None,
-                            "answer": existing_doc.answer,  # None or a graph-level summary
+                            "answer": own_doc.answer,  # None or a graph-level summary
                         }
 
                     new_annotation_id = _create_annotation_from_existing(
                         existing_doc, current_user_id, data_source,
-                        species, requests, fingerprint, redis_client
+                        species, requests, fingerprint, redis_client, thread_id
                     )
                     return {
                         "annotation_id": str(new_annotation_id),
@@ -382,6 +417,7 @@ def process_query(
                     node_map,
                     fingerprint=fingerprint,
                     force_slow=cost.action == SLOW,
+                    thread_id=thread_id,
                 )
                 return response
 
@@ -415,11 +451,19 @@ def process_query(
         )
 
         title = llm.generate_title(result_query, requests, node_map)
+        # The summarizer needs the counts alongside nodes/edges (as summary_task gives it).
+        result_graph_for_llm = {
+            **result_graph,
+            "node_count": meta_data["node_count"],
+            "edge_count": meta_data["edge_count"],
+            "node_count_by_label": meta_data["node_count_by_label"],
+            "edge_count_by_label": meta_data["edge_count_by_label"],
+        }
         summary = (
-            llm.generate_summary(result_graph, requests)
+            llm.generate_summary(result_graph_for_llm, requests)
             or "Graph too big, could not summarize"
         )
-        answer = llm.generate_summary(result_graph, requests, question, False, summary)
+        answer = llm.generate_summary(result_graph_for_llm, requests, question, False, summary)
 
         graph = Graph()
         if len(result_graph["edges"]) == 0:
@@ -444,6 +488,7 @@ def process_query(
             "query_fingerprint": fingerprint,
             "species": species,
             "data_source": data_source,
+            "thread_id": thread_id,
         }
 
         annotation_id = AnnotationStorageService.save(annotation)
@@ -546,6 +591,7 @@ def process_user_history(
                     "status": document["status"],
                     "species": document.get("species", "human"),
                     "source": source,
+                    "thread_id": document.get("thread_id"),
                     "created_at": document["created_at"].isoformat(),
                     "updated_at": document["updated_at"].isoformat(),
                 }
@@ -684,6 +730,7 @@ def get_annotation_by_id(
         "source": source,
         "species": species,
         "status": status,
+        "thread_id": cursor.thread_id,
     }
 
     if summary:
@@ -703,7 +750,8 @@ def get_annotation_by_id(
     if label_count_error_message: response_data["label_count_error_message"] = label_count_error_message
         
     if cursor.data_source == 'ai-assistant':
-         return {"annotation_id": str(annotation_id), "question": question, "answer": answer}
+         return {"annotation_id": str(annotation_id), "question": question, "answer": answer,
+                 "thread_id": cursor.thread_id}
 
     # Redis Cache Check
     if redis_client:
@@ -735,13 +783,17 @@ def get_annotation_by_id(
             #   1. node_count must be set — total_count_task populates this,
             #      confirming the chord header tasks (not just graph_task) finished.
             #   2. Graph file must exist on disk.
+            #   3. graph_task must not still be running. A re-run keeps the old
+            #      graph file and counts, so without this a GET straight after a
+            #      re-run (once the Redis cache has expired) would mark it
+            #      COMPLETE and serve the old graph.
             # The DB update uses complete_if_pending (conditional $set) so
             # concurrent GET requests don't race to overwrite each other.
             default_path = f"/app/public/graph/{id}.json"
             resolved_path = file_path if (file_path and os.path.exists(file_path)) else (
                 default_path if os.path.exists(default_path) else None
             )
-            if resolved_path and node_count is not None:
+            if resolved_path and node_count is not None and not _graph_rebuild_in_progress(annotation_id):
                 AnnotationStorageService.complete_if_pending(
                     annotation_id,
                     {"status": TaskStatus.COMPLETE.value, "path_url": resolved_path},
