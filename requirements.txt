@@ -17,7 +17,7 @@ tiktoken==0.14.0
 httpx==0.28.1
 networkx==3.4.2
 nanoid==2.0.0
-elasticsearch==9.5.0
+elasticsearch==9.5.1
 axiom-py==0.15.0
 sentry-sdk==2.68.1
 APScheduler==3.11.3
