@@ -2,7 +2,7 @@ import logging
 from fastapi import HTTPException
 from socketio.exceptions import ConnectionRefusedError
 from app.api.annotation_id import validate_annotation_id
-from app.api.auth import authenticate_socket
+from app.api.auth import get_current_user
 from app.socketio.server import sio
 from app.workers.task_handler import get_annotation_redis
 from app.persistence import AnnotationStorageService, NeighbourhoodStorageService
@@ -16,7 +16,7 @@ _authenticated_users = {}
 async def connect(sid, environ, auth=None):
     token = (auth or {}).get('token') if isinstance(auth, dict) else None
     try:
-        user_id = authenticate_socket(token)
+        user_id = get_current_user(token)
     except HTTPException:
         logger.warning("Rejected unauthenticated annotation socket")
         raise ConnectionRefusedError("Authentication required") from None

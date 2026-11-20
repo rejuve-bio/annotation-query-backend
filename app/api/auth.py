@@ -1,7 +1,4 @@
-import hashlib
-import hmac
 import os
-from datetime import datetime, timedelta, timezone
 
 import httpx
 import jwt
@@ -11,7 +8,6 @@ from fastapi.security import OAuth2PasswordBearer
 from app.core.config import settings
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
-_SOCKET_AUDIENCE = "annotation-socket"
 
 
 def unauthorized(detail="Invalid access token"):
@@ -21,7 +17,7 @@ def unauthorized(detail="Invalid access token"):
 
 
 def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
-    if not token:
+    if not isinstance(token, str) or not token:
         raise unauthorized("Access token required")
     if not settings.JWT_SECRET:
         raise HTTPException(status_code=503, detail="Authentication unavailable")
@@ -43,37 +39,6 @@ def get_share_signing_key():
     if not secret or secret == settings.JWT_SECRET:
         raise HTTPException(status_code=503, detail="Sharing unavailable")
     return secret
-
-
-def _socket_signing_key():
-    if not settings.JWT_SECRET:
-        raise HTTPException(status_code=503, detail="Authentication unavailable")
-    return hmac.digest(settings.JWT_SECRET.encode(), _SOCKET_AUDIENCE.encode(), hashlib.sha256)
-
-
-def issue_socket_ticket(user_id):
-    return jwt.encode(
-        {
-            "sub": user_id,
-            "aud": _SOCKET_AUDIENCE,
-            "exp": datetime.now(timezone.utc) + timedelta(seconds=60),
-        },
-        _socket_signing_key(),
-        algorithm="HS256",
-    )
-
-
-def authenticate_socket(token):
-    if not isinstance(token, str) or not token:
-        raise unauthorized()
-    try:
-        claims = jwt.decode(
-            token, _socket_signing_key(), algorithms=["HS256"], audience=_SOCKET_AUDIENCE,
-            options={"require": ["exp", "sub"]},
-        )
-    except jwt.InvalidTokenError:
-        return get_current_user(token)
-    return claims["sub"]
 
 
 def check_auth_service(token, path):

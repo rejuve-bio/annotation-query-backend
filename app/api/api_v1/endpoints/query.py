@@ -549,12 +549,12 @@ def process_email_query(
             headers={"Retry-After": "60"},
         )
 
-    link = f"{settings.ANNOTATION_UI_URL.rstrip('/')}/annotation/{id}/export"
+    link = f"{settings.ANNOTATION_UI_URL.rstrip('/')}/annotation/{id}"
     background_tasks.add_task(
         send_email,
-        "Annotation export",
+        "Annotation results",
         [verified_email],
-        f"Sign in to download your annotation export: {link}",
+        f"Sign in to view your annotation: {link}",
     )
     return {"message": "Email queued"}
 

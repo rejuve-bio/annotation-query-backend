@@ -301,20 +301,20 @@ With dedup on, a repeated query reuses the stored results, but each thread gets 
 - Keep `API_DOCS_ENABLED=false` on public deployments. The example developer
   environment enables Swagger, ReDoc, and the OpenAPI schema.
 - Set `ANNOTATION_UI_URL` to the HTTPS Platform UI base URL and configure SMTP
-  for email delivery. Email links to an authenticated full spreadsheet export
-  through Platform UI. Only the verified account
-  address can receive the link, once a minute per user. Use SSL or STARTTLS for
-  authenticated SMTP.
+  for email delivery. The email links to the existing annotation page and
+  goes only to the verified account address, once a minute per user. Full
+  spreadsheets are available through the authenticated Annotation Service
+  endpoint `GET /annotation/{id}/download-full`. Use SSL or STARTTLS for SMTP
+  authentication.
 - Include `deploy/nginx/annotation-http.conf` in the Nginx `http` context and
   `deploy/nginx/annotation-security.conf` in the annotation HTTPS vhost.
   Verify HSTS on proxied success and error responses. On Nginx releases where
   location-level `add_header` replaces inherited headers, repeat the HSTS
   directive in each affected location. Verify that no alias exposes generated
   annotation files and that upstream access logs omit query strings.
-- Upgrade the Platform UI after the backend adds `POST /socket-ticket`.
-  The browser requests a short-lived Socket.IO ticket through the signed-in UI
-  session. Share links continue to work for authorized recipients. Public
-  links are read-only, and editing rights apply to named private recipients.
+- Socket.IO accepts the access token in its `auth.token` handshake payload.
+  Public share links are read-only, and editing rights apply to named
+  private recipients.
 - The Compose Meilisearch version defaults to `v1.53.1`, matching the known
   development database version. Before touching an existing volume, take a
   backup and check the stored database version against the selected image.
