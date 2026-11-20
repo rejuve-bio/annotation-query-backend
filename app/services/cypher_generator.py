@@ -1,5 +1,6 @@
 from typing import List, Optional
 import logging
+from neo4j import Query as Neo4jQuery
 from dotenv import load_dotenv
 from app.services.query_generator_interface import QueryGeneratorInterface
 import glob
@@ -43,6 +44,7 @@ _TIMEOUT_CONFIG = QueryTimeoutConfig(
         QueryType.LIST: None,   # indefinite
         QueryType.LOAD:      None,   # indefinite
         QueryType.SCHEMA:    None,   # indefinite
+        QueryType.MAINTENANCE: 150.0,
     },
     fallback_results={},
     warn_threshold_s=None,           # set e.g. to 10.0 to log slow queries
@@ -114,6 +116,8 @@ class CypherQueryGenerator(QueryGeneratorInterface):
 
     def run_query(self, query_code, stop_event=None, species="human", query_type: QueryType = QueryType.DEFAULT,
                   parameters=None):
+        if query_type == QueryType.MAINTENANCE:
+            query_code = Neo4jQuery(query_code, timeout=120.0)
         if species != "human":
             if self.fly_driver is None:
                 raise RuntimeError("Fly Neo4j driver is not configured. Set FLY_NEO4J_URI.")
@@ -1832,11 +1836,7 @@ class CypherQueryGenerator(QueryGeneratorInterface):
         inherited automatically.
         """
         query = self.get_index_query(label, name_prop)
-        try:
-            records = self.run_query(query, species=species)
-        except Exception as e:
-            logger.error(f"[Error] fetch_nodes_for_index failed [{label}/{species}]: {e}")
-            return []
+        records = self.run_query(query, species=species, query_type=QueryType.MAINTENANCE)
 
         docs = []
         for record in records:

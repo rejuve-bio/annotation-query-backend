@@ -1,104 +1,111 @@
+import datetime
+import json
 import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
-from fastapi.responses import JSONResponse
-import datetime
 
-from app.api.deps import get_current_user, get_meili_client, get_db_instance
-from app.services.search_service import (
-    fetch_and_index,
-    index_is_populated,
-    search_entities,
-)
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
+from meilisearch.errors import MeilisearchError, MeilisearchTimeoutError
+from redis.exceptions import RedisError
+
+from app.api.auth import require_reindex_permission
+from app.api.deps import get_current_user, get_db_instance, get_meili_client, get_redis_client
+from app.services.search_service import LABEL_NAME_PROPERTY, fetch_and_index, index_is_populated, search_entities
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# track background indexing state in memory
-_indexing_state = {
-    "in_progress": False,
-    "last_run": None,
-    "last_result": None,
-}
+_INDEX_LOCK = "annotation:search:index:lock"
+_INDEX_RESULT = "annotation:search:index:last"
+_INDEX_LEASE_SECONDS = 3600
 
 
-def _run_indexing(neo4j_generator, meili_client):
-    """Called in a background task."""
-    global _indexing_state
-    _indexing_state["in_progress"] = True
+def _release_index_lock(lock):
     try:
-        result = fetch_and_index(neo4j_generator, meili_client)
-        _indexing_state["last_result"] = result
-        _indexing_state["last_run"] = datetime.datetime.utcnow().isoformat()
-        logger.info(f"[]Indexing complete: {result['total_indexed']} docs")
-    except Exception as e:
-        logger.error(f"[Error] Indexing failed: {e}")
-        _indexing_state["last_result"] = {"error": str(e)}
+        lock.release()
+    except RedisError:
+        logger.exception("Could not release the search indexing lock")
+
+
+def _run_indexing(db_instance, meili_client, redis_client, lock):
+    release_lease = True
+    try:
+        result = fetch_and_index(db_instance, meili_client, renew_lease=lock.reacquire)
+        summary = {
+            "total_indexed": result["total_indexed"],
+            "error_count": len(result["errors"]),
+        }
+    except MeilisearchTimeoutError:
+        # Meilisearch may still be processing the submitted task. Leave the
+        # lease in place until it expires so a new job cannot overlap it.
+        release_lease = False
+        logger.exception("Timed out waiting for a search indexing task")
+        summary = {"error": "Indexing task timed out"}
+    except Exception:
+        logger.exception("Search indexing failed")
+        summary = {"error": "Indexing failed"}
+
+    try:
+        lock.reacquire()
+        redis_client.set(_INDEX_RESULT, json.dumps({
+            "last_run": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "last_result": summary,
+        }))
+    except RedisError:
+        logger.exception("Could not record the search indexing result")
     finally:
-        _indexing_state["in_progress"] = False
+        if release_lease:
+            _release_index_lock(lock)
 
 
-@router.post("/index")
+@router.post("/index", dependencies=[Depends(require_reindex_permission)])
 def trigger_indexing(
     background_tasks: BackgroundTasks,
-    force: bool = Query(
-        default=False,
-        description="Set to true to re-index even if index already has data",
-    ),
+    force: bool = Query(default=False, description="Re-index even if the index has data"),
+    current_user_id: str = Depends(get_current_user),
     meili_client=Depends(get_meili_client),
     db_instance=Depends(get_db_instance),
+    redis_client=Depends(get_redis_client),
 ):
-    """
-    Trigger Meilisearch indexing from Neo4j.
-
-    - Skips automatically if the index is already populated (unless force=true).
-    - Runs in the background so the request returns immediately.
-    - Only one indexing job runs at a time.
-    """
     if not hasattr(db_instance, "fetch_nodes_for_index"):
-        raise HTTPException(
-            status_code=500,
-            detail="Indexing requires the Neo4j/Cypher database backend.",
-        )
+        raise HTTPException(status_code=503, detail="Indexing requires the Neo4j backend")
 
-    if _indexing_state["in_progress"]:
-        return JSONResponse(
-            status_code=202,
-            content={
-                "status": "in_progress",
-                "message": "Indexing is already running.",
-            },
-        )
+    lock = redis_client.lock(_INDEX_LOCK, timeout=_INDEX_LEASE_SECONDS, thread_local=False)
+    try:
+        if not lock.acquire(blocking=False):
+            return JSONResponse(status_code=202, content={"status": "in_progress"})
+    except RedisError:
+        raise HTTPException(status_code=503, detail="Indexing unavailable") from None
 
-    if not force and index_is_populated(meili_client):
-        return JSONResponse(
-            status_code=200,
-            content={
+    queued = False
+    try:
+        if not force and index_is_populated(meili_client):
+            result = redis_client.get(_INDEX_RESULT)
+            return {
                 "status": "skipped",
-                "message": "Index already populated. Use ?force=true to re-index.",
-                "last_run": _indexing_state["last_run"],
-            },
-        )
+                "last_run": json.loads(result)["last_run"] if result else None,
+            }
+        background_tasks.add_task(_run_indexing, db_instance, meili_client, redis_client, lock)
+        queued = True
+    except (MeilisearchError, RedisError):
+        raise HTTPException(status_code=503, detail="Indexing unavailable") from None
+    finally:
+        if not queued:
+            _release_index_lock(lock)
 
-    background_tasks.add_task(_run_indexing, db_instance, meili_client)
-
-    return JSONResponse(
-        status_code=202,
-        content={
-            "status": "started",
-            "message": "Indexing started in the background.",
-        },
-    )
+    logger.info("Search re-index requested by administrator %s", current_user_id)
+    return JSONResponse(status_code=202, content={"status": "started"})
 
 
-@router.get("/index/status")
-def indexing_status():
-    """Return the current state of the indexing job."""
-    return {
-        "in_progress": _indexing_state["in_progress"],
-        "last_run": _indexing_state["last_run"],
-        "last_result": _indexing_state["last_result"],
-    }
+@router.get("/index/status", dependencies=[Depends(require_reindex_permission)])
+def indexing_status(redis_client=Depends(get_redis_client)):
+    try:
+        in_progress = bool(redis_client.exists(_INDEX_LOCK))
+        result = redis_client.get(_INDEX_RESULT)
+    except RedisError:
+        raise HTTPException(status_code=503, detail="Index status unavailable") from None
+    status = json.loads(result) if result else {"last_run": None, "last_result": None}
+    return {"in_progress": in_progress, **status}
 
 
 @router.get("")
@@ -127,6 +134,9 @@ def search(
             status_code=400,
             detail="species must be 'human' or 'fly'",
         )
+
+    if label and label not in LABEL_NAME_PROPERTY:
+        raise HTTPException(status_code=400, detail="Unknown search label")
 
     try:
         results = search_entities(

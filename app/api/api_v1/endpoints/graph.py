@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from typing import List, Optional, Dict, Any
 import json
 import logging
-from app.api.deps import get_current_user, get_schema_manager
+from app.api.deps import get_current_user, get_redis_client, get_schema_manager
 from app.services.schema_data import SchemaManager
 from app.persistence import UserStorageService
 from app.constants import Species, form_fields
@@ -13,7 +13,10 @@ from nanoid import generate
 from app.api.deps import get_db_instance, get_schema_manager
 from app.lib import Graph
 from app.persistence import AnnotationStorageService
-from app.lib.utils import convert_to_tsv
+from app.lib.db_resilience import QueryType
+from app.lib.utils import convert_to_excel, convert_to_tsv
+from redis.exceptions import RedisError
+from app.api.annotation_id import AnnotationID, validate_annotation_id
 import datetime
 
 logger = logging.getLogger(__name__)
@@ -259,6 +262,7 @@ def get_preference_option(
 def get_schema_by_data_source(
     species: str = 'human',
     data_source: List[str] = Query(default=[]),
+    current_user_id: str = Depends(get_current_user),
     schema_manager: SchemaManager = Depends(get_schema_manager)
 ):
     
@@ -418,19 +422,72 @@ def get_saved_preferences(current_user_id: str = Depends(get_current_user)):
             }
         )
 
-@router.get('/annotation/{id}/download-tsv')
-async def download_tsv(id: str, current_user_id: str = Depends(get_current_user)):
-    # Fetch annotation metadata
+def get_downloadable_annotation(id, current_user_id):
     cursor = AnnotationStorageService.get_by_id(id)
-
-    if cursor is None:
+    if cursor is None or (
+        str(cursor.user_id) != current_user_id
+        and current_user_id not in (cursor.participant_user_ids or [])
+    ):
         raise HTTPException(status_code=404, detail="Annotation not found")
+    return cursor
 
-    owner_id = cursor.user_id
-    participants = cursor.participant_user_ids or []
 
-    if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
-        raise HTTPException(status_code=404, detail="Annotation not found")
+@router.get('/annotation/{id}/download-full')
+def download_full_annotation(
+    id: AnnotationID,
+    current_user_id: str = Depends(get_current_user),
+    schema_manager=Depends(get_schema_manager),
+    redis_client=Depends(get_redis_client),
+):
+    annotation = get_downloadable_annotation(id, current_user_id)
+    if not annotation.query or not annotation.request:
+        raise HTTPException(status_code=409, detail="The annotation has no exportable query")
+
+    try:
+        allowed = redis_client.set(
+            f"annotation:full-export:cooldown:{current_user_id}", "1", nx=True, ex=60
+        )
+    except RedisError:
+        raise HTTPException(status_code=503, detail="Export unavailable") from None
+    if not allowed:
+        raise HTTPException(
+            status_code=429, detail="Please wait before exporting again",
+            headers={"Retry-After": "60"},
+        )
+
+    species = annotation.species or "human"
+    try:
+        db = get_db_instance(species)
+        options = {"species": species}
+        if hasattr(db, "fetch_nodes_for_index"):
+            options["query_type"] = QueryType.MAINTENANCE
+        result = db.run_query(annotation.query, **options)
+        graph = db.parse_and_serialize(
+            result,
+            schema_manager.schema.get(species, {}),
+            {
+                "nodes": annotation.request.get("nodes", []),
+                "predicates": annotation.request.get("predicates", []),
+                "properties": True,
+            },
+            result_type="graph",
+        )
+        workbook = convert_to_excel(graph)
+    except Exception:
+        logger.exception("Could not generate annotation export")
+        raise HTTPException(status_code=503, detail="Export unavailable") from None
+    if workbook is None:
+        raise HTTPException(status_code=503, detail="Export unavailable")
+    return StreamingResponse(
+        iter(lambda: workbook.read(65536), b""),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="annotation.xlsx"'},
+    )
+
+
+@router.get('/annotation/{id}/download-tsv')
+async def download_tsv(id: AnnotationID, current_user_id: str = Depends(get_current_user)):
+    cursor = get_downloadable_annotation(id, current_user_id)
 
     file_path = cursor.path_url
     
@@ -502,22 +559,23 @@ def download_vcf_file(filename: str, current_user_id: str = Depends(get_current_
     # Files are named "<annotation_id>.vcf.gz"/".vcf.gz.tbi" — enforce the
     # same ownership/participant check used for every other per-annotation
     # download endpoint before serving the file.
-    annotation_id = safe_filename.split('.vcf.gz')[0]
+    suffix = '.vcf.gz.tbi' if safe_filename.endswith('.vcf.gz.tbi') else '.vcf.gz'
+    annotation_id = validate_annotation_id(safe_filename.removesuffix(suffix))
     annotation = AnnotationStorageService.get_by_id(annotation_id)
-    if annotation is not None:
-        owner_id = annotation.user_id
-        participants = annotation.participant_user_ids or []
-        if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
-            raise HTTPException(status_code=404, detail="VCF file not found")
+    if annotation is None or (
+        str(annotation.user_id) != current_user_id
+        and current_user_id not in (annotation.participant_user_ids or [])
+    ):
+        raise HTTPException(status_code=404, detail="VCF file not found")
 
     # Resolve the full path and verify it stays within the allowed directory
     base_dir = Path("/app/public/vcf").resolve()
     file_path = (base_dir / safe_filename).resolve()
     
-    if not str(file_path).startswith(str(base_dir)):
+    if not file_path.is_relative_to(base_dir):
         raise HTTPException(status_code=400, detail="Invalid file path")
     
-    if not file_path.exists():
+    if not file_path.is_file():
         raise HTTPException(status_code=404, detail="VCF file not found")
     
     return FileResponse(

@@ -1,6 +1,7 @@
 import logging
 import meilisearch
-import os
+from meilisearch.errors import MeilisearchApiError, MeilisearchTimeoutError
+from redis.exceptions import RedisError
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -79,20 +80,22 @@ INDEX_NAME = "kg_entities"
 BATCH_SIZE = 5000
 
 
-def get_meili_client() -> meilisearch.Client:
-    url = os.getenv("MEILI_URL", "http://meilisearch:7700")
-    key = os.getenv("MEILI_MASTER_KEY", "")
-    return meilisearch.Client(url, key)
+def wait_for_index_task(client, task):
+    result = client.wait_for_task(task.task_uid, timeout_in_ms=120_000, interval_in_ms=250)
+    if result.status != "succeeded":
+        raise RuntimeError(f"Meilisearch index task {task.task_uid} {result.status}")
 
 
 def configure_index(client: meilisearch.Client) -> meilisearch.index.Index:
     """Create / update index settings."""
     try:
-        client.create_index(INDEX_NAME, {"primaryKey": "id"})
-    except Exception:
-        pass  # already exists — that's fine
-    index = client.index(INDEX_NAME)
-    index.update_settings(
+        index = client.get_index(INDEX_NAME)
+    except MeilisearchApiError as exc:
+        if exc.code != "index_not_found":
+            raise
+        wait_for_index_task(client, client.create_index(INDEX_NAME, {"primaryKey": "id"}))
+        index = client.index(INDEX_NAME)
+    task = index.update_settings(
         {
             "searchableAttributes": ["name"], 
             "filterableAttributes": ["species", "label"],
@@ -110,24 +113,28 @@ def configure_index(client: meilisearch.Client) -> meilisearch.index.Index:
             ],
         }
     )
+    wait_for_index_task(client, task)
     return index
 
 
 def index_is_populated(client: meilisearch.Client) -> bool:
     try:
         stats = client.index(INDEX_NAME).get_stats()
-        return int(stats.get("numberOfDocuments", 0)) > 0
-    except Exception:
-        return False
+        return stats.number_of_documents > 0
+    except MeilisearchApiError as exc:
+        if exc.code == "index_not_found":
+            return False
+        raise
 
 
-def fetch_and_index(neo4j_generator, client: meilisearch.Client) -> dict:
+def fetch_and_index(neo4j_generator, client: meilisearch.Client, renew_lease) -> dict:
     """
     Iterate over every indexable label, call
     neo4j_generator.fetch_nodes_for_index() (which uses the existing
     run_query / ResilientDriver infrastructure), then push batches to
     Meilisearch.
     """
+    renew_lease()
     index = configure_index(client)
     total = 0
     errors = []
@@ -149,6 +156,7 @@ def fetch_and_index(neo4j_generator, client: meilisearch.Client) -> dict:
                 species_list.append("fly")
 
         for species in species_list:
+            renew_lease()
             try:
                 docs = neo4j_generator.fetch_nodes_for_index(
                     label=label,
@@ -162,8 +170,9 @@ def fetch_and_index(neo4j_generator, client: meilisearch.Client) -> dict:
 
                 # Push in batches
                 for i in range(0, len(docs), BATCH_SIZE):
+                    renew_lease()
                     batch = docs[i : i + BATCH_SIZE]
-                    index.add_documents(batch)
+                    wait_for_index_task(client, index.add_documents(batch))
                     total += len(batch)
 
                 logger.info(
@@ -171,6 +180,8 @@ def fetch_and_index(neo4j_generator, client: meilisearch.Client) -> dict:
                     f"(running total: {total})"
                 )
 
+            except (MeilisearchTimeoutError, RedisError):
+                raise
             except Exception as e:
                 msg = f"[Error] {label}/{species}: {e}"
                 logger.error(msg)

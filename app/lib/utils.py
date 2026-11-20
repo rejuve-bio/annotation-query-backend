@@ -4,6 +4,7 @@ import re
 import tempfile
 import zipfile
 from io import BytesIO
+from itertools import chain
 from pathlib import Path
 
 import pandas as pd
@@ -12,72 +13,13 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
-def adjust_file_path(file_path):
-    parent_name = file_path.parents[1].name
-    file_path = str(file_path)
-
-    file_path = file_path.split(f"{parent_name}/", 1)[-1]
-
-    return file_path
-
-
-def generate_file_path(file_name, user_id, extension):
-    # Remove all non-alphanumeric characters (including commas, hyphens, etc.) except spaces
-    file_name = re.sub(r"[^\w\s]", "", file_name)
-
-    # Replace spaces with hyphens
-    file_name = "-".join(file_name.split())
-    file_name = f"{file_name}-{user_id}"
-    file_path = Path(f"./public/{file_name}.{extension}").resolve()
-
-    return file_path
-
-
-def convert_to_csv(response, user_id, file_name):
-    file_path = generate_file_path(
-        file_name=file_name, user_id=user_id, extension="xls"
-    )
-    # create public directory if it doesn't exit.
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-    nodes, edges = response
-    # Convert nodes and edges to DataFrames
-    # Add sheet for each node
-    # Convert to .xls file so that there is separate sheet for nodes and edges in a single file
-    try:
-        with pd.ExcelWriter(file_path) as writer:
-            for key, _ in nodes.items():
-                node = pd.json_normalize(nodes[key])
-                node.columns = [col.replace("data.", "") for col in node.columns]
-                node.to_excel(writer, sheet_name=f"{key}", index=False)
-            for key, _ in edges.items():
-                source = edges[key][0]["data"]["source"].split(" ")[0]
-                target = edges[key][0]["data"]["target"].split(" ")[0]
-                edge = pd.json_normalize(edges[key])
-                edge.columns = [col.replace("data.", "") for col in edge.columns]
-                edge.to_excel(
-                    writer, sheet_name=f"{source}-relationship-{target}", index=False
-                )
-    except Exception as e:
-        os.remove(file_path)
-        logger.error(f"Error converting to Excel: {e}")
-    return file_path
-
-
 def convert_to_excel(response):
     output = BytesIO()
     try:
         nodes = response["nodes"]
         edges = response["edges"]
 
-        # Build a map of node ID to name and type
-        node_map = {
-            node["data"]["id"]: {
-                "name": node["data"]["name"],
-                "type": node["data"]["type"],
-            }
-            for node in nodes
-        }
+        node_types = {node["data"]["id"]: node["data"]["type"] for node in nodes}
 
         # Accumulate nodes by type
         node_type_data = {}
@@ -101,8 +43,8 @@ def convert_to_excel(response):
         # Accumulate edges by source-type -> target-type
         edge_type_data = {}
         for edge_data in edges:
-            source_type = node_map[edge_data["data"]["source"]]["type"]
-            target_type = node_map[edge_data["data"]["target"]]["type"]
+            source_type = node_types.get(edge_data["data"]["source"], "unknown")
+            target_type = node_types.get(edge_data["data"]["target"], "unknown")
             relationship_type = f"{source_type}-relationship-{target_type}"
 
             if relationship_type not in edge_type_data:
@@ -114,17 +56,20 @@ def convert_to_excel(response):
 
         # Write to Excel
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            # One sheet per node type
-            for node_type, dfs in node_type_data.items():
+            if not node_type_data and not edge_type_data:
+                pd.DataFrame().to_excel(writer, sheet_name="Results", index=False)
+            for name, dfs in chain(node_type_data.items(), edge_type_data.items()):
                 combined_df = pd.concat(dfs, ignore_index=True)
-                sheet_name = node_type[:31]  # Excel sheet name limit
-                combined_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                # Leave room for openpyxl's suffix when truncated names collide.
+                title = re.sub(r"[\\[\]:*?/]", "_", name)[:25] or "Results"
+                worksheet = writer.book.create_sheet(title)
+                combined_df.to_excel(writer, sheet_name=worksheet.title, index=False)
 
-            # One sheet per edge relationship type
-            for rel_type, dfs in edge_type_data.items():
-                combined_df = pd.concat(dfs, ignore_index=True)
-                sheet_name = rel_type[:31]  # Excel sheet name limit
-                combined_df.to_excel(writer, sheet_name=sheet_name, index=False)
+            for worksheet in writer.book.worksheets:
+                for row in worksheet.iter_rows():
+                    for cell in row:
+                        if cell.data_type == "f":
+                            cell.data_type = "s"
 
         output.seek(0)
         return output

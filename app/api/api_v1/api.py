@@ -1,4 +1,5 @@
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, Depends, WebSocket
+from app.api.auth import get_current_user, issue_socket_ticket
 from app.api.api_v1.endpoints import graph, query, annotation_sharing
 from app.api.api_v1.endpoints import search
 from app.api.api_v1.endpoints import neighbourhood
@@ -29,3 +30,8 @@ async def websocket_endpoint(websocket: WebSocket):
 @api_router.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@api_router.post("/socket-ticket")
+def socket_ticket(user_id: str = Depends(get_current_user)):
+    return {"ticket": issue_socket_ticket(user_id)}

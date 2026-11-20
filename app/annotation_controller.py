@@ -4,14 +4,11 @@ import os
 import datetime
 from app.api.deps import get_db_instance, get_schema_manager
 from app.workers.task_handler import graph_task, start_thread, reset_task, reset_status, is_slow_query
-from app.lib import convert_to_csv, generate_file_path, \
-    adjust_file_path
 import time
 from app.constants import TaskStatus
 from app.persistence import AnnotationStorageService
 from .workers.celery_app import init_request_state
 from app.api.deps import get_llm_handler
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 schema_manager = get_schema_manager()
@@ -132,43 +129,6 @@ def handle_client_request(query, request, current_user_id, node_types, species, 
         start_thread(annotation_id, args)
 
         return {"annotation_id": str(annotation_id)}
-
-def process_full_data(current_user_id, annotation_id):
-    cursor = AnnotationStorageService.get_by_id(annotation_id)
-
-    if cursor is None:
-        return None
-
-    query, title, requests = cursor.query, cursor.title, cursor.request
-
-    graph_components = {
-            "nodes": requests['nodes'], "predicates": requests['predicates'],
-            'properties': True}
-
-    try:
-        file_path = generate_file_path(
-            file_name=title, user_id=current_user_id, extension='xls')
-        exists = os.path.exists(file_path)
-
-        if exists:
-            file_path = adjust_file_path(file_path)
-            link = f'{settings.APP_BASE_URL.rstrip("/")}/{file_path.lstrip("/")}'
-            return link
-
-        db_instance = get_db_instance()
-        result = db_instance.run_query(query)
-        parsed_result = db_instance.convert_to_dict(
-            result, schema_manager.schema, graph_components)
-
-        file_path = convert_to_csv(
-            parsed_result, user_id=current_user_id, file_name=title)
-        file_path = adjust_file_path(file_path)
-
-        link = f'{settings.APP_BASE_URL.rstrip("/")}/{file_path.lstrip("/")}'
-        return link
-
-    except Exception as e:
-        raise e
 
 def requery(annotation_id, query, request, species='human'):
     """

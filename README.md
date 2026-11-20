@@ -37,7 +37,7 @@ _Supported OS:_ **Linux & Mac**
    ```bash
    cp example.env .env
    ```
-5. **Flask-Mail Configuration**:
+5. **SMTP Configuration**:
    Add the following environment variables for email functionality:
    `MAIL_SERVER`: The address of the mail server that the application will use to send emails (e.g., smtp.gmail.com for Gmail).
 
@@ -45,7 +45,7 @@ _Supported OS:_ **Linux & Mac**
 
    `MAIL_USE_TLS`: If set to True, this enables Transport Layer Security (TLS) for securing the email transmission. Typically used with port 587.
 
-   `MAIL_USE_SSL`: If set to True, this enables SSL (Secure Sockets Layer) for securing the email transmission. Typically used with port 465. It is not used when MAIL_USE_TLS is enabled
+   `MAIL_USE_SSL`: Enables implicit TLS, typically on port 465. Use either this setting or `MAIL_USE_TLS` for STARTTLS.
 
    `MAIL_USERNAME`: The email account username that will be used to authenticate with the mail serve
 
@@ -106,7 +106,7 @@ _Supported OS:_ **Linux & Mac**
 9. **Run the Application**:
 
 ```sh
-flask run
+uvicorn app.main:socket_app --port 8000
 ```
 
 # Alternatively, you can use Docker to run the application:
@@ -149,11 +149,11 @@ flask run
     ```bash
     docker-compose up --build
     ```
-   This command will build the Flask app's Docker image, set up MongoDB with data persistence, and configure Caddy as the reverse proxy.
+   This command will build the FastAPI application's Docker image, set up MongoDB with data persistence, and configure Caddy as the reverse proxy.
    
    ### Accessing the Application
 
-      - Flask App: Access the application through Caddy on http://localhost:5000.
+      - FastAPI: Access the application through Caddy on http://localhost:5000.
 
    ### Stopping the Services
 
@@ -290,3 +290,32 @@ Disabling dedup does **not** affect fingerprint storage — every new annotation
 The id is stored on the annotation and returned as `thread_id` (or `null`) in `GET /history` rows and `GET /annotation/{id}`. Annotations created before this field, or without it, return `null`.
 
 With dedup on, a repeated query reuses the stored results, but each thread gets its own annotation: the same user running the same query in another thread (or outside any thread) gets a new annotation with its own copy of the graph (and VCF) files, so it shows up in that thread and is unaffected if the original is later edited or re-run. Re-running an existing annotation (`requests.annotation_id`) on the default queued path updates it in place and keeps its original `thread_id`. With `source=ai-assistant` the run is saved as a new annotation, under the request's `thread_id`.
+
+## Security settings and rollout
+
+- Deploy Authentication Service's permission and verified-email endpoints first.
+  Set `AUTH_SERVICE_URL` to its reachable private base URL without `/auth`.
+  Re-index and job status require an active administrator. Schema requests use
+  the existing signed-in user session. Re-indexing uses a renewable Redis lock
+  shared by the API workers.
+- Keep `API_DOCS_ENABLED=false` on public deployments. The example developer
+  environment enables Swagger, ReDoc, and the OpenAPI schema.
+- Set `ANNOTATION_UI_URL` to the HTTPS Platform UI base URL and configure SMTP
+  for email delivery. Email links to an authenticated full spreadsheet export
+  through Platform UI. Only the verified account
+  address can receive the link, once a minute per user. Use SSL or STARTTLS for
+  authenticated SMTP.
+- Include `deploy/nginx/annotation-http.conf` in the Nginx `http` context and
+  `deploy/nginx/annotation-security.conf` in the annotation HTTPS vhost.
+  Verify HSTS on proxied success and error responses. On Nginx releases where
+  location-level `add_header` replaces inherited headers, repeat the HSTS
+  directive in each affected location. Verify that no alias exposes generated
+  annotation files and that upstream access logs omit query strings.
+- Upgrade the Platform UI after the backend adds `POST /socket-ticket`.
+  The browser requests a short-lived Socket.IO ticket through the signed-in UI
+  session. Share links continue to work for authorized recipients. Public
+  links are read-only, and editing rights apply to named private recipients.
+- The Compose Meilisearch version defaults to `v1.53.1`, matching the known
+  development database version. Before touching an existing volume, take a
+  backup and check the stored database version against the selected image.
+  Other database versions may need a migration or a different image tag.

@@ -26,7 +26,7 @@ jobs:
   cache:
     uses: ./.github/workflows/ci-caching.yml
     with:
-      python-version: '3.10'
+      python-version: '3.11'
 
   # STEP 1: Secret Scanning (runs first, in parallel)
   secret-scanning:
@@ -62,15 +62,15 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: '3.11'
 
     - name: Restore pip cache
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        key: pip-${{ runner.os }}-py3.10-${{ hashFiles('**/requirements.txt') }}
+        key: pip-${{ runner.os }}-py3.11-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
-          pip-${{ runner.os }}-py3.10-
+          pip-${{ runner.os }}-py3.11-
           pip-${{ runner.os }}-
 
     - name: Install dependencies
@@ -160,15 +160,15 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: '3.11'
 
     - name: Restore pip cache
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        key: pip-${{ runner.os }}-py3.10-${{ hashFiles('**/requirements.txt') }}
+        key: pip-${{ runner.os }}-py3.11-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
-          pip-${{ runner.os }}-py3.10-
+          pip-${{ runner.os }}-py3.11-
           pip-${{ runner.os }}-
 
     - name: Install dependencies
@@ -545,7 +545,7 @@ jobs:
         if curl -sf http://localhost:${{ env.APP_PORT }}/health 2>/dev/null || \
            curl -sf http://localhost:${{ env.APP_PORT }}/ 2>/dev/null || \
            curl -sf http://localhost:${{ env.CADDY_PORT }}/ 2>/dev/null; then
-          echo "[SUCCESS] Application is responding through Flask or Caddy"
+          echo "[SUCCESS] Application is responding through FastAPI or Caddy"
         else
           echo "[WARNING] Application direct endpoints not responding, checking if it's starting up..."
           sleep 30
@@ -584,7 +584,7 @@ jobs:
         
         IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
         
-        trivy image --severity HIGH,CRITICAL --exit-code 0 $IMAGE_TAG
+        trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_TAG"
         
         echo "[SUCCESS] Vulnerability scan completed"
     

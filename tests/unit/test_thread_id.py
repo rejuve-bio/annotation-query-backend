@@ -237,6 +237,7 @@ def test_reused_result_gets_its_own_copy_of_the_graph_file(run_query, monkeypatc
 
 def test_ai_assistant_rerun_is_saved_as_a_new_annotation_in_the_requests_thread(monkeypatch):
     original = completed("fp-old", "u1", THREAD_A)
+    original.id = "507f1f77bcf86cd799439011"
     storage = FakeAnnotations(original)
     monkeypatch.setattr(endpoint, "AnnotationStorageService", storage)
     monkeypatch.setattr(endpoint, "SharedAnnotationStorageService", SimpleNamespace(get=lambda query: None))

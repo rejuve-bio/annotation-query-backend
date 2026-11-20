@@ -1,5 +1,5 @@
 # ── Stage 1: builder ──────────────────────────────────────────────────────────
-FROM python:3.10-slim AS builder
+FROM python:3.11-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc g++ make \
@@ -7,19 +7,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade setuptools==84.2.1 -r requirements.txt
 
 COPY . .
 # Compile the C++ extension
 RUN pip install --no-cache-dir .
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1
-ARG APP_PORT
+ARG APP_PORT=8000
+ENV APP_PORT=${APP_PORT}
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
         ca-certificates curl gnupg lsb-release \
     && \
     install -m 0755 -d /etc/apt/keyrings && \
@@ -34,7 +36,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy installed Python packages and the compiled extension from builder
-COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+# Remove the base image's older vendored packages before overlaying the builder's packages.
+RUN pip uninstall --yes setuptools
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /app .
 
@@ -54,4 +58,4 @@ RUN groupadd -f docker \
 USER appuser
 
 EXPOSE $APP_PORT
-CMD uvicorn app.main:socket_app --host 0.0.0.0 --port $APP_PORT
+CMD ["sh", "-c", "exec uvicorn app.main:socket_app --host 0.0.0.0 --port \"$APP_PORT\" --no-access-log"]

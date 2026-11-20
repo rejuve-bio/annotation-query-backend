@@ -1,4 +1,3 @@
-import os
 import asyncio
 import json
 import socketio
@@ -13,7 +12,6 @@ from app.socketio.server import sio
 from db import mongo_init
 from app.api.api_v1.api import api_router
 import app.events.socket_event
-from fastapi.staticfiles import StaticFiles
 import mimetypes
 
 try:
@@ -24,7 +22,7 @@ except OSError:
 # Add always on listen for socket events
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print(f"Connecting to Redis at {settings.REDIS_URL}...")
+    print("Connecting to Redis for socket events...")
     redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
     pubsub = redis_client.pubsub()
     
@@ -55,7 +53,7 @@ async def lifespan(app: FastAPI):
             print("Redis Listener task cancelling...")
         finally:
             await pubsub.unsubscribe('socket_event')
-            await redis_client.aclose()
+            await redis_client.close()
             print("Redis connection closed.")
 
     # Register MORK cleanup signal handlers from the main thread so they are
@@ -82,7 +80,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description=_WS_DOCS,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    openapi_url=f"{settings.API_V1_STR}/openapi.json" if settings.API_DOCS_ENABLED else None,
+    docs_url="/docs" if settings.API_DOCS_ENABLED else None,
+    redoc_url="/redoc" if settings.API_DOCS_ENABLED else None,
     lifespan=lifespan
 )
 
@@ -100,6 +100,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def add_response_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
 # Socket.IO Integration
 socket_app = socketio.ASGIApp(sio, app)
 
@@ -108,10 +118,3 @@ app.include_router(api_router)
 
 mimetypes.add_type('application/octet-stream', '.tbi')
 mimetypes.add_type('application/gzip', '.gz')
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PUBLIC_DIR = os.path.join(BASE_DIR, "public")
-
-os.makedirs(PUBLIC_DIR, exist_ok=True)
-app.mount("/public", StaticFiles(directory=PUBLIC_DIR), name="static")
-

@@ -1,9 +1,10 @@
 import logging
-import jwt
+from fastapi import HTTPException
+from socketio.exceptions import ConnectionRefusedError
+from app.api.annotation_id import validate_annotation_id
+from app.api.auth import authenticate_socket
 from app.socketio.server import sio
 from app.workers.task_handler import get_annotation_redis
-from app.constants import TaskStatus
-from app.core.config import settings
 from app.persistence import AnnotationStorageService, NeighbourhoodStorageService
 
 logger = logging.getLogger(__name__)
@@ -14,18 +15,11 @@ _authenticated_users = {}
 @sio.event
 async def connect(sid, environ, auth=None):
     token = (auth or {}).get('token') if isinstance(auth, dict) else None
-    if not token or not settings.JWT_SECRET:
-        logger.warning(f"Rejected unauthenticated socket connection: {sid}")
-        raise ConnectionRefusedError("Authentication required")
-
     try:
-        data = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
-        user_id = data.get("user_id")
-        if not user_id:
-            raise ValueError("Token missing user_id")
-    except Exception as e:
-        logger.warning(f"Rejected socket connection with invalid token: {e}")
-        raise ConnectionRefusedError("Invalid or expired token")
+        user_id = authenticate_socket(token)
+    except HTTPException:
+        logger.warning("Rejected unauthenticated annotation socket")
+        raise ConnectionRefusedError("Authentication required") from None
 
     _authenticated_users[sid] = str(user_id)
     logger.info(f"User connected with SID: {sid}")
@@ -38,11 +32,14 @@ async def disconnect(sid):
 
 @sio.on('join')
 async def on_join(sid, data):
-    room = data['room']
-
     current_user_id = _authenticated_users.get(sid)
     if not current_user_id:
         logger.warning(f"Rejected join from unauthenticated socket: {sid}")
+        return
+
+    try:
+        room = validate_annotation_id(data.get("room") if isinstance(data, dict) else None)
+    except HTTPException:
         return
 
     annotation = AnnotationStorageService.get_by_id(room)
@@ -69,8 +66,4 @@ async def on_join(sid, data):
         graph = cache.get('graph')
         graph_status = True if graph is not None else False
 
-        if status == TaskStatus.COMPLETE.value:
-            await sio.emit('update', {'status': status, 'update': {'graph': graph_status}},
-                  to=str(room))
-        else:
-            await sio.emit('update', {'status': status, 'update': {'graph': graph_status}}, to=str(room))
+        await sio.emit("update", {"status": status, "update": {"graph": graph_status}}, to=sid)

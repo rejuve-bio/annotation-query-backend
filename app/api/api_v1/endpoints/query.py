@@ -1,12 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Body, status, Query as FQuery
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Body, status, Query as FQuery
 from fastapi.responses import JSONResponse
 from fastapi import status as http_status
 from typing import Dict, Any, Optional, List
 import json
 import datetime
 import logging
+from redis.exceptions import RedisError
 from distutils.util import strtobool
 import os
+from app.api.annotation_id import AnnotationID, validate_annotation_id
+from app.api.auth import get_share_signing_key, get_verified_email, unauthorized
 from app.api.deps import (
     get_current_user,
     get_db_instance,
@@ -27,18 +30,15 @@ from app.annotation_controller import handle_client_request
 from pathlib import Path
 from nanoid import generate
 from app.workers.celery_app import redis_state
-from app.annotation_controller import process_full_data
 from app.lib.email import send_email
 from app.lib.query_canonical import canonicalize_graph, query_fingerprint
 from app.lib.logic import LogicValidationError, counted_nodes_and_predicates
 from app.lib.query_cost import REFUSE, SLOW, assess_query_cost, too_broad_message
 from app.lib.thread_id import parse_thread_id
 from app.lib.annotation_files import copy_graph_files
-import threading
 from app.core.config import settings
 from app.api.deps import oauth2_scheme
 from app.events.redis_event import RedisStopEvent
-from app.core.config import settings
 import jwt
 import re
 
@@ -118,6 +118,19 @@ def _create_annotation_from_existing(existing_doc, current_user_id, data_source,
     return new_annotation_id
  
 
+def can_edit_annotation(annotation, annotation_id, user_id):
+    owner_id = str(annotation.user_id)
+    if owner_id == user_id:
+        return True
+    share = SharedAnnotationStorageService.get({
+        "user_id": owner_id,
+        "annotation_id": annotation_id,
+        "share_type": "private",
+        "recipient_user_id": user_id,
+    })
+    return share is not None and share.role in ("editor", "owner")
+
+
 @router.post("/query")
 def process_query(
     data: Dict[str, Any] = Body(...),
@@ -150,41 +163,16 @@ def process_query(
         question = requests.get("question", None)
         answer = None
 
-        # Access Check Logic
-        # Documenting chosen rule for shared docs edit/re-run:
-        # If a user provides an annotation_id, they are attempting to edit or re-run it.
-        # Rule: Only the original creator (owner) or users with an explicit 'editor' or 'owner' role
-        # via a SharedAnnotation record can modify this existing shared annotation.
-        # Other users (e.g. those who just joined via deduplication or viewers) will get a 401 Unauthorized.
-        # They should omit the annotation_id to branch off and create a new fingerprinted query.
-        annotation_id = requests.get("annotation_id", None)
+        annotation_id = requests.get("annotation_id")
         if annotation_id:
+            annotation_id = validate_annotation_id(annotation_id)
+            requests["annotation_id"] = annotation_id
             existing_annotation = AnnotationStorageService.get_by_id(annotation_id)
-            if existing_annotation:
-                owner_id = existing_annotation.user_id
-                shared_annotation = SharedAnnotationStorageService.get(
-                    {"user_id": owner_id, "annotation_id": annotation_id}
-                )
-
-                if shared_annotation is None:
-                    if str(owner_id) != str(current_user_id):
-                        raise HTTPException(status_code=401, detail="Unauthorized")
-                else:
-                    role = shared_annotation.role
-                    share_type = shared_annotation.share_type
-                    recipient_user_id = shared_annotation.recipient_user_id
-
-                    if share_type == "public":
-                        if role not in ["editor", "owner"]:
-                            raise HTTPException(status_code=401, detail="Unauthorized")
-                    elif share_type == "private":
-                        if role not in ["editor", "owner"] or str(
-                            recipient_user_id
-                        ) != str(current_user_id):
-                            raise HTTPException(status_code=401, detail="Unauthorized")
-
-                    # If shared and authorized, we might operate as owner
-                    current_user_id = str(owner_id)
+            if not existing_annotation or not can_edit_annotation(
+                existing_annotation, annotation_id, current_user_id
+            ):
+                raise HTTPException(status_code=404, detail="Annotation not found")
+            current_user_id = str(existing_annotation.user_id)
 
         # Validate request
         user = UserStorageService.get(current_user_id)
@@ -522,41 +510,53 @@ def process_query(
         raise HTTPException(status_code=500, detail="Query processing failed. Check server logs for details.")
 
 
-@router.post("/email-query/{id}")
+@router.post("/email-query/{id}", status_code=202)
 def process_email_query(
-    id: str,
-    data: Dict[str, Any] = Body(...),
+    id: AnnotationID,
+    background_tasks: BackgroundTasks,
+    data: Dict[str, Any] = Body(default_factory=dict),
     current_user_id: str = Depends(get_current_user),
+    verified_email: str = Depends(get_verified_email),
+    redis_client=Depends(get_redis_client),
 ):
-    if "email" not in data:
-        raise HTTPException(status_code=400, detail="Email missing")
-
-    email = data["email"]
-
     existing_record = AnnotationStorageService.get_by_id(id)
-    if existing_record is None:
+    if existing_record is None or (
+        str(existing_record.user_id) != current_user_id
+        and current_user_id not in (existing_record.participant_user_ids or [])
+    ):
         raise HTTPException(status_code=404, detail="Annotation not found")
 
-    owner_id = existing_record.user_id
-    participants = existing_record.participant_user_ids or []
+    if "email" in data and (
+        not isinstance(data["email"], str)
+        or data["email"].strip().casefold() != verified_email.casefold()
+    ):
+        raise HTTPException(status_code=403, detail="Use your verified email address")
 
-    if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
-        raise HTTPException(status_code=404, detail="Annotation not found")
+    smtp_configured = settings.MAIL_SERVER and settings.MAIL_DEFAULT_SENDER
+    smtp_secure = not settings.MAIL_USERNAME or settings.MAIL_USE_SSL or settings.MAIL_USE_TLS
+    if not (settings.ANNOTATION_UI_URL and smtp_configured and smtp_secure):
+        raise HTTPException(status_code=503, detail="Email delivery unavailable")
 
-    def send_full_data_task():
-        try:
-            link = process_full_data(current_user_id=current_user_id, annotation_id=id)
+    try:
+        allowed = redis_client.set(
+            f"annotation:email:cooldown:{current_user_id}", "1", nx=True, ex=60
+        )
+    except RedisError:
+        raise HTTPException(status_code=503, detail="Email delivery unavailable") from None
+    if not allowed:
+        raise HTTPException(
+            status_code=429, detail="Please wait before requesting another email",
+            headers={"Retry-After": "60"},
+        )
 
-            if link:
-                subject = "Full Data"
-                body = f"Hello {email}. click this link {link} to download the full data you requested."
-                send_email(subject, [email], body)
-        except Exception as e:
-            logger.error(f"Error processing email query: {e}", exc_info=True)
-
-    sender = threading.Thread(name="main_sender", target=send_full_data_task)
-    sender.start()
-    return {"message": "Email sent successfully"}
+    link = f"{settings.ANNOTATION_UI_URL.rstrip('/')}/annotation/{id}/export"
+    background_tasks.add_task(
+        send_email,
+        "Annotation export",
+        [verified_email],
+        f"Sign in to download your annotation export: {link}",
+    )
+    return {"message": "Email queued"}
 
 
 @router.get("/history")
@@ -604,7 +604,7 @@ def process_user_history(
 
 @router.get("/annotation/{id}")
 def get_annotation_by_id(
-    id: str,
+    id: AnnotationID,
     token: Optional[str] = FQuery(None),
     limit: Optional[int] = FQuery(None),
     properties: Optional[str] = FQuery(None),
@@ -612,73 +612,49 @@ def get_annotation_by_id(
     auth_header: Optional[str] = Depends(oauth2_scheme),
     redis_client=Depends(get_redis_client),
 ):
-    current_user_id = None
+    if not (token or auth_header):
+        raise unauthorized("Access token required")
+    current_user_id = get_current_user(auth_header) if auth_header else None
 
-    # 1. Check shared token in query param
     if token:
         try:
-            shared_secret = os.getenv("SHARED_TOKEN_SECRET")
-            if not shared_secret:
-                shared_secret = settings.JWT_SECRET
+            claims = jwt.decode(token, get_share_signing_key(), algorithms=["HS256"])
+        except jwt.InvalidTokenError:
+            raise unauthorized("Invalid share link") from None
+        if (
+            claims.get("type", "annotation_share") != "annotation_share"
+            or claims.get("annotation_id") != id
+            or not claims.get("user_id")
+        ):
+            raise unauthorized("Invalid share link")
+        shared_annotation = SharedAnnotationStorageService.get(
+            {"user_id": str(claims["user_id"]), "annotation_id": id}
+        )
+        if shared_annotation is None or shared_annotation.token != token:
+            raise unauthorized("Invalid share link")
+        if shared_annotation.share_type == "public":
+            current_user_id = str(claims["user_id"])
 
-            data = jwt.decode(token, shared_secret, algorithms=["HS256"])
-            current_user_id = data["user_id"]
-
-            # Verify shared resource existence
-            shared_resource = SharedAnnotationStorageService.get(
-                {"user_id": current_user_id, "annotation_id": id}
-            )
-            if shared_resource is None:
-                raise HTTPException(status_code=401, detail="Unauthorized")
-
-        except Exception as e:
-            raise HTTPException(status_code=401, detail="Unauthorized")
-
-    # 2. If no token param, use Auth header (logged in user)
-    elif auth_header:
-        try:
-            data = jwt.decode(auth_header, settings.JWT_SECRET, algorithms=["HS256"])
-            current_user_id = data.get("user_id")
-        except Exception:
-            raise HTTPException(status_code=403, detail="Token is invalid!")
-
-    if not current_user_id:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    # Access Logic
     existing_annotation = AnnotationStorageService.get_by_id(id)
     if not existing_annotation:
         raise HTTPException(status_code=404, detail="Annotation not found")
 
-    owner_id = existing_annotation.user_id
+    owner_id = str(existing_annotation.user_id)
     participants = existing_annotation.participant_user_ids or []
-
     shared_annotation = SharedAnnotationStorageService.get(
         {"user_id": owner_id, "annotation_id": id}
     )
 
-    if shared_annotation is None:
-        if (
-            str(owner_id) != str(current_user_id)
-            and str(current_user_id) not in participants
-        ):
-            raise HTTPException(status_code=401, detail="Unauthorized")
-
-        if str(current_user_id) in participants:
-            current_user_id = owner_id
-    else:
-        share_type = shared_annotation.share_type
-        recipient_user_id = shared_annotation.recipient_user_id
-
-        if share_type != "public":
-            if (
-                str(recipient_user_id) != str(current_user_id)
-                and str(owner_id) != str(current_user_id)
-                and str(current_user_id) not in participants
-            ):
-                raise HTTPException(status_code=401, detail="Unauthorized")
-
-        current_user_id = owner_id
+    if current_user_id is None:
+        raise unauthorized("Access token required")
+    is_private_recipient = (
+        shared_annotation is not None
+        and shared_annotation.share_type == "private"
+        and str(shared_annotation.recipient_user_id) == current_user_id
+    )
+    if current_user_id != owner_id and current_user_id not in participants and not is_private_recipient:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    current_user_id = owner_id
 
     cursor = AnnotationStorageService.get_user_annotation(id, str(current_user_id))
 
@@ -815,21 +791,13 @@ def cell_component(
     current_user_id: str = Depends(get_current_user),
 ):
     
-    # get annotation id and get go term id
-    annotation_id = id
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", annotation_id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid annotation id",
-        )
-
-    # sanitize again as a filename component before path construction
-    safe_annotation_id = Path(annotation_id).name
-    if safe_annotation_id != annotation_id or not re.fullmatch(r"[A-Za-z0-9_-]+", safe_annotation_id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid annotation id",
-        )
+    annotation_id = validate_annotation_id(id)
+    annotation = AnnotationStorageService.get_by_id(annotation_id)
+    if annotation is None or (
+        str(annotation.user_id) != current_user_id
+        and current_user_id not in (annotation.participant_user_ids or [])
+    ):
+        raise HTTPException(status_code=404, detail="Annotation not found")
 
     # parse the location
     location_list = locations.split(",")
@@ -844,7 +812,7 @@ def cell_component(
     proteins = []
 
     # get the graph and filter out the protein
-    file_name = f"{safe_annotation_id}.json"
+    file_name = f"{annotation_id}.json"
     base_dir = (
         Path(__file__).parent
         / ".."
@@ -1016,13 +984,7 @@ def cell_component(
         # Each backend (Cypher/MORK/MORK CLI) implements its own
         # get_cellular_component_locations — this endpoint stays backend-agnostic,
         # so changing one backend's query never requires touching this route.
-        annotation = AnnotationStorageService.get_by_id(annotation_id)
-        if annotation is not None:
-            owner_id = annotation.user_id
-            participants = annotation.participant_user_ids or []
-            if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
-                raise HTTPException(status_code=404, detail="Annotation not found")
-        species = (getattr(annotation, "species", None) or "human") if annotation else "human"
+        species = annotation.species or "human"
         db_instance = get_db_instance(species)
 
         located_pairs = db_instance.get_cellular_component_locations(
@@ -1083,23 +1045,10 @@ def cell_component(
         )
 
 @router.delete("/annotation/{id}")
-def delete_by_id(id: str, current_user_id: str = Depends(get_current_user)):
+def delete_by_id(id: AnnotationID, current_user_id: str = Depends(get_current_user)):
     try:
-        # Resolve annotation and check access (handles participants from dedup)
         existing_record = AnnotationStorageService.get_by_id(id)
-        if existing_record is None:
-            raise HTTPException(status_code=404, detail="Annotation not found")
-
-        owner_id = existing_record.user_id
-        participants = existing_record.participant_user_ids or []
-
-        if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
-            raise HTTPException(status_code=404, detail="Annotation not found")
-
-        # Resolve to owner so get_user_annotation finds the record
-        resolved_user_id = str(owner_id)
-        annotation = AnnotationStorageService.get_user_annotation(id, resolved_user_id)
-        if annotation is None:
+        if existing_record is None or str(existing_record.user_id) != current_user_id:
             raise HTTPException(status_code=404, detail="Annotation not found")
 
         # Stop any running task for this annotation
@@ -1157,11 +1106,10 @@ async def delete_many(
     data: dict = Body(...),
     current_user_id: str = Depends(get_current_user),
 ):
-    annotation_ids = data["annotation_ids"]
-
-    # Check if the list is empty
-    if len(annotation_ids) == 0:
-        raise HTTPException(status_code=400, detail="Annotation must not be empty")
+    annotation_ids = data.get("annotation_ids")
+    if not isinstance(annotation_ids, list) or not annotation_ids:
+        raise HTTPException(status_code=400, detail="Annotation IDs must be a non-empty list")
+    annotation_ids = [validate_annotation_id(value) for value in annotation_ids]
 
     # Check if user has access to delete the resource
     for annotation_id in annotation_ids:
@@ -1222,7 +1170,7 @@ async def delete_many(
 
 @router.post("/annotation/{id}/title")
 def update_title(
-    id: str, data: dict = Body(...), current_user_id: str = Depends(get_current_user)
+    id: AnnotationID, data: dict = Body(...), current_user_id: str = Depends(get_current_user)
 ):
 
     if "title" not in data:
@@ -1233,13 +1181,7 @@ def update_title(
     try:
         existing_record = AnnotationStorageService.get_by_id(id)
 
-        if existing_record is None:
-            raise HTTPException(status_code=404, detail="Annotation not found")
-
-        owner_id = existing_record.user_id
-        participants = existing_record.participant_user_ids or []
-
-        if str(owner_id) != str(current_user_id) and str(current_user_id) not in participants:
+        if existing_record is None or not can_edit_annotation(existing_record, id, current_user_id):
             raise HTTPException(status_code=404, detail="Annotation not found")
 
         AnnotationStorageService.update(id, {"title": title})
@@ -1260,6 +1202,8 @@ def update_title(
             )
         )
         return response_data
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             json.dumps(
