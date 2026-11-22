@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from typing import List, Optional, Dict, Any
@@ -17,6 +16,7 @@ from app.lib.db_resilience import QueryType
 from app.lib.utils import convert_to_excel, convert_to_tsv
 from redis.exceptions import RedisError
 from app.api.annotation_id import AnnotationID, validate_annotation_id
+from app.lib.annotation_files import graph_file_path, vcf_file_path
 import datetime
 
 logger = logging.getLogger(__name__)
@@ -489,7 +489,9 @@ def download_full_annotation(
 async def download_tsv(id: AnnotationID, current_user_id: str = Depends(get_current_user)):
     cursor = get_downloadable_annotation(id, current_user_id)
 
-    file_path = cursor.path_url
+    file_path = graph_file_path(cursor.id)
+    if not file_path or not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="Annotation graph not found")
     
     try:
         # Load the graph file
@@ -549,18 +551,16 @@ async def download_tsv(id: AnnotationID, current_user_id: str = Depends(get_curr
         )
 @router.get("/public/vcf/{filename}")
 def download_vcf_file(filename: str, current_user_id: str = Depends(get_current_user)):
-    # Sanitize — strip any path components, only allow the bare filename
-    safe_filename = Path(filename).name
-
     # Only allow .vcf.gz and .vcf.gz.tbi extensions
-    if not (safe_filename.endswith('.vcf.gz') or safe_filename.endswith('.vcf.gz.tbi')):
+    if not filename.endswith(('.vcf.gz', '.vcf.gz.tbi')):
         raise HTTPException(status_code=400, detail="Invalid file type")
 
     # Files are named "<annotation_id>.vcf.gz"/".vcf.gz.tbi" — enforce the
     # same ownership/participant check used for every other per-annotation
     # download endpoint before serving the file.
-    suffix = '.vcf.gz.tbi' if safe_filename.endswith('.vcf.gz.tbi') else '.vcf.gz'
-    annotation_id = validate_annotation_id(safe_filename.removesuffix(suffix))
+    is_index = filename.endswith('.vcf.gz.tbi')
+    suffix = '.vcf.gz.tbi' if is_index else '.vcf.gz'
+    annotation_id = validate_annotation_id(filename.removesuffix(suffix))
     annotation = AnnotationStorageService.get_by_id(annotation_id)
     if annotation is None or (
         str(annotation.user_id) != current_user_id
@@ -568,18 +568,12 @@ def download_vcf_file(filename: str, current_user_id: str = Depends(get_current_
     ):
         raise HTTPException(status_code=404, detail="VCF file not found")
 
-    # Resolve the full path and verify it stays within the allowed directory
-    base_dir = Path("/app/public/vcf").resolve()
-    file_path = (base_dir / safe_filename).resolve()
-    
-    if not file_path.is_relative_to(base_dir):
-        raise HTTPException(status_code=400, detail="Invalid file path")
-    
-    if not file_path.is_file():
+    file_path = vcf_file_path(annotation.id, index=is_index)
+    if not file_path or not os.path.isfile(file_path):
         raise HTTPException(status_code=404, detail="VCF file not found")
     
     return FileResponse(
-        path=str(file_path),
-        filename=safe_filename,
+        path=file_path,
+        filename=f"{annotation_id}{suffix}",
         media_type="application/octet-stream"
     )

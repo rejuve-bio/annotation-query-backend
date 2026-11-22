@@ -4,9 +4,35 @@ import os
 import shutil
 from pathlib import Path
 
+from bson import ObjectId
+
 logger = logging.getLogger(__name__)
 
-PUBLIC_DIR = Path("/app/public")
+PUBLIC_DIR = Path(__file__).resolve().parents[2] / "public"
+
+
+def _annotation_file_path(directory, annotation_id, suffix):
+    if not ObjectId.is_valid(annotation_id):
+        return None
+
+    root = os.path.realpath(PUBLIC_DIR)
+    base = os.path.join(root, directory)
+    expected = os.path.join(base, f"{ObjectId(annotation_id)}{suffix}")
+    path = os.path.realpath(expected)
+    if not path.startswith(base + os.sep):
+        return None
+    # A sibling annotation's file is outside the authorized record too.
+    if path != expected:
+        return None
+    return path
+
+
+def graph_file_path(annotation_id):
+    return _annotation_file_path("graph", annotation_id, ".json")
+
+
+def vcf_file_path(annotation_id, *, index=False):
+    return _annotation_file_path("vcf", annotation_id, ".vcf.gz.tbi" if index else ".vcf.gz")
 
 
 def _copy(src, dst):
@@ -26,13 +52,12 @@ def copy_graph_files(existing_doc, new_annotation_id):
     the copy recomputes its graph on its first uncached read.
     """
     none = {"path_url": None, "files": None}
-    if not existing_doc.path_url or not os.path.exists(existing_doc.path_url):
+    graph_src = graph_file_path(existing_doc.id)
+    graph_dst = graph_file_path(new_annotation_id)
+    if not graph_src or not graph_dst or not os.path.isfile(graph_src):
         return none
 
-    vcf_dir = PUBLIC_DIR / "vcf"
-    copies = []  # (src, dst)
-    graph_dst = Path(existing_doc.path_url).with_name(f"{new_annotation_id}.json")
-    copies.append((Path(existing_doc.path_url), graph_dst))
+    copies = [(graph_src, Path(graph_dst))]
 
     files = None
     if existing_doc.files:
@@ -41,10 +66,11 @@ def copy_graph_files(existing_doc, new_annotation_id):
             new_entry = dict(entry)
             for key, suffix in (("file", ".vcf.gz"), ("index", ".vcf.gz.tbi")):
                 if entry.get(key):
-                    src = vcf_dir / Path(entry[key]).name
-                    if not src.exists():
+                    src = vcf_file_path(existing_doc.id, index=key == "index")
+                    dst = vcf_file_path(new_annotation_id, index=key == "index")
+                    if not src or not dst or not os.path.isfile(src):
                         return none
-                    copies.append((src, vcf_dir / f"{new_annotation_id}{suffix}"))
+                    copies.append((src, Path(dst)))
                     new_entry[key] = f"/public/vcf/{new_annotation_id}{suffix}"
             files.append(new_entry)
 
@@ -55,4 +81,4 @@ def copy_graph_files(existing_doc, new_annotation_id):
         logger.warning("Could not copy graph files for annotation %s: %s", new_annotation_id, e)
         return none
 
-    return {"path_url": str(graph_dst), "files": files}
+    return {"path_url": graph_dst, "files": files}

@@ -27,7 +27,6 @@ from app.persistence import (
 from app.constants import TaskStatus, TASK_STALE_SECS
 from app.lib import validate_request, heuristic_sort, Graph
 from app.annotation_controller import handle_client_request
-from pathlib import Path
 from nanoid import generate
 from app.workers.celery_app import redis_state
 from app.lib.email import send_email
@@ -35,7 +34,7 @@ from app.lib.query_canonical import canonicalize_graph, query_fingerprint
 from app.lib.logic import LogicValidationError, counted_nodes_and_predicates
 from app.lib.query_cost import REFUSE, SLOW, assess_query_cost, too_broad_message
 from app.lib.thread_id import parse_thread_id
-from app.lib.annotation_files import copy_graph_files
+from app.lib.annotation_files import copy_graph_files, graph_file_path
 from app.core.config import settings
 from app.api.deps import oauth2_scheme
 from app.events.redis_event import RedisStopEvent
@@ -58,8 +57,8 @@ def _get_graph_for_annotation(existing_doc, redis_client):
             return graph_data
  
     # 2. Fall back to disk
-    file_path = existing_doc.path_url
-    if file_path and os.path.exists(file_path):
+    file_path = graph_file_path(existing_doc.id)
+    if file_path and os.path.isfile(file_path):
         with open(file_path, "r") as f:
             return json.load(f)
  
@@ -683,7 +682,6 @@ def get_annotation_by_id(
                 status = TaskStatus.FAILED.value
         except Exception:
             pass
-    file_path = cursor.path_url
     species = cursor.species
     source = cursor.data_source
     if not isinstance(source, list):
@@ -741,8 +739,10 @@ def get_annotation_by_id(
             return response_data
 
     if status in [TaskStatus.PENDING.value, TaskStatus.COMPLETE.value]:
+        file_path = graph_file_path(annotation_id)
+        graph_on_disk = file_path and os.path.isfile(file_path)
         if status == TaskStatus.COMPLETE.value:
-            if file_path and os.path.exists(file_path):
+            if graph_on_disk:
                 with open(file_path, "r") as f:
                     graph = json.load(f)
                 response_data["nodes"] = graph.get("nodes")
@@ -765,17 +765,13 @@ def get_annotation_by_id(
             #      COMPLETE and serve the old graph.
             # The DB update uses complete_if_pending (conditional $set) so
             # concurrent GET requests don't race to overwrite each other.
-            default_path = f"/app/public/graph/{id}.json"
-            resolved_path = file_path if (file_path and os.path.exists(file_path)) else (
-                default_path if os.path.exists(default_path) else None
-            )
-            if resolved_path and node_count is not None and not _graph_rebuild_in_progress(annotation_id):
+            if graph_on_disk and node_count is not None and not _graph_rebuild_in_progress(annotation_id):
                 AnnotationStorageService.complete_if_pending(
                     annotation_id,
-                    {"status": TaskStatus.COMPLETE.value, "path_url": resolved_path},
+                    {"status": TaskStatus.COMPLETE.value, "path_url": file_path},
                 )
                 response_data['status'] = TaskStatus.COMPLETE.value
-                with open(resolved_path, 'r') as f:
+                with open(file_path, 'r') as f:
                     graph = json.load(f)
                 response_data['nodes'] = graph.get('nodes')
                 response_data['edges'] = graph.get('edges')
@@ -812,25 +808,9 @@ def cell_component(
     proteins = []
 
     # get the graph and filter out the protein
-    file_name = f"{annotation_id}.json"
-    base_dir = (
-        Path(__file__).parent
-        / ".."
-        / ".."
-        / ".."
-        / ".."
-        / "public"
-        / "graph"
-    ).resolve()
-    path = (base_dir / file_name).resolve()
-
-    try:
-        path.relative_to(base_dir)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid annotation id",
-        )
+    path = graph_file_path(annotation.id)
+    if not path or not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Annotation graph not found")
 
     try:
         with open(path, "r") as f:
