@@ -1,4 +1,5 @@
 import os
+from ast import literal_eval
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from typing import List, Optional, Dict, Any
@@ -8,6 +9,7 @@ from app.api.deps import get_current_user, get_redis_client, get_schema_manager
 from app.services.schema_data import SchemaManager
 from app.persistence import UserStorageService
 from app.constants import Species, form_fields
+from app.core.config import settings
 from nanoid import generate
 from app.api.deps import get_db_instance, get_schema_manager
 from app.lib import Graph
@@ -458,13 +460,30 @@ def download_full_annotation(
     species = annotation.species or "human"
     try:
         db = get_db_instance(species)
+        query = annotation.query
+        if settings.DATABASE_TYPE.get("type") in ("mork", "mork_cli"):
+            query = literal_eval(query)
+            if not (
+                isinstance(query, tuple)
+                and len(query) == 4
+                and all(
+                    isinstance(part, tuple) and all(isinstance(atom, str) for atom in part)
+                    for part in query[:2]
+                )
+                and query[2] == "query"
+                and isinstance(query[3], str)
+            ):
+                raise ValueError("Invalid stored graph query")
+            schema = schema_manager.full_schema_representation
+        else:
+            schema = schema_manager.schema.get(species, {})
         options = {"species": species}
         if hasattr(db, "fetch_nodes_for_index"):
             options["query_type"] = QueryType.MAINTENANCE
-        result = db.run_query(annotation.query, **options)
+        result = db.run_query(query, **options)
         graph = db.parse_and_serialize(
             result,
-            schema_manager.schema.get(species, {}),
+            schema,
             {
                 "nodes": annotation.request.get("nodes", []),
                 "predicates": annotation.request.get("predicates", []),
