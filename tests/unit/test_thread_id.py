@@ -51,7 +51,7 @@ class FakeAnnotations:
         self.docs = list(docs)
 
     def save(self, annotation):
-        doc = SimpleNamespace(id=f"a{len(self.docs) + 1}", user_id=annotation["current_user_id"],
+        doc = SimpleNamespace(id=f"{len(self.docs) + 1:024x}", user_id=annotation["current_user_id"],
                               thread_id=annotation.get("thread_id"), answer=annotation.get("answer"),
                               status=annotation.get("status"),
                               query_fingerprint=annotation.get("query_fingerprint"), saved=annotation)
@@ -223,10 +223,11 @@ def test_reused_result_gets_its_own_copy_of_the_graph_file(run_query, monkeypatc
     from app.lib import annotation_files
     monkeypatch.setattr(annotation_files, "PUBLIC_DIR", tmp_path)
     (tmp_path / "graph").mkdir()
-    original_file = tmp_path / "graph" / "orig.json"
+    original_id = "507f1f77bcf86cd799439011"
+    original_file = tmp_path / "graph" / f"{original_id}.json"
     original_file.write_text('{"nodes": [1], "edges": []}')
     fp = fingerprint_of(run_query)
-    original = completed(fp, "u2", THREAD_A)
+    original = completed(fp, "u2", THREAD_A, id_=original_id)
     original.path_url = str(original_file)
     response, storage, _ = run_query(body(THREAD_B), FakeAnnotations(original), user_id="u1")
     new = storage.docs[-1]
@@ -237,6 +238,7 @@ def test_reused_result_gets_its_own_copy_of_the_graph_file(run_query, monkeypatc
 
 def test_ai_assistant_rerun_is_saved_as_a_new_annotation_in_the_requests_thread(monkeypatch):
     original = completed("fp-old", "u1", THREAD_A)
+    original.id = "507f1f77bcf86cd799439011"
     storage = FakeAnnotations(original)
     monkeypatch.setattr(endpoint, "AnnotationStorageService", storage)
     monkeypatch.setattr(endpoint, "SharedAnnotationStorageService", SimpleNamespace(get=lambda query: None))

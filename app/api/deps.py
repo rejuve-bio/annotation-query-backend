@@ -2,15 +2,12 @@
 from typing import Optional, Any, Dict
 import redis
 import meilisearch
-import jwt
 import logging
 import os
 import importlib
-import jwt
 import redis
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
  
+from app.api.auth import get_current_user, oauth2_scheme
 from app.core.config import settings
 from app.services.cypher_generator import CypherQueryGenerator
 from app.services.llm_handler import LLMHandler
@@ -30,8 +27,6 @@ _db_instance: Any = None
 _llm_handler: Optional[LLMHandler] = None
 _meili_client: Optional[meilisearch.Client] = None 
  
-# --- Security Setup ---
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
  
 # --- Dependency Functions ---
 
@@ -44,7 +39,7 @@ def get_redis_client() -> redis.Redis:
     if _redis_client is None:
         try:
             _redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
-            logger.info(f"✅ [Deps] Connected to Redis at {settings.REDIS_URL}")
+            logger.info("Redis client initialized")
         except Exception as e:
             logger.error(f"❌ [Deps] Failed to connect to Redis: {e}")
             raise e
@@ -186,34 +181,3 @@ def get_llm_handler() -> LLMHandler:
         _llm_handler = LLMHandler()
         logger.info("✅ [Deps] LLMHandler initialized")
     return _llm_handler
-
-
-def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
-    """
-    FastAPI dependency to validate JWT and return the user_id.
-    """
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Token is missing!",
-        )
-
-    try:
-        if not settings.JWT_SECRET:
-            raise HTTPException(status_code=500, detail="JWT_SECRET not configured")
-
-        data = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
-        current_user_id = data.get("user_id")
-
-        if not current_user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Token is invalid!",
-            )
-        return str(current_user_id)
-    except Exception as e:
-        logger.error(f"Error decoding token: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Token is invalid!",
-        )

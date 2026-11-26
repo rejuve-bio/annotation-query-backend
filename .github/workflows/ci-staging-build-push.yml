@@ -26,7 +26,7 @@ jobs:
   cache:
     uses: ./.github/workflows/ci-caching.yml
     with:
-      python-version: '3.10'
+      python-version: '3.11'
 
   # STEP 1: Secret Scanning (runs first, in parallel)
   secret-scanning:
@@ -62,15 +62,15 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: '3.11'
 
     - name: Restore pip cache
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        key: pip-${{ runner.os }}-py3.10-${{ hashFiles('**/requirements.txt') }}
+        key: pip-${{ runner.os }}-py3.11-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
-          pip-${{ runner.os }}-py3.10-
+          pip-${{ runner.os }}-py3.11-
           pip-${{ runner.os }}-
 
     - name: Install dependencies
@@ -160,15 +160,15 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: '3.11'
 
     - name: Restore pip cache
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        key: pip-${{ runner.os }}-py3.10-${{ hashFiles('**/requirements.txt') }}
+        key: pip-${{ runner.os }}-py3.11-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
-          pip-${{ runner.os }}-py3.10-
+          pip-${{ runner.os }}-py3.11-
           pip-${{ runner.os }}-
 
     - name: Install dependencies
@@ -545,7 +545,7 @@ jobs:
         if curl -sf http://localhost:${{ env.APP_PORT }}/health 2>/dev/null || \
            curl -sf http://localhost:${{ env.APP_PORT }}/ 2>/dev/null || \
            curl -sf http://localhost:${{ env.CADDY_PORT }}/ 2>/dev/null; then
-          echo "[SUCCESS] Application is responding through Flask or Caddy"
+          echo "[SUCCESS] Application is responding through FastAPI or Caddy"
         else
           echo "[WARNING] Application direct endpoints not responding, checking if it's starting up..."
           sleep 30
@@ -572,30 +572,31 @@ jobs:
  
 
     # STEP 5: Trivy Vulnerability Scanner
-    - name: Run Trivy vulnerability scanner
+    - name: Install Trivy
+      id: install-trivy
       if: steps.validate-container.outcome == 'success'
       run: |
-        echo "=== Scanning image for vulnerabilities ==="
-        
-        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-        echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+        sudo install -d -m 0755 /etc/apt/keyrings
+        curl -fsSL https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo tee /etc/apt/keyrings/trivy.asc >/dev/null
+        echo 'deb [signed-by=/etc/apt/keyrings/trivy.asc] https://aquasecurity.github.io/trivy-repo/deb generic main' | sudo tee /etc/apt/sources.list.d/trivy.list
         sudo apt-get update
-        sudo apt-get install trivy -y
-        
-        IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
-        
-        trivy image --severity HIGH,CRITICAL --exit-code 0 $IMAGE_TAG
-        
-        echo "[SUCCESS] Vulnerability scan completed"
-    
+        sudo apt-get install -y trivy
+
+    - name: Run Trivy vulnerability scanner
+      if: steps.install-trivy.outcome == 'success'
+      env:
+        IMAGE_TAG: ${{ steps.set-image-tag.outputs.image-tag }}
+      run: trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_TAG"
+
     - name: Generate Trivy report
-      if: always() && steps.validate-container.outcome == 'success'
-      run: |
-        IMAGE_TAG="${{ steps.set-image-tag.outputs.image-tag }}"
-        trivy image --format sarif --output trivy-results.sarif $IMAGE_TAG
-    
+      id: trivy-report
+      if: always() && steps.install-trivy.outcome == 'success'
+      env:
+        IMAGE_TAG: ${{ steps.set-image-tag.outputs.image-tag }}
+      run: trivy image --format sarif --output trivy-results.sarif "$IMAGE_TAG"
+
     - name: Upload Trivy results to GitHub Security
-      if: always() && steps.validate-container.outcome == 'success' && github.event_name == 'push'
+      if: always() && steps.trivy-report.outcome == 'success' && github.event_name == 'push'
       uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: 'trivy-results.sarif'

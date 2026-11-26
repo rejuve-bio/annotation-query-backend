@@ -130,9 +130,11 @@ def _async(_):
 
 
 def test_socket_rooms_need_an_existing_room_owned_by_the_user(monkeypatch):
-    assert join(monkeypatch, "j1", job=SimpleNamespace(user_id="u1")) == ["j1"]
-    assert join(monkeypatch, "j1", job=SimpleNamespace(user_id="u2")) == []
-    assert join(monkeypatch, "gone") == []     # deleted job or unknown id
+    room = "507f1f77bcf86cd799439011"
+    assert join(monkeypatch, room, job=SimpleNamespace(user_id="u1")) == [room]
+    assert join(monkeypatch, room, job=SimpleNamespace(user_id="u2")) == []
+    assert join(monkeypatch, room) == []     # deleted job or unknown id
+    assert join(monkeypatch, "malformed", job=SimpleNamespace(user_id="u1")) == []
 
 
 def test_reused_result_deleted_meanwhile_runs_the_job_instead(monkeypatch, tmp_path):

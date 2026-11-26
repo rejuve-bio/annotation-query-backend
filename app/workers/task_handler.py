@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import traceback
-from pathlib import Path
 from urllib.parse import urlparse
 
 import pysam
@@ -22,6 +21,7 @@ from app.core.config import settings
 from app.error import TaskCancelledException
 from app.events import RedisStopEvent
 from app.lib import Graph
+from app.lib.annotation_files import PUBLIC_DIR
 from app.lib.logic import counted_nodes_and_predicates
 from app.persistence import AnnotationStorageService
 import datetime as dt
@@ -377,7 +377,7 @@ def graph_task(
                 )
             )
 
-            vcf_dir = Path("/app/public/vcf")
+            vcf_dir = PUBLIC_DIR / "vcf"
             vcf_dir.mkdir(parents=True, exist_ok=True)
             vcf_path = vcf_dir / f"{annotation_id}.vcf"
 
@@ -462,7 +462,7 @@ def graph_task(
         del response
         gc.collect()
 
-        base_graph_dir = Path("/app/public/graph")
+        base_graph_dir = PUBLIC_DIR / "graph"
         file_path = base_graph_dir / f"{annotation_id}.json"
         file_path.parent.mkdir(parents=True, exist_ok=True)
 

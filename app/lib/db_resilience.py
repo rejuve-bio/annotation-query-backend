@@ -187,6 +187,7 @@ class QueryType(str, Enum):
     LIST = "list"    # Gene-list vs gene-list queries
     LOAD = "load"         # Dataset loading (cypher file ingestion)
     SCHEMA = "schema"       # Schema / metadata introspection queries
+    MAINTENANCE = "maintenance"  # Interactive export and indexing
 
 
 class QueryTimeoutError(Exception):

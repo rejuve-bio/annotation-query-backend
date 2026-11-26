@@ -4,8 +4,10 @@ from types import SimpleNamespace
 
 import jwt
 import pytest
+from bson import ObjectId
 
 from app.api.api_v1.endpoints import query as endpoint
+from app.lib import annotation_files
 from app.constants import TaskStatus
 from app.core.config import settings
 
@@ -27,11 +29,15 @@ class NoCache:
 def get_pending(monkeypatch, tmp_path):
     """GET a PENDING annotation (counts set, graph file on disk, Redis cache expired)."""
 
+    annotation_id = str(ObjectId())
+    monkeypatch.setattr(annotation_files, "PUBLIC_DIR", tmp_path)
+    (tmp_path / "graph").mkdir()
+
     def run(graph_done):
-        graph_file = tmp_path / "a1.json"
+        graph_file = tmp_path / "graph" / f"{annotation_id}.json"
         graph_file.write_text(json.dumps({"nodes": [{"id": "old"}], "edges": []}))
         doc = SimpleNamespace(
-            id="a1", user_id="u1", participant_user_ids=[], request={"nodes": [], "predicates": []},
+            id=annotation_id, user_id="u1", participant_user_ids=[], request={"nodes": [], "predicates": []},
             query="q", title="t", summary=None, question=None, answer=None, node_count=1, edge_count=0,
             node_count_by_label=[], edge_count_by_label=[], status=TaskStatus.PENDING.value,
             path_url=str(graph_file), species="human", data_source="all", files=None,
@@ -46,7 +52,7 @@ def get_pending(monkeypatch, tmp_path):
                             lambda _id, data: completed.append(data))
         monkeypatch.setattr(endpoint.SharedAnnotationStorageService, "get", lambda query: None)
         token = jwt.encode({"user_id": "u1"}, "test-secret", algorithm="HS256")
-        response = endpoint.get_annotation_by_id(id="a1", token=None, limit=None, properties=None, source=None,
+        response = endpoint.get_annotation_by_id(id=annotation_id, token=None, limit=None, properties=None, source=None,
                                                  auth_header=token, redis_client=NoCache())
         return response, completed
 

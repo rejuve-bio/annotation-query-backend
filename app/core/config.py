@@ -36,9 +36,12 @@ class Settings(BaseSettings):
     # App
     APP_PORT: int = 8000
     APP_BASE_URL: str = "http://localhost:8000/"
+    ANNOTATION_UI_URL: Optional[str] = None
+    API_DOCS_ENABLED: bool = False
 
     # Auth
     JWT_SECRET: Optional[str] = None
+    AUTH_SERVICE_URL: Optional[str] = None
     SECRET_KEY: Optional[str] = None  # Legacy support
 
     # Mongo
